@@ -60,14 +60,18 @@ async function getInvoices(token, startDate) {
     if (!items.length) break;
     for (const inv of items) {
       const total = inv.total || {};
+      const ht = Number(total.vat_exclude || 0);
+      const ttc = Number(total.vat_include || 0);
+      const netToPay = Number(total.net_to_pay != null ? total.net_to_pay : ttc);
       all.push({
         numero: inv.document_number || inv.reference || '',
         client: (inv.client && inv.client.name) || '',
-        date: inv.date || inv.documentdate || '',
-        ht: Number(total.untaxed || 0),
-        ttc: Number(total.ttc || total.vat_include || 0),
-        statut: inv.status || '',
-        paye: (inv.status === 'paid' || Number(inv.remaining_amount || 0) === 0 && Number(total.ttc || 0) > 0),
+        date: inv.documentdate || inv.date || '',
+        ht: ht,
+        ttc: ttc,
+        statut: inv.status || inv.status_code || '',
+        // payé si le reste à payer est nul (et qu'il y avait bien un montant)
+        paye: (ttc > 0 && netToPay === 0),
       });
     }
     page += 1;
@@ -91,53 +95,6 @@ exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers: cors };
 
   const params = event.queryStringParameters || {};
-
-  // ===== DIAGNOSTIC TEMPORAIRE (sans auth) : ?debug=kw2027 =====
-  // À RETIRER après diagnostic. Ne renvoie pas les clés, seulement des
-  // informations de structure pour comprendre pourquoi le CA est à 0.
-  if (params.debug === 'kw2027') {
-    const out = { etapes: [] };
-    try {
-      const pub = process.env.EVOLIZ_PUBLIC_KEY;
-      const sec = process.env.EVOLIZ_SECRET_KEY;
-      out.cle_publique_presente = Boolean(pub);
-      out.cle_publique_longueur = pub ? pub.length : 0;
-      out.cle_secrete_presente = Boolean(sec);
-      out.cle_secrete_longueur = sec ? sec.length : 0;
-
-      const loginRes = await fetch('https://www.evoliz.io/api/login', {
-        method: 'POST',
-        headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'CockpitKW/1.0' },
-        body: JSON.stringify({ public_key: pub, secret_key: sec }),
-      });
-      out.login_http_status = loginRes.status;
-      const loginJson = await loginRes.json().catch(() => ({}));
-      out.login_a_un_token = Boolean(loginJson.access_token);
-      out.login_reponse_cles = Object.keys(loginJson);
-
-      if (loginJson.access_token) {
-        const today = new Date();
-        const qs = new URLSearchParams({ per_page: '5', page: '1', period: 'custom', date_min: '2024-01-01', date_max: `${today.getFullYear()}-12-31` });
-        const invRes = await fetch(`https://www.evoliz.io/api/v1/invoices?${qs}`, {
-          headers: { Accept: 'application/json', 'User-Agent': 'CockpitKW/1.0', Authorization: `Bearer ${loginJson.access_token}` },
-        });
-        out.invoices_http_status = invRes.status;
-        const invJson = await invRes.json().catch(() => ({}));
-        out.invoices_cles_racine = Object.keys(invJson);
-        out.invoices_total = invJson.total !== undefined ? invJson.total : (invJson.meta && invJson.meta.total);
-        out.invoices_nb_dans_data = (invJson.data || []).length;
-        if (invJson.data && invJson.data[0]) {
-          out.premiere_facture_cles = Object.keys(invJson.data[0]);
-          out.premiere_facture_total = invJson.data[0].total;
-          out.premiere_facture_date = invJson.data[0].date;
-        }
-      }
-    } catch (e) {
-      out.erreur = String(e.message || e);
-    }
-    return { statusCode: 200, headers: { ...cors, 'Content-Type': 'application/json' }, body: JSON.stringify(out, null, 2) };
-  }
-  // ===== FIN DIAGNOSTIC TEMPORAIRE =====
 
   const guard = await requireDirection(event.headers.authorization || event.headers.Authorization);
   if (!guard.ok) return { statusCode: guard.code, headers: cors, body: JSON.stringify({ error: guard.msg }) };
