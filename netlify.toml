@@ -1,0 +1,48 @@
+# Cockpit KW — Déploiement sur Netlify (version simplifiée)
+
+Application web : **système de management Kaizen Way** + **tableau de bord financier** (Qonto / Evoliz), avec authentification et persistance via **Supabase**, hébergée sur **Netlify**.
+
+## Fichiers du projet
+- `public/index.html` — l'application (front)
+- `netlify/functions/qonto.js` — fonction serveur Qonto (garde les clés)
+- `netlify/functions/evoliz.js` — fonction serveur Evoliz
+- `netlify.toml` — configuration Netlify
+- `supabase_schema.sql` — tables à créer dans Supabase
+- `package.json`, `.gitignore`, `.env.example`
+
+## Ce qui est déjà fait (rappel)
+- Supabase en PRO, schéma SQL exécuté, comptes direction dans `user_access`.
+- 8 variables d'environnement dans Netlify.
+- URL Supabase déjà inscrite dans `public/index.html`.
+
+## La SEULE chose à finir côté code
+Dans `public/index.html`, en haut du `<script>`, remplacer
+`COLLE_TA_CLE_PUBLISHABLE_ICI` par la vraie clé **publishable** Supabase
+(`sb_publishable_...`). C'est une clé PUBLIQUE, sans danger dans le HTML.
+NE jamais mettre ici la clé secrète ni les clés Qonto/Evoliz.
+
+## Variables d'environnement Netlify (rappel des 8)
+| Variable | Secret ? |
+|---|---|
+| SUPABASE_URL | non |
+| SUPABASE_ANON_KEY | non |
+| SUPABASE_SERVICE_KEY | oui |
+| QONTO_LOGIN | oui |
+| QONTO_SECRET | oui |
+| EVOLIZ_PUBLIC_KEY | oui |
+| EVOLIZ_SECRET_KEY | oui |
+| APP_ORIGIN | non |
+
+## Déploiement
+1. Pousser le dossier sur GitHub en respectant l'arborescence
+   (`public/`, `netlify/functions/` doivent rester des dossiers).
+2. Netlify, relié au dépôt, déploie automatiquement à chaque commit.
+3. Vérifier : ouvrir le site → écran de connexion → se connecter avec un
+   compte créé dans Supabase Authentication.
+
+## Sécurité
+- Clés Qonto/Evoliz/Supabase service : uniquement dans les variables Netlify.
+- RLS Supabase active (script SQL).
+- Demander des clés Qonto/Evoliz en lecture seule si possible.
+- Ceci suit les bonnes pratiques mais n'est pas un audit ; pour des données
+  bancaires en usage durable, faire réaliser une revue professionnelle.
