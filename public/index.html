@@ -1014,6 +1014,47 @@ function periodeStart(){
   return d.toISOString().slice(0, 10);
 }
 
+async function loadHubspot(){
+  const zone = document.getElementById('hubZone');
+  if(!zone) return;
+  if(!SB_SESSION){ zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Session expirée — reconnectez-vous.</div>'; return; }
+  zone.innerHTML = '<div class="panel" style="padding:18px 16px;">Chargement HubSpot…</div>';
+  try {
+    const res = await fetch('/api/hubspot', { headers: { Authorization: 'Bearer ' + SB_SESSION.access_token } });
+    if(res.status === 403){ zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Accès refusé.</div>'; return; }
+    if(!res.ok){ zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Erreur HubSpot (' + res.status + ').</div>'; return; }
+    const h = await res.json();
+
+    // Ordre logique des étapes du pipeline pour l'affichage
+    const ordre = ['R1','A recontacter suite R1','Nurturing suite R1','Évaluation des besoins','Présentation de solutions','Traitement des objections','Finalisation des conditions','Fermées gagnées','Fermé perdu','No Show / A repositionner'];
+    const stock = h.stock || {};
+    const lignesStock = ordre.filter(e => e in stock).map(e =>
+      `<tr><td>${e}</td><td style="text-align:right"><b>${stock[e]}</b></td></tr>`
+    ).join('');
+
+    const fluxOk = (h.flux_r1_7j || 0) >= (h.cible_r1_hebdo || 8);
+
+    zone.innerHTML = `
+      <div class="kpis k4">
+        <div class="kpi ${fluxOk?'good':'warn'}"><div class="k-label">R1 cette semaine</div><div class="k-val">${h.flux_r1_7j||0} <small>/ ${h.cible_r1_hebdo||8}</small></div><div class="k-trend ${fluxOk?'up':''}">${fluxOk?'▲ cible atteinte':'sous la cible'}</div></div>
+        <div class="kpi"><div class="k-label">R1 (stock)</div><div class="k-val">${h.volumes?h.volumes.r1:0}</div><div class="k-trend">en cours</div></div>
+        <div class="kpi"><div class="k-label">R2 · qualif. (stock)</div><div class="k-val">${h.volumes?h.volumes.r2:0}</div><div class="k-trend">Évaluation des besoins</div></div>
+        <div class="kpi accent"><div class="k-label">Propositions (stock)</div><div class="k-val">${h.volumes?h.volumes.proposition:0}</div><div class="k-trend">Présentation de solutions</div></div>
+      </div>
+      <div class="kpis" style="margin-top:12px;">
+        <div class="kpi good"><div class="k-label">Fermées gagnées</div><div class="k-val">${h.gagnees||0}</div></div>
+        <div class="kpi"><div class="k-label">Fermé perdu</div><div class="k-val">${h.perdues||0}</div></div>
+      </div>
+      <div class="panel" style="padding:8px 16px 14px; margin-top:12px;">
+        <div class="sec-note" style="margin:6px 0">État du pipeline de prospects (nombre d'affaires par étape)</div>
+        <table><thead><tr><th>Étape</th><th style="text-align:right">Affaires</th></tr></thead><tbody>${lignesStock}</tbody></table>
+        <div class="edit-hint" style="margin-top:8px;"><button class="add-btn" onclick="loadHubspot()">↻ Actualiser</button> &nbsp; Lecture seule depuis HubSpot. Le « R1 cette semaine » suit votre objectif de 8/sem.</div>
+      </div>`;
+  } catch(err){
+    zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Connexion impossible à HubSpot.</div>';
+  }
+}
+
 async function loadFinance(){
   const zone = document.getElementById('finZone');
   if(!zone) return;
@@ -1311,39 +1352,13 @@ paul: () => `
   <div class="sec-title">Cap commercial — objectif 2027</div>
   <div class="sec-note">Pilotage par indicateurs avancés — cycle de vente &gt; 12 mois · <span class="src hub"><span class="sdot"></span>source HubSpot</span></div>
 
-  <div class="funnel" style="margin-top:18px;">
-    <div class="stage s1"><div class="st-label">R1 · contact</div><div class="st-val">351</div><div class="st-unit">cumul · 8,0/sem</div><div class="st-conv">cible <b>8/sem</b> <span class="conv-ok">✓</span></div></div>
-    <div class="stage s2"><div class="st-label">R2 · qualif.</div><div class="st-val">119</div><div class="st-unit">cumul 2026</div><div class="st-conv">R1→R2 <b>34 %</b> <span class="conv-ok">✓ 33 %</span></div></div>
-    <div class="stage s3"><div class="st-label">Propositions</div><div class="st-val">57</div><div class="st-unit">cumul 2026</div><div class="st-conv">R2→prop. <b>48 %</b> <span class="conv-warn">≈ 50 %</span></div></div>
-    <div class="stage s4"><div class="st-label">Signatures</div><div class="st-val">11</div><div class="st-unit">cumul 2026</div><div class="st-conv">prop.→sign. <b>19 %</b> <span class="conv-ok">non ciblé</span></div></div>
+  <div id="hubZone">
+    <div class="panel" style="padding:18px 16px;">
+      <button class="add-btn" onclick="loadHubspot()">⟱ Charger les données HubSpot</button>
+      <span class="edit-hint" style="margin-left:10px;">État du pipeline de prospects + R1 de la semaine, en direct depuis HubSpot.</span>
+    </div>
   </div>
 
-  <div class="kpis">
-    <div class="kpi accent"><div class="k-label">R1 cette semaine</div><div class="k-val">9 <small>/ 8</small></div><div class="k-trend up">▲ au-dessus cible</div></div>
-    <div class="kpi"><div class="k-label">Pipeline pondéré</div><div class="k-val">3,1 <small>M€</small></div><div class="k-trend up">▲ +0,4 M€</div></div>
-    <div class="kpi"><div class="k-label">Proposition moyenne</div><div class="k-val">205 <small>k€</small></div><div class="k-trend">stable</div></div>
-  </div>
-
-  <div class="panel">
-    <h3>R1 par semaine — 10 dernières <span class="target">cible : 8/sem</span></h3>
-    <div class="chart" id="chart"></div>
-  </div>
-
-  <div class="sec-eyebrow">Pipeline actif</div>
-  <div class="sec-title">Affaires en cours</div>
-  <div class="sec-note"><span class="src hub"><span class="sdot"></span>HubSpot</span> — données de démonstration</div>
-  <div class="panel" style="padding:8px 16px 16px;">
-    <table>
-      <thead><tr><th>Prospect</th><th>Étape</th><th>Valeur</th><th>Porteur R2</th><th>Prochaine action</th></tr></thead>
-      <tbody>
-        <tr><td>Groupe Andros — extension</td><td><span class="pill p-signal">Négociation</span></td><td class="val">340 k€</td><td class="owner">Eric</td><td>Relance COMEX — 2 j</td></tr>
-        <tr><td>Pierre Fabre — Gaillac</td><td><span class="pill p-amber">Proposition</span></td><td class="val">220 k€</td><td class="owner">C. Leray</td><td>Débrief proposition</td></tr>
-        <tr><td>Renault Trucks — pilote</td><td><span class="pill p-amber">Proposition</span></td><td class="val">180 k€</td><td class="owner">Eric</td><td>Attente DRH</td></tr>
-        <tr><td>Havea — déploiement</td><td><span class="pill p-blue">R2 planifié</span></td><td class="val">~250 k€</td><td class="owner">C. Leray</td><td>R2 le 3 juillet</td></tr>
-        <tr><td>Michelin — diagnostic</td><td><span class="pill p-blue">R2 planifié</span></td><td class="val">~150 k€</td><td class="owner">Eric</td><td>Cadrer périmètre</td></tr>
-      </tbody>
-    </table>
-  </div>
   ${footer("L'entonnoir et le pipeline se calculent en direct depuis HubSpot. Cockpit KW lit, il ne ressaisit rien.")}
 `,
 
