@@ -240,6 +240,19 @@
   /* funnel */
   .funnel { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
   @media (max-width: 760px) { .funnel { grid-template-columns: 1fr 1fr; } }
+  /* Chemin visuel commercial (parcours du deal) */
+  .path { display: flex; align-items: stretch; gap: 0; flex-wrap: wrap; margin-top: 16px; }
+  .path-node { position: relative; flex: 1 1 0; min-width: 96px; background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 12px 10px 12px 14px; margin-right: 16px; margin-bottom: 10px; }
+  .path-node::after { content: '▸'; position: absolute; right: -14px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 14px; }
+  .path-node:last-child::after, .path-node.end::after { content: ''; }
+  .path-node .pn-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); line-height: 1.25; min-height: 26px; }
+  .path-node .pn-val { font-size: 26px; font-weight: 800; letter-spacing: -0.02em; margin-top: 4px; }
+  .path-node.start { border-left: 3px solid var(--steel-light); }
+  .path-node.mid { border-left: 3px solid var(--gold); }
+  .path-node.win { border-left: 3px solid #2e7d46; background: rgba(46,125,70,0.06); }
+  .path-node.lose { border-left: 3px solid var(--signal); background: rgba(160,40,40,0.05); }
+  .path-branch { display:flex; flex-direction:column; gap:10px; flex:1 1 0; min-width: 96px; }
+  .path-branch .path-node { margin-bottom: 0; }
   .stage { background: var(--card); border: 1px solid var(--line); border-radius: 4px; padding: 16px; position: relative; overflow: hidden; }
   .stage::before { content:''; position:absolute; left:0; top:0; bottom:0; width:3px; background: var(--steel-light); }
   .stage.s2::before{background:var(--gold)} .stage.s3::before{background:var(--gold-deep)} .stage.s4::before{background:var(--signal)}
@@ -514,6 +527,10 @@ function renderTab(){
       : (editableSelf ? 'Vos objectifs de fonction · vous les gérez vous-même' : 'Vos objectifs, définis par la direction · lecture seule');
     let body;
     if(editable){ body = `<div id="objZone">${renderObjectifs(true)}</div>
+      <div class="sec-eyebrow" style="margin-top:30px;">Validation</div>
+      <div class="sec-title">Objectifs proposés par les responsables</div>
+      <div class="sec-note">Approuvez ou refusez les objectifs proposés · ils ne deviennent officiels qu'après votre validation</div>
+      <div id="valQueue">${renderValidationQueue()}</div>
       <div class="sec-eyebrow" style="margin-top:30px;">Module 3 — Processus</div>
       <div class="sec-title">Propriétaires des processus</div>
       <div class="sec-note">Point unique du qui-fait-quoi · changez propriétaire et backup (accès direction)</div>
@@ -813,14 +830,17 @@ let LIBRARY = {
 
 /* ===== OBJECTIFS (édition réservée à la direction) ===== */
 let OBJECTIFS = [
-  {intitule:'Croissance du CA', cible:'2 M€ (≈ +25 %)', echeance:'Fin 2027', resp:'Eric', statut:'en cours'},
-  {intitule:'Volume de R1 (prise de contact)', cible:'8 / semaine', echeance:'Continu 2026', resp:'Paul Ingrassia', statut:'tenu'},
-  {intitule:'Transformation R1 → R2', cible:'33 %', echeance:'Continu 2026', resp:'Paul Ingrassia', statut:'tenu'},
-  {intitule:'Transformation R2 → proposition', cible:'50 %', echeance:'Continu 2026', resp:'Eric / C. Leray', statut:'en cours'},
+  {intitule:'Croissance du CA', cible:'2 M€ (≈ +25 %)', echeance:'Fin 2027', resp:'Eric', statut:'en cours', valide:'valide'},
+  {intitule:'Volume de R1 (prise de contact)', cible:'8 / semaine', echeance:'Continu 2026', resp:'Paul Ingrassia', statut:'tenu', valide:'valide'},
+  {intitule:'Transformation R1 → R2', cible:'33 %', echeance:'Continu 2026', resp:'Paul Ingrassia', statut:'tenu', valide:'valide'},
+  {intitule:'Transformation R2 → proposition', cible:'50 %', echeance:'Continu 2026', resp:'Eric / C. Leray', statut:'en cours', valide:'valide'},
 ];
 const RESP_LIST = ['Eric','Paul Ingrassia','Audrey Humbert','Arnaud Torres','Juliette Surcouf','Sabrine Lourhmi','Najoua Amlal','Eric / C. Leray'];
 const STATUTS = ['à lancer','en cours','tenu','en retard'];
 const STATUT_CLASS = {'à lancer':'p-grey','en cours':'p-blue','tenu':'p-green','en retard':'p-signal'};
+// statut de validation d'un objectif proposé par un responsable
+const VALIDE_LABEL = {valide:'validé', propose:'en attente de validation', refuse:'refusé'};
+const VALIDE_CLASS = {valide:'p-green', propose:'p-amber', refuse:'p-signal'};
 const ROLE_RESP = { eric:'Eric', paul:'Paul Ingrassia', audrey:'Audrey Humbert', juliette:'Juliette Surcouf', sabrine:'Sabrine Lourhmi', najoua:'Najoua Amlal' };
 
 let EDIT_IDX = -1; // ligne en cours d'édition (-1 = aucune)
@@ -831,7 +851,7 @@ function renderObjectifs(editable){
     if(editable && EDIT_IDX===i){
       // ligne en mode édition (formulaire)
       return `<tr class="obj-editing">
-        <td colspan="5">
+        <td colspan="6">
           <div class="obj-form">
             <label>Objectif<input id="f-intitule" value="${o.intitule.replace(/"/g,'&quot;')}"></label>
             <label>Cible<input id="f-cible" value="${o.cible.replace(/"/g,'&quot;')}"></label>
@@ -853,6 +873,7 @@ function renderObjectifs(editable){
       <td class="sub-cell">${o.echeance}</td>
       <td class="owner">${o.resp}</td>
       <td><span class="pill ${STATUT_CLASS[o.statut]}">${o.statut}</span></td>
+      <td><span class="pill ${VALIDE_CLASS[o.valide||'valide']}">${VALIDE_LABEL[o.valide||'valide']}</span></td>
     </tr>`;
   }).join('');
   const addBar = editable
@@ -860,7 +881,7 @@ function renderObjectifs(editable){
     : '';
   return `<div class="panel" style="padding:8px 16px 16px;">
       <table>
-        <thead><tr><th>Objectif</th><th>Cible</th><th>Échéance</th><th>Responsable</th><th>Statut</th></tr></thead>
+        <thead><tr><th>Objectif</th><th>Cible</th><th>Échéance</th><th>Responsable</th><th>Statut</th><th>Validation</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
       ${addBar}
@@ -910,7 +931,48 @@ const STORE_KEYS = {
   skills: 'skills',
   library: 'library',
   process: 'process',
+  panels: 'panels',
 };
+
+/* ===== Pavés éditables génériques (Marketing & RH) =====
+   Chaque pavé = { titre, colonnes:[...], lignes:[[...]] }.
+   Le premier bloc KPI de chaque vue N'EST PAS ici (il reste automatique). */
+const PANELS = {
+  jul_succes: {
+    titre: 'Succès clients à valoriser',
+    colonnes: ['Succès', 'Format prévu', 'Statut', 'Action'],
+    lignes: [
+      ['Groupe Andros — 230 managers', 'Étude de cas', 'à rédiger', 'Valider accord client'],
+      ['Kriter — séminaire CODIR', 'Témoignage', 'en cours', 'Interview dirigeant'],
+      ['Best pitch French Tech / Renault', 'Post LinkedIn', 'prêt', 'Programmer'],
+    ],
+  },
+  jul_edito: {
+    titre: 'Calendrier éditorial',
+    colonnes: ['Contenu', 'Canal', 'Échéance', 'Statut'],
+    lignes: [
+      ['Le management de proximité en 2026', 'Article + LinkedIn', '3 juil.', 'rédaction'],
+      ['Go Gemba® expliqué', 'Vidéo courte', '10 juil.', 'script'],
+      ['Newsletter trimestrielle', 'Email', '15 juil.', 'à lancer'],
+    ],
+  },
+  sab_pipeline: {
+    titre: 'Pipeline recrutement — postes en cours',
+    colonnes: ['Poste', 'Sourcing', 'Entretien', 'Proposition', 'Priorité'],
+    lignes: [
+      ['Consultant senior Go Gemba®', '6', '3', '1', 'Haute'],
+      ['Consultant junior', '8', '2', '0', 'Moyenne'],
+    ],
+  },
+  sab_integration: {
+    titre: 'Intégration — nouveaux arrivants',
+    colonnes: ['Profil', 'Arrivée', 'Onboarding', 'Relais compétences'],
+    lignes: [
+      ['Consultant — démarrage', '1 juil.', 'en cours', '→ Audrey Humbert'],
+    ],
+  },
+};
+let PANEL_EDIT = null;   // { key, row, col } de la cellule en édition
 
 // Écrit un domaine (upsert d'une ligne {cle, valeur} dans cockpit_state)
 async function saveShared(key, value){
@@ -942,6 +1004,7 @@ async function loadAllShared(){
   const s = await loadShared(STORE_KEYS.skills);     if(s){ SKILLS.length=0; s.forEach(x=>SKILLS.push(x)); }
   const l = await loadShared(STORE_KEYS.library);    if(l){ Object.keys(LIBRARY).forEach(k=>delete LIBRARY[k]); Object.assign(LIBRARY, l); }
   const p = await loadShared(STORE_KEYS.process);    if(p){ PROCESS.length=0; p.forEach(x=>PROCESS.push(x)); }
+  const pn = await loadShared(STORE_KEYS.panels);    if(pn){ Object.keys(pn).forEach(k=>{ if(PANELS[k]) PANELS[k]=pn[k]; }); }
 }
 
 // Au tout premier usage, la base est vide → initialisation avec les données par défaut.
@@ -956,6 +1019,7 @@ async function initSharedIfEmpty(){
       saveShared(STORE_KEYS.skills, SKILLS),
       saveShared(STORE_KEYS.library, LIBRARY),
       saveShared(STORE_KEYS.process, PROCESS),
+      saveShared(STORE_KEYS.panels, PANELS),
     ]);
   }
 }
@@ -968,6 +1032,62 @@ const persistConsultants=() => saveShared(STORE_KEYS.consultants, CONSULTANTS);
 const persistSkills    = () => saveShared(STORE_KEYS.skills, SKILLS);
 const persistLibrary   = () => saveShared(STORE_KEYS.library, LIBRARY);
 const persistProcess   = () => saveShared(STORE_KEYS.process, PROCESS);
+const persistPanels    = () => saveShared(STORE_KEYS.panels, PANELS);
+
+/* ===== Rendu et édition des pavés génériques ===== */
+function statutPill(v){
+  const t = String(v||'').toLowerCase();
+  let cls = 'p-grey';
+  if(/prêt|pret|conforme|publié|publie|vert|fait|ok/.test(t)) cls='p-green';
+  else if(/cours|rédaction|redaction/.test(t)) cls='p-blue';
+  else if(/lancer|rédiger|rediger|activer|moyenne/.test(t)) cls='p-amber';
+  else if(/risque|haute|retard|urgent/.test(t)) cls='p-signal';
+  return `<span class="pill ${cls}">${v}</span>`;
+}
+function renderPanel(key){
+  const p = PANELS[key];
+  if(!p) return '';
+  const statutCol = p.colonnes.findIndex(c => /statut|priorité|priorite/i.test(c));
+  const head = p.colonnes.map(c=>`<th>${c}</th>`).join('') + '<th style="width:44px"></th>';
+  const rows = p.lignes.map((ligne,ri)=>{
+    const cells = ligne.map((val,ci)=>{
+      if(PANEL_EDIT && PANEL_EDIT.key===key && PANEL_EDIT.row===ri && PANEL_EDIT.col===ci){
+        return `<td><input id="pcell" value="${String(val).replace(/"/g,'&quot;')}" style="width:100%;padding:4px 6px;" onkeydown="if(event.key==='Enter')savePanelCell()"></td>`;
+      }
+      const disp = (ci===statutCol) ? statutPill(val) : val;
+      return `<td onclick="editPanelCell('${key}',${ri},${ci})" style="cursor:pointer;" title="cliquer pour modifier">${disp}</td>`;
+    }).join('');
+    const del = `<td><span class="x-mini" onclick="removePanelRow('${key}',${ri})" title="supprimer la ligne">×</span></td>`;
+    return `<tr>${cells}${del}</tr>`;
+  }).join('');
+  return `<div class="panel" style="padding:8px 16px 16px;">
+    <table><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table>
+    <div class="edit-bar"><button class="add-btn" onclick="addPanelRow('${key}')">+ Ligne</button><span class="edit-hint">Cliquez une cellule pour la modifier. Entrée pour valider.</span></div>
+  </div>`;
+}
+function refreshPanel(key){
+  const z = document.getElementById('panel-'+key);
+  if(z) z.innerHTML = renderPanel(key);
+}
+function editPanelCell(key,row,col){ PANEL_EDIT = {key,row,col}; refreshPanel(key);
+  setTimeout(()=>{ const i=document.getElementById('pcell'); if(i){ i.focus(); i.select(); } },0); }
+function savePanelCell(){
+  if(!PANEL_EDIT) return;
+  const i = document.getElementById('pcell');
+  if(i){ PANELS[PANEL_EDIT.key].lignes[PANEL_EDIT.row][PANEL_EDIT.col] = i.value.trim(); }
+  const key = PANEL_EDIT.key; PANEL_EDIT = null;
+  refreshPanel(key); persistPanels();
+}
+function addPanelRow(key){
+  const p = PANELS[key];
+  p.lignes.push(p.colonnes.map(()=> '—'));
+  PANEL_EDIT = {key, row:p.lignes.length-1, col:0};
+  refreshPanel(key); persistPanels();
+  setTimeout(()=>{ const i=document.getElementById('pcell'); if(i){ i.focus(); i.select(); } },0);
+}
+function removePanelRow(key,row){
+  if(confirm('Supprimer cette ligne ?')){ PANELS[key].lignes.splice(row,1); PANEL_EDIT=null; refreshPanel(key); persistPanels(); }
+}
 
 // indicateur visuel de synchro
 function flashSync(msg){
@@ -1048,30 +1168,35 @@ async function loadHubspot(){
     if(!res.ok){ zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Erreur HubSpot (' + res.status + ').</div>'; return; }
     const h = await res.json();
 
-    // Ordre logique des étapes du pipeline pour l'affichage
-    const ordre = ['R1','A recontacter suite R1','Nurturing suite R1','Évaluation des besoins','Présentation de solutions','Traitement des objections','Finalisation des conditions','Fermées gagnées','Fermé perdu','No Show / A repositionner'];
+    // Chemin visuel : parcours du deal, du R1 aux issues Gagnée / Perdue
     const stock = h.stock || {};
-    const lignesStock = ordre.filter(e => e in stock).map(e =>
-      `<tr><td>${e}</td><td style="text-align:right"><b>${stock[e]}</b></td></tr>`
-    ).join('');
+    const cheminMilieu = ['R1','A recontacter suite R1','Nurturing suite R1','Évaluation des besoins','Présentation de solutions','Traitement des objections','Finalisation des conditions'];
+    const nodes = cheminMilieu.filter(e => e in stock).map((e,idx)=>{
+      const cls = idx===0 ? 'start' : 'mid';
+      return `<div class="path-node ${cls}"><div class="pn-label">${e}</div><div class="pn-val">${stock[e]||0}</div></div>`;
+    }).join('');
+    // Deux issues terminales côte à côte
+    const gagnees = stock['Fermées gagnées'] || h.gagnees || 0;
+    const perdues = stock['Fermé perdu'] || h.perdues || 0;
+    const noshow = stock['No Show / A repositionner'] || 0;
+    const issues = `<div class="path-branch">
+        <div class="path-node win end"><div class="pn-label">Gagnée</div><div class="pn-val">${gagnees}</div></div>
+        <div class="path-node lose end"><div class="pn-label">Perdue</div><div class="pn-val">${perdues}</div></div>
+      </div>`;
 
     const fluxOk = (h.flux_r1_7j || 0) >= (h.cible_r1_hebdo || 8);
 
     zone.innerHTML = `
       <div class="kpis k4">
-        <div class="kpi ${fluxOk?'good':'warn'}"><div class="k-label">R1 cette semaine</div><div class="k-val">${h.flux_r1_7j||0} <small>/ ${h.cible_r1_hebdo||8}</small></div><div class="k-trend ${fluxOk?'up':''}">${fluxOk?'▲ cible atteinte':'sous la cible'}</div></div>
+        <div class="kpi ${fluxOk?'good':'warn'}"><div class="k-label">R1 cette semaine</div><div class="k-val" style="color:${fluxOk?'#2e7d46':'var(--signal)'}">${h.flux_r1_7j||0} <small style="color:var(--muted)">/ ${h.cible_r1_hebdo||8}</small></div><div class="k-trend ${fluxOk?'up':''}">${fluxOk?'▲ cible atteinte':'sous la cible'}</div></div>
         <div class="kpi"><div class="k-label">R1 (stock)</div><div class="k-val">${h.volumes?h.volumes.r1:0}</div><div class="k-trend">en cours</div></div>
         <div class="kpi"><div class="k-label">R2 · qualif. (stock)</div><div class="k-val">${h.volumes?h.volumes.r2:0}</div><div class="k-trend">Évaluation des besoins</div></div>
         <div class="kpi accent"><div class="k-label">Propositions (stock)</div><div class="k-val">${h.volumes?h.volumes.proposition:0}</div><div class="k-trend">Présentation de solutions</div></div>
       </div>
-      <div class="kpis" style="margin-top:12px;">
-        <div class="kpi good"><div class="k-label">Fermées gagnées</div><div class="k-val">${h.gagnees||0}</div></div>
-        <div class="kpi"><div class="k-label">Fermé perdu</div><div class="k-val">${h.perdues||0}</div></div>
-      </div>
-      <div class="panel" style="padding:8px 16px 14px; margin-top:12px;">
-        <div class="sec-note" style="margin:6px 0">État du pipeline de prospects (nombre d'affaires par étape)</div>
-        <table><thead><tr><th>Étape</th><th style="text-align:right">Affaires</th></tr></thead><tbody>${lignesStock}</tbody></table>
-        <div class="edit-hint" style="margin-top:8px;"><button class="add-btn" onclick="loadHubspot()">↻ Actualiser</button> &nbsp; Lecture seule depuis HubSpot. Le « R1 cette semaine » suit votre objectif de 8/sem.</div>
+      <div class="panel" style="padding:14px 16px; margin-top:12px;">
+        <div class="sec-note" style="margin:2px 0 4px">Parcours des affaires — du R1 aux issues</div>
+        <div class="path">${nodes}${issues}</div>
+        <div class="edit-hint" style="margin-top:10px;">No Show / à repositionner : <b>${noshow}</b> &nbsp;·&nbsp; <button class="add-btn" onclick="loadHubspot()">↻ Actualiser</button> &nbsp; Lecture seule depuis HubSpot. Le « R1 cette semaine » suit votre objectif de 8/sem.</div>
       </div>`;
   } catch(err){
     zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Connexion impossible à HubSpot.</div>';
@@ -1154,23 +1279,19 @@ function editProc(i, champ, val){
   setTimeout(()=>{ PROC_MSG=''; const z=document.getElementById('procZone'); if(z) z.innerHTML = renderProcess(); }, 2500);
 }
 function syncLifecycleOwners(){
-  PROCESS.filter(p=>p.step && p.grp==='Chaîne de valeur').forEach(p=>{
+  const me = ROLE_RESP[CURRENT_ROLE] || '';       // nom de l'utilisateur connecté
+  const monPrenom = me.split(' ')[0] || '';        // ex. "Audrey", "Paul", "Eric"
+  const estMoi = (prop) => {
+    if(!prop || !monPrenom) return false;
+    return prop.toLowerCase().includes(monPrenom.toLowerCase());
+  };
+  PROCESS.filter(p=>p.step).forEach(p=>{
     const step = document.querySelector('.lc-step[data-step="'+p.step+'"]');
     if(!step) return;
     const el = step.querySelector('.lc-owner');
     if(el) el.textContent = p.prop;
-    // surbrillance jaune si le propriétaire est Eric / la direction
-    const estEric = /eric/i.test(p.prop || '');
-    step.classList.toggle('mine', estEric);
-  });
-  // fait aussi pour les fonctions support
-  PROCESS.filter(p=>p.step && p.grp==='Support').forEach(p=>{
-    const step = document.querySelector('.lc-step[data-step="'+p.step+'"]');
-    if(!step) return;
-    const el = step.querySelector('.lc-owner');
-    if(el) el.textContent = p.prop;
-    const estEric = /eric/i.test(p.prop || '');
-    step.classList.toggle('mine', estEric);
+    // surbrillance jaune si le propriétaire est l'utilisateur connecté
+    step.classList.toggle('mine', estMoi(p.prop));
   });
 }
 
@@ -1229,15 +1350,16 @@ function renderMyObjectives(role){
       <td>${o.cible}</td>
       <td class="sub-cell">${o.echeance}</td>
       <td><span class="pill ${STATUT_CLASS[o.statut]}">${o.statut}</span></td>
+      <td><span class="pill ${VALIDE_CLASS[o.valide||'valide']}">${VALIDE_LABEL[o.valide||'valide']}</span></td>
     </tr>`;
   }).join('');
-  const empty = mine.length ? '' : '<tr><td colspan="4" style="color:var(--muted);font-size:13px;padding:14px;">Aucun objectif pour le moment. Ajoutez-en un ci-dessous.</td></tr>';
+  const empty = mine.length ? '' : '<tr><td colspan="5" style="color:var(--muted);font-size:13px;padding:14px;">Aucun objectif pour le moment. Ajoutez-en un ci-dessous.</td></tr>';
   return `<div class="panel" style="padding:8px 16px 16px;">
     <table>
-      <thead><tr><th>Mon objectif</th><th>Cible</th><th>Échéance</th><th>Statut</th></tr></thead>
+      <thead><tr><th>Mon objectif</th><th>Cible</th><th>Échéance</th><th>Statut</th><th>Validation</th></tr></thead>
       <tbody>${rows || empty}</tbody>
     </table>
-    <div class="edit-bar"><button class="add-btn" onclick="addMyObj()">+ Mon objectif</button>${MY_OBJ_MSG?`<span class="save-ok">✓ ${MY_OBJ_MSG}</span>`:'<span class="edit-hint">Vous gérez ici vos propres objectifs de fonction.</span>'}</div>
+    <div class="edit-bar"><button class="add-btn" onclick="addMyObj()">+ Mon objectif</button>${MY_OBJ_MSG?`<span class="save-ok">✓ ${MY_OBJ_MSG}</span>`:'<span class="edit-hint">Vous proposez vos objectifs ; ils deviennent officiels après validation par la direction.</span>'}</div>
   </div>`;
 }
 function refreshMyObjZone(){ const z=document.getElementById('myObjZone'); if(z) z.innerHTML = renderMyObjectives(MY_ROLE); }
@@ -1250,19 +1372,58 @@ function saveMyObj(i){
     echeance: document.getElementById('mf-echeance').value.trim() || '—',
     resp: OBJECTIFS[i].resp,   // le responsable ne change pas (c'est le sien)
     statut: document.getElementById('mf-statut').value,
+    valide: 'propose',         // toute modification par le responsable repasse en attente
   };
-  MY_EDIT_IDX = -1; MY_OBJ_MSG = 'Objectif enregistré';
+  MY_EDIT_IDX = -1; MY_OBJ_MSG = 'Objectif proposé — en attente de validation';
   refreshMyObjZone(); persistObjectifs();
   setTimeout(()=>{ MY_OBJ_MSG=''; refreshMyObjZone(); }, 2500);
 }
 function addMyObj(){
   const me = ROLE_RESP[MY_ROLE];
-  OBJECTIFS.push({intitule:'Nouvel objectif', cible:'—', echeance:'—', resp:me, statut:'à lancer'});
+  OBJECTIFS.push({intitule:'Nouvel objectif', cible:'—', echeance:'—', resp:me, statut:'à lancer', valide:'propose'});
   MY_EDIT_IDX = OBJECTIFS.length-1; MY_OBJ_MSG='';
   refreshMyObjZone(); persistObjectifs();
 }
 function removeMyObj(i){
   if(confirm('Supprimer cet objectif ?')){ OBJECTIFS.splice(i,1); MY_EDIT_IDX=-1; refreshMyObjZone(); persistObjectifs(); }
+}
+
+/* ===== File de validation des objectifs (vue direction) ===== */
+function renderValidationQueue(){
+  const pending = OBJECTIFS.map((o,i)=>({o,i})).filter(x => (x.o.valide||'valide')==='propose');
+  if(!pending.length){
+    return '<div class="panel" style="padding:16px;color:var(--muted);font-size:13px;">Aucun objectif en attente de validation.</div>';
+  }
+  const rows = pending.map(({o,i})=>`<tr>
+    <td><b>${o.intitule}</b></td>
+    <td>${o.cible}</td>
+    <td class="sub-cell">${o.echeance}</td>
+    <td class="owner">${o.resp}</td>
+    <td>
+      <button class="add-btn" onclick="validerObj(${i})" style="padding:3px 10px;">✓ Valider</button>
+      <button class="add-btn ghost" onclick="refuserObj(${i})" style="padding:3px 10px;">✕ Refuser</button>
+    </td>
+  </tr>`).join('');
+  return `<div class="panel" style="padding:8px 16px 16px;">
+    <table><thead><tr><th>Objectif proposé</th><th>Cible</th><th>Échéance</th><th>Proposé par</th><th>Décision</th></tr></thead>
+    <tbody>${rows}</tbody></table>
+  </div>`;
+}
+function refreshValidationQueue(){ const z=document.getElementById('valQueue'); if(z) z.innerHTML = renderValidationQueue(); }
+function validerObj(i){
+  OBJECTIFS[i].valide = 'valide';
+  persistObjectifs();
+  refreshValidationQueue();
+  const z=document.getElementById('objZone'); if(z) z.innerHTML = renderObjectifs(true);
+  flashSync('✓ Objectif validé');
+}
+function refuserObj(i){
+  if(confirm('Refuser cet objectif ? Le responsable en sera informé par le statut.')){
+    OBJECTIFS[i].valide = 'refuse';
+    persistObjectifs();
+    refreshValidationQueue();
+    const z=document.getElementById('objZone'); if(z) z.innerHTML = renderObjectifs(true);
+  }
 }
 function myObjectives(role){
   const me = ROLE_RESP[role];
@@ -1527,30 +1688,14 @@ juliette: () => `
 
   <div class="sec-eyebrow">Capitalisation</div>
   <div class="sec-title">Succès clients à valoriser</div>
-  <div class="sec-note">Issus des missions clôturées (réputation = opportunité stratégique)</div>
-  <div class="panel" style="padding:8px 16px 16px;">
-    <table>
-      <thead><tr><th>Succès</th><th>Format prévu</th><th>Statut</th><th>Action</th></tr></thead>
-      <tbody>
-        <tr><td>Groupe Andros — 230 managers</td><td>Étude de cas</td><td><span class="pill p-amber">à rédiger</span></td><td class="sub-cell">Valider accord client</td></tr>
-        <tr><td>Kriter — séminaire CODIR</td><td>Témoignage</td><td><span class="pill p-blue">en cours</span></td><td class="sub-cell">Interview dirigeant</td></tr>
-        <tr><td>Best pitch French Tech / Renault</td><td>Post LinkedIn</td><td><span class="pill p-green">prêt</span></td><td class="sub-cell">Programmer</td></tr>
-      </tbody>
-    </table>
-  </div>
+  <div class="sec-note">Issus des missions clôturées (réputation = opportunité stratégique) · éditable</div>
+  <div id="panel-jul_succes">${renderPanel('jul_succes')}</div>
 
   <div class="sec-eyebrow">Pipeline de contenus</div>
   <div class="sec-title">Calendrier éditorial</div>
-  <div class="panel" style="padding:8px 16px 16px;">
-    <table>
-      <thead><tr><th>Contenu</th><th>Canal</th><th>Échéance</th><th>Statut</th></tr></thead>
-      <tbody>
-        <tr><td>Le management de proximité en 2026</td><td>Article + LinkedIn</td><td>3 juil.</td><td><span class="pill p-blue">rédaction</span></td></tr>
-        <tr><td>Go Gemba® expliqué</td><td>Vidéo courte</td><td>10 juil.</td><td><span class="pill p-grey">script</span></td></tr>
-        <tr><td>Newsletter trimestrielle</td><td>Email</td><td>15 juil.</td><td><span class="pill p-amber">à lancer</span></td></tr>
-      </tbody>
-    </table>
-  </div>
+  <div class="sec-note">Éditable — vous gérez votre planning de publication.</div>
+  <div id="panel-jul_edito">${renderPanel('jul_edito')}</div>
+
   <div class="sec-eyebrow">Mes objectifs</div>
   <div class="sec-title">Objectifs de la fonction marketing & communication</div>
   <div class="sec-note">Vous gérez vos propres objectifs — ils alimentent le suivi de direction.</div>
@@ -1573,28 +1718,14 @@ sabrine: () => `
 
   <div class="sec-eyebrow">Pipeline recrutement</div>
   <div class="sec-title">Postes en cours</div>
-  <div class="sec-note">Colonnes Trello : sourcing → entretien → proposition → intégration</div>
-  <div class="panel" style="padding:8px 16px 16px;">
-    <table>
-      <thead><tr><th>Poste</th><th>Sourcing</th><th>Entretien</th><th>Proposition</th><th>Priorité</th></tr></thead>
-      <tbody>
-        <tr><td>Consultant senior Go Gemba®</td><td class="val">6</td><td class="val">3</td><td class="val">1</td><td><span class="pill p-signal">Haute</span></td></tr>
-        <tr><td>Consultant junior</td><td class="val">8</td><td class="val">2</td><td class="val">0</td><td><span class="pill p-amber">Moyenne</span></td></tr>
-      </tbody>
-    </table>
-  </div>
+  <div class="sec-note">Éditable — sourcing → entretien → proposition → intégration</div>
+  <div id="panel-sab_pipeline">${renderPanel('sab_pipeline')}</div>
 
   <div class="sec-eyebrow">Intégration</div>
   <div class="sec-title">Nouveaux arrivants</div>
-  <div class="sec-note">Relais vers Audrey pour la montée en compétence (frontière acquisition / développement)</div>
-  <div class="panel" style="padding:8px 16px 16px;">
-    <table>
-      <thead><tr><th>Profil</th><th>Arrivée</th><th>Onboarding</th><th>Relais compétences</th></tr></thead>
-      <tbody>
-        <tr><td>Consultant — démarrage</td><td>1 juil.</td><td><div class="prog"><div style="width:40%"></div></div></td><td class="sub-cell">→ Audrey Humbert</td></tr>
-      </tbody>
-    </table>
-  </div>
+  <div class="sec-note">Éditable — relais vers Audrey pour la montée en compétence</div>
+  <div id="panel-sab_integration">${renderPanel('sab_integration')}</div>
+
   <div class="sec-eyebrow">Mes objectifs</div>
   <div class="sec-title">Objectifs de la fonction RH</div>
   <div class="sec-note">Vous gérez vos propres objectifs — ils alimentent le suivi de direction.</div>
