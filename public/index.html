@@ -315,6 +315,47 @@
   .footer-note .ic { color: var(--signal); font-weight: 800; }
   .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   @media (max-width: 760px){ .two-col{grid-template-columns:1fr} }
+
+  /* ===== Affichage smartphone (détection automatique) ===== */
+  @media (max-width: 640px) {
+    .wrap { padding: 0 12px 48px; }
+    .head-inner { padding: 12px 14px; gap: 8px; }
+    .head-inner .mark { font-size: 15px; }
+    .sub { display: none; }                     /* sous-titre du bandeau masqué sur mobile */
+    .head-right { width: 100%; justify-content: space-between; gap: 6px; }
+    .head-right .persona { font-size: 12px; }
+    .logout { padding: 6px 8px; font-size: 12px; }
+    /* onglets : défilement horizontal plutôt que retour à la ligne */
+    .tabs { padding: 0 12px; overflow-x: auto; -webkit-overflow-scrolling: touch; gap: 2px; }
+    .tabs::-webkit-scrollbar { display: none; }
+    .tab { white-space: nowrap; flex: 0 0 auto; font-size: 13px; padding: 10px 12px; }
+    /* frise cycle de vie : en colonne, lisible */
+    .lc-flow { flex-direction: column; gap: 6px; }
+    .lc-step { width: 100%; }
+    .lc-inner { padding: 10px 12px; }
+    /* indicateurs : une colonne */
+    .kpis, .kpis.k4 { grid-template-columns: 1fr; gap: 10px; }
+    /* titres de section un peu plus compacts */
+    .sec-title { font-size: 20px; }
+    /* tableaux : défilement horizontal encapsulé (évite le débordement de page) */
+    .panel { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    table { min-width: 520px; font-size: 13px; }
+    /* chemin visuel commercial : vertical sur mobile */
+    .path { flex-direction: column; }
+    .path-node { margin-right: 0; margin-bottom: 22px; }
+    .path-node::after { content: '▾'; right: 50%; top: auto; bottom: -18px; transform: translateX(50%); }
+    .path-node:last-child::after, .path-node.end::after { content: ''; }
+    .path-branch { flex-direction: row; }
+    /* projets réalisation : déjà en 1 colonne (860px), on compacte l'entête */
+    .proj-head { flex-wrap: wrap; }
+    .proj-taux { width: 100%; }
+    /* sélecteur de période : reste sur une ligne défilante */
+    .periode-row { overflow-x: auto; flex-wrap: nowrap; }
+    /* login : marges */
+    .login-card { padding: 30px 22px; }
+    /* formulaire objectifs : une colonne (déjà géré à 600px, on renforce) */
+    .obj-form { grid-template-columns: 1fr; }
+  }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
