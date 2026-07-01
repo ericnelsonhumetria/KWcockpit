@@ -513,6 +513,16 @@ function render(role){
   objTab.setAttribute('onclick', "switchTab('objectifs')");
   objTab.innerHTML = (role==='eric') ? 'Objectifs ✎' : 'Mes objectifs';
   tabsEl.appendChild(objTab);
+  // onglet Admin : réservé SI / direction (rôle eric)
+  const oldAdmin = tabsEl.querySelector('[data-tab="admin"]');
+  if(oldAdmin) oldAdmin.remove();
+  if(role==='eric'){
+    const adminTab = document.createElement('button');
+    adminTab.className = 'tab'; adminTab.dataset.tab = 'admin';
+    adminTab.setAttribute('onclick', "switchTab('admin')");
+    adminTab.innerHTML = 'Admin';
+    tabsEl.appendChild(adminTab);
+  }
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.dataset.tab==='dash'));
   const open = ACTIONS[role].filter(a=>!a.done).length;
   const badge = document.getElementById('tabBadge'); if(badge) badge.textContent = open;
@@ -541,6 +551,13 @@ function renderTab(){
     document.getElementById('view').innerHTML = VIEWS[CURRENT_ROLE]();
     if(CURRENT_ROLE==='paul' || CURRENT_ROLE==='eric') animateBars();
     if(CURRENT_ROLE==='eric'){ animateGoal(); loadRespCommerce(); }
+  } else if(CURRENT_TAB==='admin'){
+    document.getElementById('view').innerHTML = `
+      <div class="sec-eyebrow">Administration</div>
+      <div class="sec-title">Utilisateurs & accès</div>
+      <div class="sec-note">Réservé au SI et à la direction · gérez rôles, droits et mots de passe. Les mots de passe ne sont jamais affichés — ils se réinitialisent.</div>
+      <div id="adminZone"><div class="panel" style="padding:18px 16px;"><button class="add-btn" onclick="loadAdmin()">⟱ Charger les utilisateurs</button></div></div>
+      ${footer("Sécurité : les mots de passe sont chiffrés par Supabase et illisibles, même par l'administrateur. On peut uniquement les réinitialiser.")}`;
   } else if(CURRENT_TAB==='actions'){
     document.getElementById('view').innerHTML = renderActions(CURRENT_ROLE, 'mine');
   } else if(CURRENT_TAB==='reunion'){
@@ -1231,6 +1248,79 @@ async function loadRespCommerce(){
   }
 }
 
+const ROLES_DISPO = ['direction','paul','audrey','juliette','sabrine','najoua','si'];
+async function loadAdmin(){
+  const zone = document.getElementById('adminZone');
+  if(!zone || !SB_SESSION){ if(zone) zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Session expirée.</div>'; return; }
+  zone.innerHTML = '<div class="panel" style="padding:18px 16px;">Chargement des utilisateurs…</div>';
+  try {
+    const res = await fetch('/api/admin', { method:'POST', headers: { Authorization: 'Bearer ' + SB_SESSION.access_token, 'Content-Type':'application/json' }, body: JSON.stringify({ action:'list' }) });
+    if(res.status===403){ zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Accès réservé au SI et à la direction.</div>'; return; }
+    if(!res.ok){ zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Erreur ('+res.status+').</div>'; return; }
+    const data = await res.json();
+    renderAdmin(data.users || []);
+  } catch(e){ zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Connexion impossible.</div>'; }
+}
+function renderAdmin(users){
+  const zone = document.getElementById('adminZone');
+  const rows = users.map(u=>{
+    const extra = ROLES_DISPO.includes(u.role) ? '' : `<option selected>${u.role}</option>`;
+    const roleSel = `<select onchange="adminSetRole('${u.email}', this.value, this.closest('tr').querySelector('.adm-admin').checked)">${ROLES_DISPO.map(r=>`<option ${u.role===r?'selected':''}>${r}</option>`).join('')}${extra}</select>`;
+    const adminChk = `<label style="font-size:12px;"><input type="checkbox" class="adm-admin" ${u.is_admin?'checked':''} onchange="adminSetRole('${u.email}', this.closest('tr').querySelector('select').value, this.checked)"> admin</label>`;
+    const statut = u.desactive ? '<span class="pill p-signal">désactivé</span>' : (u.confirme ? '<span class="pill p-green">actif</span>' : '<span class="pill p-amber">non confirmé</span>');
+    const derniere = u.derniere_connexion ? new Date(u.derniere_connexion).toLocaleDateString('fr-FR') : '—';
+    return `<tr>
+      <td><b>${u.email}</b></td>
+      <td>${roleSel}</td>
+      <td>${adminChk}</td>
+      <td>${statut}</td>
+      <td class="sub-cell">${derniere}</td>
+      <td>
+        <button class="add-btn sm" onclick="adminReset('${u.id}','${u.email}')">↻ MDP</button>
+        <button class="add-btn sm ghost" onclick="adminToggle('${u.id}', ${!u.desactive})">${u.desactive?'Réactiver':'Désactiver'}</button>
+      </td>
+    </tr>`;
+  }).join('');
+  zone.innerHTML = `
+    <div class="panel" style="padding:8px 16px 16px;">
+      <table>
+        <thead><tr><th>Email</th><th>Rôle</th><th>Droits</th><th>Statut</th><th>Dernière connexion</th><th>Actions</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div class="edit-bar"><button class="add-btn" onclick="adminNouveau()">+ Nouvel utilisateur</button><button class="add-btn ghost" onclick="loadAdmin()">↻ Actualiser</button><span class="edit-hint">« ↻ MDP » génère un nouveau mot de passe à transmettre. Les mots de passe existants ne sont jamais affichés.</span></div>
+      <div id="adminMsg"></div>
+    </div>`;
+}
+function adminMsg(html){ const m=document.getElementById('adminMsg'); if(m) m.innerHTML = '<div class="save-ok" style="margin-top:10px;display:block;">'+html+'</div>'; }
+async function adminCall(payload){
+  const res = await fetch('/api/admin', { method:'POST', headers: { Authorization: 'Bearer ' + SB_SESSION.access_token, 'Content-Type':'application/json' }, body: JSON.stringify(payload) });
+  return { ok: res.ok, data: await res.json().catch(()=>({})) };
+}
+async function adminSetRole(email, role, is_admin){
+  const { ok } = await adminCall({ action:'set_role', email, role, is_admin: Boolean(is_admin) });
+  if(ok){ adminMsg('✓ Droits mis à jour pour '+email); } else { adminMsg('⚠ Échec de la mise à jour'); }
+}
+async function adminReset(id, email){
+  if(!confirm('Réinitialiser le mot de passe de '+email+' ? Un nouveau mot de passe sera généré.')) return;
+  const { ok, data } = await adminCall({ action:'reset_password', id });
+  if(ok && data.nouveauMotDePasse){
+    adminMsg('✓ Nouveau mot de passe pour <b>'+email+'</b> : <code style="background:#fff;padding:2px 8px;border-radius:4px;">'+data.nouveauMotDePasse+'</code><br><span style="font-weight:400;">Transmettez-le à la personne — il ne sera plus affiché. Elle pourra le changer ensuite.</span>');
+  } else { adminMsg('⚠ Échec de la réinitialisation'); }
+}
+async function adminToggle(id, desactiver){
+  const { ok } = await adminCall({ action:'toggle_active', id, desactiver });
+  if(ok){ loadAdmin(); } else { adminMsg('⚠ Échec'); }
+}
+async function adminNouveau(){
+  const email = prompt('Email du nouvel utilisateur ?'); if(!email) return;
+  const role = prompt('Rôle ? ('+ROLES_DISPO.join(' / ')+')', 'paul'); if(role===null) return;
+  const { ok, data } = await adminCall({ action:'create', email: email.trim().toLowerCase(), role: role.trim(), is_admin:false });
+  if(ok && data.motDePasseInitial){
+    loadAdmin();
+    setTimeout(()=>adminMsg('✓ Utilisateur <b>'+email+'</b> créé. Mot de passe initial : <code style="background:#fff;padding:2px 8px;border-radius:4px;">'+data.motDePasseInitial+'</code><br><span style="font-weight:400;">Transmettez-le — il ne sera plus affiché.</span>'), 400);
+  } else { adminMsg('⚠ '+(data.error||'Échec de la création')); }
+}
+
 async function loadHubspot(){
   const zone = document.getElementById('hubZone');
   if(!zone) return;
@@ -1618,25 +1708,49 @@ function setAvancement(phase, i, pct){
   document.getElementById('libraryZone').innerHTML = renderLibrary();
   persistLibrary();
 }
+function addLivrable(phase){
+  const titre = prompt('Nom du livrable standard pour « '+phase+' » ?');
+  if(titre===null || !titre.trim()) return;
+  LIBRARY[phase] = LIBRARY[phase] || [];
+  LIBRARY[phase].push({titre: titre.trim(), pct: 0});
+  document.getElementById('libraryZone').innerHTML = renderLibrary();
+  persistLibrary();
+}
+function renameLivrable(phase, i){
+  const actuel = LIBRARY[phase][i].titre;
+  const titre = prompt('Renommer le livrable :', actuel);
+  if(titre===null || !titre.trim()) return;
+  LIBRARY[phase][i].titre = titre.trim();
+  document.getElementById('libraryZone').innerHTML = renderLibrary();
+  persistLibrary();
+}
+function removeLivrable(phase, i){
+  if(confirm('Supprimer ce livrable ?')){
+    LIBRARY[phase].splice(i,1);
+    document.getElementById('libraryZone').innerHTML = renderLibrary();
+    persistLibrary();
+  }
+}
 
 function renderLibrary(){
   const blocks = Object.keys(LIBRARY).map(phase=>{
     const items = LIBRARY[phase];
+    const ph = phase.replace(/'/g,"\\\\'");
     const rows = items.length ? items.map((d,i)=>{
       const pct = d.pct || 0;
-      const steps = [25,50,75,100].map(s=>`<span class="pct-step ${pct>=s?'on':''}" onclick="setAvancement('${phase.replace(/'/g,"\\\\'")}',${i},${s})">${s}</span>`).join('');
+      const steps = [25,50,75,100].map(s=>`<span class="pct-step ${pct>=s?'on':''}" onclick="setAvancement('${ph}',${i},${s})">${s}</span>`).join('');
       return `<div class="lib-row">
-        <span class="lib-title">${d.titre}</span>
+        <span class="lib-title">${d.titre} <button class="edit-row" onclick="renameLivrable('${ph}',${i})" title="renommer">✎</button> <span class="x-mini" onclick="removeLivrable('${ph}',${i})" title="supprimer">×</span></span>
         <span class="pct-track">${steps}</span>
         <span class="pct-val">${pct}%</span>
       </div>`;
-    }).join('') : '<div class="lib-empty">Livrables standards à définir par Audrey — puis suivre leur avancement (25 / 50 / 75 / 100 %).</div>';
+    }).join('') : '<div class="lib-empty">Aucun livrable — ajoutez-en un ci-dessous.</div>';
     return `<div class="lib-phase">
-        <div class="lib-head"><span class="lib-phase-name">${phase}</span></div>
+        <div class="lib-head"><span class="lib-phase-name">${phase}</span> <button class="add-btn sm" onclick="addLivrable('${ph}')">+ Livrable</button></div>
         ${rows}
       </div>`;
   }).join('');
-  return `<div class="panel" style="padding:14px 16px;">${blocks}<div class="edit-hint" style="margin-top:12px;">Suivi de complétude du patrimoine méthodologique : chaque livrable standard avance par paliers de 25 %. Structure à compléter par Audrey.</div></div>`;
+  return `<div class="panel" style="padding:14px 16px;">${blocks}<div class="edit-hint" style="margin-top:12px;">Ajoutez, renommez ou supprimez les livrables standards ; suivez leur avancement par paliers de 25 %.</div></div>`;
 }
 
 /* ===== MODULE RÉALISATION — rendu & édition ===== */
