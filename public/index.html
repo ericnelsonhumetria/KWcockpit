@@ -311,7 +311,6 @@
         <div class="sub">Système de management · Kaizen Way</div>
       </div>
       <div class="head-right">
-        <span class="demo-tag">Démo</span>
         <span class="persona"><span class="dot"></span> <span id="who"></span></span>
         <button class="logout" onclick="refreshShared()" title="Récupérer les dernières modifications partagées">↻ Rafraîchir</button>
         <button class="logout" onclick="logout()">Changer de rôle</button>
@@ -420,6 +419,7 @@ async function doLogin(){
   document.getElementById('login').classList.add('hidden');
   document.getElementById('app').classList.remove('hidden');
   applyLogo();
+  try { syncLifecycleOwners(); } catch(e){}
   window.scrollTo(0,0);
 }
 
@@ -498,7 +498,7 @@ function renderTab(){
   if(CURRENT_TAB==='dash'){
     document.getElementById('view').innerHTML = VIEWS[CURRENT_ROLE]();
     if(CURRENT_ROLE==='paul' || CURRENT_ROLE==='eric') animateBars();
-    if(CURRENT_ROLE==='eric') animateGoal();
+    if(CURRENT_ROLE==='eric'){ animateGoal(); loadRespCommerce(); }
   } else if(CURRENT_TAB==='actions'){
     document.getElementById('view').innerHTML = renderActions(CURRENT_ROLE, 'mine');
   } else if(CURRENT_TAB==='reunion'){
@@ -506,17 +506,21 @@ function renderTab(){
     initReunion();
   } else if(CURRENT_TAB==='objectifs'){
     const editable = (CURRENT_ROLE==='eric');
+    const editableSelf = (CURRENT_ROLE==='juliette' || CURRENT_ROLE==='sabrine' || CURRENT_ROLE==='paul' || CURRENT_ROLE==='audrey');
     const me = ROLE_RESP[CURRENT_ROLE];
     const title = editable ? 'Objectifs — tous (édition direction)' : 'Mes objectifs';
     const note = editable
       ? 'Liste unique de tous les objectifs · vous seul pouvez éditer (accès direction)'
-      : 'Vos objectifs, définis par la direction · lecture seule';
+      : (editableSelf ? 'Vos objectifs de fonction · vous les gérez vous-même' : 'Vos objectifs, définis par la direction · lecture seule');
     let body;
     if(editable){ body = `<div id="objZone">${renderObjectifs(true)}</div>
       <div class="sec-eyebrow" style="margin-top:30px;">Module 3 — Processus</div>
       <div class="sec-title">Propriétaires des processus</div>
       <div class="sec-note">Point unique du qui-fait-quoi · changez propriétaire et backup (accès direction)</div>
       <div id="procZone">${renderProcess()}</div>`; }
+    else if(editableSelf){
+      body = `<div id="myObjZone">${renderMyObjectives(CURRENT_ROLE)}</div>`;
+    }
     else {
       const mine = OBJECTIFS.filter(o=>o.resp===me || (o.resp && me && o.resp.includes(me.split(' ')[0])));
       body = mine.length ? renderObjectifsReadonly(mine) : '<div class="panel"><div style="padding:18px;color:var(--muted);font-size:13px;">Aucun objectif ne vous est assigné pour le moment.</div></div>';
@@ -526,7 +530,7 @@ function renderTab(){
       <div class="sec-title">${title}</div>
       <div class="sec-note">${note}</div>
       ${body}
-      ${footer(editable ? "Édition active pendant la session (démonstration). Les droits réels (vous seul éditez) seront appliqués côté serveur dans la version connectée. Les objectifs alimentent le suivi OKR de chaque vue." : "Objectifs définis par la direction. Pour toute évolution, voir avec Eric.")}`;
+      ${footer(editable ? "Les objectifs alimentent le suivi OKR de chaque vue." : (editableSelf ? "Vous gérez vos propres objectifs de fonction ; ils remontent au suivi de direction." : "Objectifs définis par la direction. Pour toute évolution, voir avec Eric."))}`;
   }
 }
 
@@ -1014,6 +1018,25 @@ function periodeStart(){
   return d.toISOString().slice(0, 10);
 }
 
+async function loadRespCommerce(){
+  const cell = document.getElementById('resp-commerce');
+  const stat = document.getElementById('resp-commerce-statut');
+  if(!cell || !SB_SESSION) return;
+  try {
+    const res = await fetch('/api/hubspot', { headers: { Authorization: 'Bearer ' + SB_SESSION.access_token } });
+    if(!res.ok) { cell.innerHTML = '<span class="edit-hint">HubSpot indisponible</span>'; if(stat) stat.innerHTML='<span class="pill p-grey">?</span>'; return; }
+    const h = await res.json();
+    const flux = h.flux_r1_7j || 0;
+    const cible = h.cible_r1_hebdo || 8;
+    const ok = flux >= cible;
+    cell.textContent = `${flux} R1 cette sem. (cible ${cible})`;
+    if(stat) stat.innerHTML = ok ? '<span class="pill p-green">vert</span>' : '<span class="pill p-amber">sous cible</span>';
+  } catch(e){
+    cell.innerHTML = '<span class="edit-hint">HubSpot indisponible</span>';
+    if(stat) stat.innerHTML = '<span class="pill p-grey">?</span>';
+  }
+}
+
 async function loadHubspot(){
   const zone = document.getElementById('hubZone');
   if(!zone) return;
@@ -1132,8 +1155,22 @@ function editProc(i, champ, val){
 }
 function syncLifecycleOwners(){
   PROCESS.filter(p=>p.step && p.grp==='Chaîne de valeur').forEach(p=>{
-    const el = document.querySelector('.lc-step[data-step="'+p.step+'"] .lc-owner');
+    const step = document.querySelector('.lc-step[data-step="'+p.step+'"]');
+    if(!step) return;
+    const el = step.querySelector('.lc-owner');
     if(el) el.textContent = p.prop;
+    // surbrillance jaune si le propriétaire est Eric / la direction
+    const estEric = /eric/i.test(p.prop || '');
+    step.classList.toggle('mine', estEric);
+  });
+  // fait aussi pour les fonctions support
+  PROCESS.filter(p=>p.step && p.grp==='Support').forEach(p=>{
+    const step = document.querySelector('.lc-step[data-step="'+p.step+'"]');
+    if(!step) return;
+    const el = step.querySelector('.lc-owner');
+    if(el) el.textContent = p.prop;
+    const estEric = /eric/i.test(p.prop || '');
+    step.classList.toggle('mine', estEric);
   });
 }
 
@@ -1160,6 +1197,72 @@ function addObj(){
 }
 function removeObj(i){
   if(confirm('Supprimer cet objectif ?')){ OBJECTIFS.splice(i,1); EDIT_IDX=-1; document.getElementById('objZone').innerHTML = renderObjectifs(true); persistObjectifs(); }
+}
+
+/* ===== Objectifs éditables PAR responsable (Juliette, Sabrine…) ===== */
+let MY_EDIT_IDX = -1;      // index (dans OBJECTIFS) de la ligne en édition
+let MY_OBJ_MSG = '';
+let MY_ROLE = null;        // rôle courant qui édite ses objectifs
+
+// rend un tableau d'objectifs filtré sur le responsable du rôle, éditable
+function renderMyObjectives(role){
+  MY_ROLE = role;
+  const me = ROLE_RESP[role];
+  // indices réels dans OBJECTIFS pour ce responsable
+  const mine = OBJECTIFS.map((o,i)=>({o,i})).filter(x => x.o.resp === me);
+  const rows = mine.map(({o,i})=>{
+    if(MY_EDIT_IDX===i){
+      return `<tr class="obj-editing"><td colspan="4">
+        <div class="obj-form">
+          <label>Objectif<input id="mf-intitule" value="${o.intitule.replace(/"/g,'&quot;')}"></label>
+          <label>Cible<input id="mf-cible" value="${o.cible.replace(/"/g,'&quot;')}"></label>
+          <label>Échéance<input id="mf-echeance" value="${o.echeance.replace(/"/g,'&quot;')}"></label>
+          <label>Statut<select id="mf-statut">${STATUTS.map(s=>`<option ${s===o.statut?'selected':''}>${s}</option>`).join('')}</select></label>
+          <div class="obj-form-actions">
+            <button class="add-btn" onclick="saveMyObj(${i})">Enregistrer</button>
+            <button class="add-btn ghost" onclick="cancelMyObj()">Annuler</button>
+          </div>
+        </div></td></tr>`;
+    }
+    return `<tr>
+      <td><b>${o.intitule}</b> <button class="edit-row" onclick="startEditMyObj(${i})" title="modifier">✎</button> <span class="x-mini" onclick="removeMyObj(${i})" title="supprimer">×</span></td>
+      <td>${o.cible}</td>
+      <td class="sub-cell">${o.echeance}</td>
+      <td><span class="pill ${STATUT_CLASS[o.statut]}">${o.statut}</span></td>
+    </tr>`;
+  }).join('');
+  const empty = mine.length ? '' : '<tr><td colspan="4" style="color:var(--muted);font-size:13px;padding:14px;">Aucun objectif pour le moment. Ajoutez-en un ci-dessous.</td></tr>';
+  return `<div class="panel" style="padding:8px 16px 16px;">
+    <table>
+      <thead><tr><th>Mon objectif</th><th>Cible</th><th>Échéance</th><th>Statut</th></tr></thead>
+      <tbody>${rows || empty}</tbody>
+    </table>
+    <div class="edit-bar"><button class="add-btn" onclick="addMyObj()">+ Mon objectif</button>${MY_OBJ_MSG?`<span class="save-ok">✓ ${MY_OBJ_MSG}</span>`:'<span class="edit-hint">Vous gérez ici vos propres objectifs de fonction.</span>'}</div>
+  </div>`;
+}
+function refreshMyObjZone(){ const z=document.getElementById('myObjZone'); if(z) z.innerHTML = renderMyObjectives(MY_ROLE); }
+function startEditMyObj(i){ MY_EDIT_IDX = i; MY_OBJ_MSG=''; refreshMyObjZone(); }
+function cancelMyObj(){ MY_EDIT_IDX = -1; refreshMyObjZone(); }
+function saveMyObj(i){
+  OBJECTIFS[i] = {
+    intitule: document.getElementById('mf-intitule').value.trim() || '—',
+    cible: document.getElementById('mf-cible').value.trim() || '—',
+    echeance: document.getElementById('mf-echeance').value.trim() || '—',
+    resp: OBJECTIFS[i].resp,   // le responsable ne change pas (c'est le sien)
+    statut: document.getElementById('mf-statut').value,
+  };
+  MY_EDIT_IDX = -1; MY_OBJ_MSG = 'Objectif enregistré';
+  refreshMyObjZone(); persistObjectifs();
+  setTimeout(()=>{ MY_OBJ_MSG=''; refreshMyObjZone(); }, 2500);
+}
+function addMyObj(){
+  const me = ROLE_RESP[MY_ROLE];
+  OBJECTIFS.push({intitule:'Nouvel objectif', cible:'—', echeance:'—', resp:me, statut:'à lancer'});
+  MY_EDIT_IDX = OBJECTIFS.length-1; MY_OBJ_MSG='';
+  refreshMyObjZone(); persistObjectifs();
+}
+function removeMyObj(i){
+  if(confirm('Supprimer cet objectif ?')){ OBJECTIFS.splice(i,1); MY_EDIT_IDX=-1; refreshMyObjZone(); persistObjectifs(); }
 }
 function myObjectives(role){
   const me = ROLE_RESP[role];
@@ -1334,7 +1437,7 @@ eric: () => `
     <table>
       <thead><tr><th>Fonction</th><th>Responsable</th><th>Indicateur clé</th><th>Statut</th></tr></thead>
       <tbody>
-        <tr><td>Commerce</td><td class="owner">Paul Ingrassia</td><td>9 R1 cette sem.</td><td><span class="pill p-green">vert</span></td></tr>
+        <tr><td>Commerce</td><td class="owner">Paul Ingrassia</td><td id="resp-commerce">— <span class="edit-hint">(chargement HubSpot…)</span></td><td id="resp-commerce-statut"><span class="pill p-grey">…</span></td></tr>
         <tr><td>Réalisation & compétences</td><td class="owner">Audrey Humbert</td><td>5 missions actives</td><td><span class="pill p-green">vert</span></td></tr>
         <tr><td>Marketing & com</td><td class="owner">Juliette Surcouf</td><td>3 succès à publier</td><td><span class="pill p-amber">à activer</span></td></tr>
         <tr onclick="openSubview('sabrine')" style="cursor:pointer;"><td>RH — recrutement <span class="open-link">ouvrir →</span></td><td class="owner">Eric (intérim)</td><td>2 postes ouverts</td><td><span class="pill p-amber">en chasse</span></td></tr>
@@ -1448,6 +1551,11 @@ juliette: () => `
       </tbody>
     </table>
   </div>
+  <div class="sec-eyebrow">Mes objectifs</div>
+  <div class="sec-title">Objectifs de la fonction marketing & communication</div>
+  <div class="sec-note">Vous gérez vos propres objectifs — ils alimentent le suivi de direction.</div>
+  <div id="myObjZone">${renderMyObjectives('juliette')}</div>
+
   ${footer("Marketing & com : seule fonction KW portée par Juliette. Les leads inbound alimentent le pipeline commercial de Paul.")}
 `,
 
@@ -1487,6 +1595,11 @@ sabrine: () => `
       </tbody>
     </table>
   </div>
+  <div class="sec-eyebrow">Mes objectifs</div>
+  <div class="sec-title">Objectifs de la fonction RH</div>
+  <div class="sec-note">Vous gérez vos propres objectifs — ils alimentent le suivi de direction.</div>
+  <div id="myObjZone">${renderMyObjectives('sabrine')}</div>
+
   ${footer("RH alimenté par Trello (chasse & recrutement). Sabrine fait entrer les profils ; Audrey les fait monter en compétence — pas de chevauchement.")}
 `,
 
