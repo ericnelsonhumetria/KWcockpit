@@ -1678,6 +1678,11 @@ eric: () => `
 paul: () => `
   <div class="sec-eyebrow">Objectif annuel</div>
   <div class="sec-title">Cap commercial — objectif 2027</div>
+  <div class="sec-note">Indicateurs = vos objectifs validés par la direction</div>
+  <div id="indicZone">${renderIndicateurs('paul')}</div>
+
+  <div class="sec-eyebrow" style="margin-top:24px;">Pipeline</div>
+  <div class="sec-title">Parcours des affaires — en direct</div>
   <div class="sec-note">Pilotage par indicateurs avancés — cycle de vente &gt; 12 mois · <span class="src hub"><span class="sdot"></span>source HubSpot</span></div>
 
   <div id="hubZone">
@@ -1687,7 +1692,7 @@ paul: () => `
     </div>
   </div>
 
-  ${footer("L'entonnoir et le pipeline se calculent en direct depuis HubSpot. Cockpit KW lit, il ne ressaisit rien.")}
+  ${footer("Vos indicateurs reflètent vos objectifs validés. Le parcours détaillé se calcule en direct depuis HubSpot. Cockpit KW lit, il ne ressaisit rien.")}
 `,
 
 /* ---------- AUDREY : RÉALISATION & COMPÉTENCES ---------- */
