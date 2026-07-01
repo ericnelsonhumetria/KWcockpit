@@ -208,6 +208,15 @@
   .kpi.accent::before { background: var(--signal); }
   .kpi.good::before { background: var(--green); }
   .kpi.warn::before { background: var(--amber); }
+  /* indicateurs objectifs — couleur franche (fond + valeur) */
+  .kpi.ok  { background: rgba(46,125,70,0.10); border-color: rgba(46,125,70,0.35); }
+  .kpi.ok::before  { background: #2e7d46; width: 5px; }
+  .kpi.ok .k-val   { color: #2e7d46; }
+  .kpi.ko  { background: rgba(176,42,42,0.10); border-color: rgba(176,42,42,0.40); }
+  .kpi.ko::before  { background: var(--signal); width: 5px; }
+  .kpi.ko .k-val   { color: var(--signal); }
+  .kpi.neutre::before { background: var(--steel-light); }
+  .kpi .k-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
   .kpi .k-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
   .kpi .k-val { font-size: 25px; font-weight: 800; margin-top: 3px; }
   .kpi .k-val small { font-size: 13px; font-weight: 500; color: var(--muted); }
@@ -1147,10 +1156,12 @@ async function loadRespCommerce(){
     if(!res.ok) { cell.innerHTML = '<span class="edit-hint">HubSpot indisponible</span>'; if(stat) stat.innerHTML='<span class="pill p-grey">?</span>'; return; }
     const h = await res.json();
     const flux = h.flux_r1_7j || 0;
+    HUB_FLUX_R1 = flux;
     const cible = h.cible_r1_hebdo || 8;
     const ok = flux >= cible;
     cell.textContent = `${flux} R1 cette sem. (cible ${cible})`;
     if(stat) stat.innerHTML = ok ? '<span class="pill p-green">vert</span>' : '<span class="pill p-amber">sous cible</span>';
+    refreshIndicateurs('eric');
   } catch(e){
     cell.innerHTML = '<span class="edit-hint">HubSpot indisponible</span>';
     if(stat) stat.innerHTML = '<span class="pill p-grey">?</span>';
@@ -1185,6 +1196,8 @@ async function loadHubspot(){
       </div>`;
 
     const fluxOk = (h.flux_r1_7j || 0) >= (h.cible_r1_hebdo || 8);
+    HUB_FLUX_R1 = h.flux_r1_7j || 0;
+    refreshIndicateurs('paul');
 
     zone.innerHTML = `
       <div class="kpis k4">
@@ -1326,6 +1339,51 @@ let MY_OBJ_MSG = '';
 let MY_ROLE = null;        // rôle courant qui édite ses objectifs
 
 // rend un tableau d'objectifs filtré sur le responsable du rôle, éditable
+/* ===== Bloc d'indicateurs = objectifs validés (par profil) ===== */
+let HUB_FLUX_R1 = null;   // dernier flux R1 HubSpot connu (rempli par loadRespCommerce/loadHubspot)
+
+// couleur d'un objectif : valeur réelle si connue (R1), sinon statut
+function objCouleur(o){
+  // cas mesurable : Volume de R1 → comparé au flux HubSpot réel
+  if(/volume de r1|r1 \(prise|r1 par semaine/i.test(o.intitule) && HUB_FLUX_R1!==null){
+    const cible = parseInt((o.cible.match(/\d+/)||[8])[0], 10);
+    return { cls: HUB_FLUX_R1 >= cible ? 'ok':'ko', val: HUB_FLUX_R1, sub: 'réel HubSpot · cible '+cible+'/sem' };
+  }
+  // sinon : couleur par statut saisi
+  if(o.statut==='tenu')    return { cls:'ok',     val:o.cible, sub:'statut : tenu' };
+  if(o.statut==='en retard')return { cls:'ko',    val:o.cible, sub:'statut : en retard' };
+  return { cls:'neutre', val:o.cible, sub:'statut : '+o.statut };
+}
+
+// bloc d'indicateurs pour un rôle donné (ses objectifs validés)
+function renderIndicateurs(role){
+  const me = ROLE_RESP[role];
+  const mine = OBJECTIFS.filter(o => (o.valide||'valide')==='valide' && (o.resp===me || (me && o.resp && o.resp.includes(me.split(' ')[0]))));
+  if(!mine.length){
+    return '<div class="panel" style="padding:16px;color:var(--muted);font-size:13px;">Aucun objectif validé pour le moment. Vos indicateurs apparaîtront ici une fois vos objectifs validés par la direction.</div>';
+  }
+  const cards = mine.map(o=>{
+    const c = objCouleur(o);
+    return `<div class="kpi ${c.cls}"><div class="k-label">${o.intitule}</div><div class="k-val">${c.val}</div><div class="k-sub">${c.sub}</div></div>`;
+  }).join('');
+  return `<div class="kpis k4">${cards}</div>`;
+}
+
+// synthèse direction : TOUS les objectifs validés de l'équipe
+function renderIndicateursDirection(){
+  const valides = OBJECTIFS.filter(o => (o.valide||'valide')==='valide');
+  if(!valides.length) return '<div class="panel" style="padding:16px;color:var(--muted);font-size:13px;">Aucun objectif validé.</div>';
+  const cards = valides.map(o=>{
+    const c = objCouleur(o);
+    return `<div class="kpi ${c.cls}"><div class="k-label">${o.intitule}</div><div class="k-val">${c.val}</div><div class="k-sub">${o.resp} · ${c.sub}</div></div>`;
+  }).join('');
+  return `<div class="kpis k4">${cards}</div>`;
+}
+function refreshIndicateurs(role){
+  const z = document.getElementById('indicZone');
+  if(z) z.innerHTML = (role==='eric') ? renderIndicateursDirection() : renderIndicateurs(role);
+}
+
 function renderMyObjectives(role){
   MY_ROLE = role;
   const me = ROLE_RESP[role];
@@ -1415,6 +1473,7 @@ function validerObj(i){
   persistObjectifs();
   refreshValidationQueue();
   const z=document.getElementById('objZone'); if(z) z.innerHTML = renderObjectifs(true);
+  refreshIndicateurs('eric');
   flashSync('✓ Objectif validé');
 }
 function refuserObj(i){
@@ -1530,6 +1589,11 @@ eric: () => `
     <div class="proj"><div class="label">Projection entonnoir</div><div class="pval">≈ 2,9 M€</div><div class="label" style="opacity:.6">marge de sécurité</div></div>
     <div class="bar-track"><div class="bar-fill" id="goalbar"></div></div>
   </div>
+
+  <div class="sec-eyebrow">Objectifs de l'équipe</div>
+  <div class="sec-title">Indicateurs — objectifs validés</div>
+  <div class="sec-note">Synthèse de tous les objectifs validés · vert = tenu / à l'objectif · rouge = en retard / sous l'objectif</div>
+  <div id="indicZone">${renderIndicateursDirection()}</div>
 
   <div class="sec-eyebrow">Tableau de bord financier</div>
   <div class="sec-title">Synthèse Qonto + Evoliz</div>
@@ -1678,13 +1742,8 @@ audrey: () => `
 juliette: () => `
   <div class="sec-eyebrow">Marketing & communication</div>
   <div class="sec-title">Transformer les succès en visibilité</div>
-  <div class="sec-note">Capitaliser sur les grands projets · opportunité du Module 2</div>
-  <div class="kpis k4">
-    <div class="kpi accent"><div class="k-label">Succès à publier</div><div class="k-val">3</div><div class="k-trend down">▲ à activer</div></div>
-    <div class="kpi"><div class="k-label">Contenus en cours</div><div class="k-val">5</div><div class="k-trend">production</div></div>
-    <div class="kpi good"><div class="k-label">Publiés (mois)</div><div class="k-val">8</div><div class="k-trend up">▲ rythme</div></div>
-    <div class="kpi"><div class="k-label">Leads inbound</div><div class="k-val">12</div><div class="k-trend up">▲ vers Paul</div></div>
-  </div>
+  <div class="sec-note">Indicateurs = vos objectifs validés par la direction</div>
+  <div id="indicZone">${renderIndicateurs('juliette')}</div>
 
   <div class="sec-eyebrow">Capitalisation</div>
   <div class="sec-title">Succès clients à valoriser</div>
@@ -1708,13 +1767,8 @@ juliette: () => `
 sabrine: () => `
   <div class="sec-eyebrow">RH — Chasse & recrutement</div>
   <div class="sec-title">Acquisition des talents</div>
-  <div class="sec-note">Faire entrer les bons profils · <span class="src trello"><span class="sdot"></span>source Trello</span></div>
-  <div class="kpis k4">
-    <div class="kpi accent"><div class="k-label">Postes ouverts</div><div class="k-val">2</div><div class="k-trend">en chasse</div></div>
-    <div class="kpi"><div class="k-label">Candidats en cours</div><div class="k-val">14</div><div class="k-trend up">▲ pipeline</div></div>
-    <div class="kpi warn"><div class="k-label">Entretiens cette sem.</div><div class="k-val">4</div><div class="k-trend">à mener</div></div>
-    <div class="kpi good"><div class="k-label">Délai moyen recrut.</div><div class="k-val">48 <small>j</small></div><div class="k-trend up">▲ -6 j</div></div>
-  </div>
+  <div class="sec-note">Indicateurs = vos objectifs validés par la direction</div>
+  <div id="indicZone">${renderIndicateurs('sabrine')}</div>
 
   <div class="sec-eyebrow">Pipeline recrutement</div>
   <div class="sec-title">Postes en cours</div>
