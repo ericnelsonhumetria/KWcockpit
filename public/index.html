@@ -217,6 +217,28 @@
   .kpi.ko .k-val   { color: var(--signal); }
   .kpi.neutre::before { background: var(--steel-light); }
   .kpi .k-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  /* Module Réalisation */
+  .proj-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 12px; }
+  @media (max-width: 860px) { .proj-grid { grid-template-columns: 1fr; } }
+  .proj-card { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; }
+  .proj-head { display: flex; align-items: flex-start; gap: 12px; }
+  .proj-nom { font-size: 16px; font-weight: 700; }
+  .proj-lead { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .proj-section { margin-top: 14px; }
+  .proj-sub { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 6px; }
+  .jalon-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 13px; }
+  .jalon-check { cursor: pointer; width: 18px; text-align: center; color: var(--muted); }
+  .jalon-check.on { color: #2e7d46; font-weight: 700; }
+  .jalon-lib { flex: 1; }
+  .jalon-lib.done { text-decoration: line-through; color: var(--muted); }
+  .jalon-ech { font-size: 12px; color: var(--muted); }
+  .std-list { display: flex; flex-direction: column; gap: 2px; }
+  .std-row { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 3px 0; cursor: pointer; }
+  .std-row.std-off { opacity: 0.5; }
+  .std-name { flex: 1; }
+  .std-done { font-size: 11px; padding: 1px 8px; border-radius: 10px; background: rgba(0,0,0,0.06); color: var(--muted); cursor: pointer; }
+  .std-done.on { background: rgba(46,125,70,0.15); color: #2e7d46; font-weight: 600; }
+  .add-btn.sm { font-size: 12px; padding: 3px 10px; }
   .kpi .k-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
   .kpi .k-val { font-size: 25px; font-weight: 800; margin-top: 3px; }
   .kpi .k-val small { font-size: 13px; font-weight: 500; color: var(--muted); }
@@ -340,8 +362,6 @@
     </div>
     <div class="tabs" id="tabs">
       <button class="tab active" data-tab="dash" onclick="switchTab('dash')">Tableau de bord</button>
-      <button class="tab" data-tab="actions" onclick="switchTab('actions')">Mes actions <span class="tab-badge" id="tabBadge"></span></button>
-      <button class="tab" data-tab="reunion" onclick="switchTab('reunion')">Réunion → CR</button>
     </div>
   </header>
   <div class="lifecycle" id="lifecycle">
@@ -495,7 +515,7 @@ function render(role){
   tabsEl.appendChild(objTab);
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.dataset.tab==='dash'));
   const open = ACTIONS[role].filter(a=>!a.done).length;
-  document.getElementById('tabBadge').textContent = open;
+  const badge = document.getElementById('tabBadge'); if(badge) badge.textContent = open;
   highlightLifecycle(role);
   renderTab();
 }
@@ -573,7 +593,7 @@ function toggleAction(role, id){
   const a = ACTIONS[role].find(x=>x.id===id) || (DELEGATED[role]||[]).find(x=>x.id===id);
   if(a) a.done = !a.done;
   const open = ACTIONS[role].filter(x=>!x.done).length;
-  document.getElementById('tabBadge').textContent = open;
+  const badge = document.getElementById('tabBadge'); if(badge) badge.textContent = open;
   const activeSeg = document.querySelector('.seg button.on');
   const mode = activeSeg ? activeSeg.dataset.mode : 'mine';
   document.getElementById('view').innerHTML = renderActions(role, mode);
@@ -837,6 +857,45 @@ let LIBRARY = {
   'Bilan de mandat': [],
 };
 
+/* ===== MODULE RÉALISATION (piloté par Audrey) =====
+   Projets en réalisation, jalons prioritaires, et standards Go Gemba® cochés. */
+// Liste de référence des standards Go Gemba® génériques (cochables par projet)
+const STANDARDS_GG = [
+  'Cadrage Go Gemba® validé',
+  'Diagnostic terrain réalisé',
+  'Rituels de management en place',
+  'Standards visuels affichés au poste',
+  'Coaching des managers tracé',
+  'Indicateur de comportement coach suivi',
+  'Débriefs de coaching enregistrés',
+  'Résolution de problèmes (5 pourquoi) déployée',
+  'Boucle d\'amélioration active',
+  'Transfert d\'autonomie au manager',
+];
+// Projets en réalisation : chaque projet a des jalons et une sélection de standards
+let PROJETS = [
+  {
+    nom: 'Andros — séminaire dirigeants',
+    lead: 'Eric',
+    jalons: [
+      {libelle: 'Cadrage validé', echeance: '10 juil.', fait: true},
+      {libelle: 'Diagnostic terrain', echeance: '24 juil.', fait: false},
+    ],
+    standards: ['Cadrage Go Gemba® validé', 'Diagnostic terrain réalisé', 'Rituels de management en place'],
+    standardsFaits: ['Cadrage Go Gemba® validé'],
+  },
+  {
+    nom: 'Lactalis — transformation',
+    lead: 'Audrey Humbert',
+    jalons: [
+      {libelle: 'Jalon à sécuriser', echeance: '5 juil.', fait: false},
+    ],
+    standards: ['Cadrage Go Gemba® validé', 'Coaching des managers tracé', 'Débriefs de coaching enregistrés'],
+    standardsFaits: ['Cadrage Go Gemba® validé', 'Coaching des managers tracé'],
+  },
+];
+let PROJ_EDIT = -1;   // index projet en édition (nom/lead)
+
 /* ===== OBJECTIFS (édition réservée à la direction) ===== */
 let OBJECTIFS = [
   {intitule:'Croissance du CA', cible:'2 M€ (≈ +25 %)', echeance:'Fin 2027', resp:'Eric', statut:'en cours', valide:'valide'},
@@ -941,6 +1000,7 @@ const STORE_KEYS = {
   library: 'library',
   process: 'process',
   panels: 'panels',
+  projets: 'projets',
 };
 
 /* ===== Pavés éditables génériques (Marketing & RH) =====
@@ -1014,6 +1074,7 @@ async function loadAllShared(){
   const l = await loadShared(STORE_KEYS.library);    if(l){ Object.keys(LIBRARY).forEach(k=>delete LIBRARY[k]); Object.assign(LIBRARY, l); }
   const p = await loadShared(STORE_KEYS.process);    if(p){ PROCESS.length=0; p.forEach(x=>PROCESS.push(x)); }
   const pn = await loadShared(STORE_KEYS.panels);    if(pn){ Object.keys(pn).forEach(k=>{ if(PANELS[k]) PANELS[k]=pn[k]; }); }
+  const pj = await loadShared(STORE_KEYS.projets);   if(pj){ PROJETS.length=0; pj.forEach(x=>PROJETS.push(x)); }
 }
 
 // Au tout premier usage, la base est vide → initialisation avec les données par défaut.
@@ -1029,6 +1090,7 @@ async function initSharedIfEmpty(){
       saveShared(STORE_KEYS.library, LIBRARY),
       saveShared(STORE_KEYS.process, PROCESS),
       saveShared(STORE_KEYS.panels, PANELS),
+      saveShared(STORE_KEYS.projets, PROJETS),
     ]);
   }
 }
@@ -1042,6 +1104,7 @@ const persistSkills    = () => saveShared(STORE_KEYS.skills, SKILLS);
 const persistLibrary   = () => saveShared(STORE_KEYS.library, LIBRARY);
 const persistProcess   = () => saveShared(STORE_KEYS.process, PROCESS);
 const persistPanels    = () => saveShared(STORE_KEYS.panels, PANELS);
+const persistProjets   = () => saveShared(STORE_KEYS.projets, PROJETS);
 
 /* ===== Rendu et édition des pavés génériques ===== */
 function statutPill(v){
@@ -1576,6 +1639,89 @@ function renderLibrary(){
   return `<div class="panel" style="padding:14px 16px;">${blocks}<div class="edit-hint" style="margin-top:12px;">Suivi de complétude du patrimoine méthodologique : chaque livrable standard avance par paliers de 25 %. Structure à compléter par Audrey.</div></div>`;
 }
 
+/* ===== MODULE RÉALISATION — rendu & édition ===== */
+function tauxRespect(p){
+  const applicables = (p.standards||[]).length;
+  if(!applicables) return null;
+  const respectes = (p.standardsFaits||[]).filter(s => (p.standards||[]).includes(s)).length;
+  return Math.round((respectes/applicables)*100);
+}
+function renderRealisation(){
+  const cards = PROJETS.map((p,pi)=>{
+    const taux = tauxRespect(p);
+    const tauxCls = taux===null ? 'neutre' : (taux>=80 ? 'ok' : (taux>=50 ? '' : 'ko'));
+    const tauxTxt = taux===null ? '—' : taux+'%';
+    const jalons = (p.jalons||[]).map((j,ji)=>`
+      <div class="jalon-row">
+        <span class="jalon-check ${j.fait?'on':''}" onclick="toggleJalon(${pi},${ji})" title="${j.fait?'fait':'à faire'}">${j.fait?'✓':'○'}</span>
+        <span class="jalon-lib ${j.fait?'done':''}">${j.libelle}</span>
+        <span class="jalon-ech">${j.echeance||''}</span>
+        <span class="x-mini" onclick="removeJalon(${pi},${ji})" title="supprimer">×</span>
+      </div>`).join('') || '<div class="edit-hint" style="padding:4px 0;">Aucun jalon — ajoutez-en un.</div>';
+    const standards = STANDARDS_GG.map(s=>{
+      const applicable = (p.standards||[]).includes(s);
+      const fait = (p.standardsFaits||[]).includes(s);
+      const sesc = s.replace(/'/g,"\\\\'");
+      return `<label class="std-row ${applicable?'':'std-off'}">
+        <input type="checkbox" ${applicable?'checked':''} onchange="toggleStandardApplicable(${pi},'${sesc}')">
+        <span class="std-name">${s}</span>
+        ${applicable ? `<span class="std-done ${fait?'on':''}" onclick="event.preventDefault();toggleStandardFait(${pi},'${sesc}')" title="respecté ?">${fait?'respecté ✓':'à respecter'}</span>` : ''}
+      </label>`;
+    }).join('');
+    return `<div class="proj-card">
+      <div class="proj-head">
+        <div style="flex:1;">
+          <div class="proj-nom">${p.nom}</div>
+          <div class="proj-lead">Lead : ${p.lead||'—'}</div>
+        </div>
+        <div class="proj-taux kpi ${tauxCls}" style="padding:8px 12px;min-width:110px;">
+          <div class="k-label">Respect standards</div>
+          <div class="k-val" style="font-size:22px;">${tauxTxt}</div>
+        </div>
+        <span class="x-mini" onclick="removeProjet(${pi})" title="supprimer le projet" style="align-self:flex-start;margin-left:8px;">×</span>
+      </div>
+      <div class="proj-section">
+        <div class="proj-sub">Jalons prioritaires</div>
+        ${jalons}
+        <button class="add-btn sm" onclick="addJalon(${pi})" style="margin-top:6px;">+ Jalon</button>
+      </div>
+      <div class="proj-section">
+        <div class="proj-sub">Standards Go Gemba® — cochez les applicables, puis marquez les respectés</div>
+        <div class="std-list">${standards}</div>
+      </div>
+    </div>`;
+  }).join('');
+  return `<div id="realZone">
+    <div class="proj-grid">${cards}</div>
+    <div class="edit-bar"><button class="add-btn" onclick="addProjet()">+ Projet en réalisation</button><span class="edit-hint">Taux de respect = standards respectés ÷ standards applicables, par projet.</span></div>
+  </div>`;
+}
+function refreshRealisation(){ const z=document.getElementById('realZone'); if(z) z.outerHTML = renderRealisation(); persistProjets(); }
+function addProjet(){ PROJETS.push({nom:'Nouveau projet', lead:'Audrey Humbert', jalons:[], standards:[], standardsFaits:[]}); refreshRealisation(); }
+function removeProjet(pi){ if(confirm('Supprimer ce projet ?')){ PROJETS.splice(pi,1); refreshRealisation(); } }
+function addJalon(pi){
+  const lib = prompt('Libellé du jalon ?'); if(lib===null) return;
+  const ech = prompt('Échéance ? (ex. 15 juil.)') || '';
+  PROJETS[pi].jalons = PROJETS[pi].jalons || [];
+  PROJETS[pi].jalons.push({libelle: lib||'Jalon', echeance: ech, fait:false});
+  refreshRealisation();
+}
+function toggleJalon(pi,ji){ PROJETS[pi].jalons[ji].fait = !PROJETS[pi].jalons[ji].fait; refreshRealisation(); }
+function removeJalon(pi,ji){ PROJETS[pi].jalons.splice(ji,1); refreshRealisation(); }
+function toggleStandardApplicable(pi,s){
+  const arr = PROJETS[pi].standards = PROJETS[pi].standards || [];
+  const idx = arr.indexOf(s);
+  if(idx>=0){ arr.splice(idx,1); const f = PROJETS[pi].standardsFaits||[]; const fi=f.indexOf(s); if(fi>=0) f.splice(fi,1); }
+  else { arr.push(s); }
+  refreshRealisation();
+}
+function toggleStandardFait(pi,s){
+  const f = PROJETS[pi].standardsFaits = PROJETS[pi].standardsFaits || [];
+  const idx = f.indexOf(s);
+  if(idx>=0) f.splice(idx,1); else f.push(s);
+  refreshRealisation();
+}
+
 const VIEWS = {
 
 /* ---------- ERIC : DIRECTION ---------- */
@@ -1699,26 +1845,14 @@ paul: () => `
 audrey: () => `
   <div class="sec-eyebrow">Réalisation</div>
   <div class="sec-title">Santé des missions en cours</div>
-  <div class="sec-note">Trois axes de monitoring : planning · standards Go Gemba® (via Humetria) · risques & opportunités</div>
-  <div class="kpis k4">
-    <div class="kpi good"><div class="k-label">Missions actives</div><div class="k-val">5</div><div class="k-trend">en delivery</div></div>
-    <div class="kpi warn"><div class="k-label">Alerte planning</div><div class="k-val">1</div><div class="k-trend down">▲ Lactalis</div></div>
-    <div class="kpi good"><div class="k-label">Standards conformes</div><div class="k-val">4<small>/5</small></div><div class="k-trend up">▲ via Humetria</div></div>
-    <div class="kpi accent"><div class="k-label">Opportunités détectées</div><div class="k-val">2</div><div class="k-trend up">▲ extension / réachat</div></div>
-  </div>
-  <div class="panel" style="padding:8px 16px 16px;">
-    <table>
-      <thead><tr><th>Mission</th><th>Lead</th><th>Planning</th><th>Standards Go Gemba®</th><th>Risque / Opportunité</th></tr></thead>
-      <tbody>
-        <tr><td>Andros — DU séminaire</td><td class="owner">Eric</td><td><div class="prog"><div style="width:70%"></div></div><span class="sub-cell">à l'heure</span></td><td><span class="pill p-green">conforme</span></td><td><span class="pill p-green">Opp.</span> <span class="sub-cell">extension pressentie</span></td></tr>
-        <tr><td>Kriter — CODIR</td><td class="owner">C. Leray</td><td><div class="prog"><div style="width:90%"></div></div><span class="sub-cell">à l'heure</span></td><td><span class="pill p-green">conforme</span></td><td><span class="pill p-green">Opp.</span> <span class="sub-cell">réachat probable</span></td></tr>
-        <tr><td>Lactalis — transformation</td><td class="owner">Audrey Humbert</td><td><div class="prog"><div style="width:55%"></div></div><span class="sub-cell">retard léger</span></td><td><span class="pill p-amber">à vérifier</span></td><td><span class="pill p-signal">Risque</span> <span class="sub-cell">jalon à sécuriser</span></td></tr>
-        <tr><td>Havea — accompagnement</td><td class="owner">C. Leray</td><td><div class="prog"><div style="width:30%"></div></div><span class="sub-cell">à l'heure</span></td><td><span class="pill p-green">conforme</span></td><td><span class="pill p-grey">—</span></td></tr>
-        <tr><td>PMGI — diagnostic</td><td class="owner">Eric</td><td><div class="prog"><div style="width:20%"></div></div><span class="sub-cell">démarrage</span></td><td><span class="pill p-blue">en cours</span></td><td><span class="pill p-grey">—</span></td></tr>
-      </tbody>
-    </table>
-  </div>
-  <div class="footer-note" style="margin-top:14px;"><span class="ic">↳</span><span>Standards Go Gemba® suivis par l'usage via Humetria : coachings tracés, indicateur de comportement coach, débriefs enregistrés. Une note basse alimente le registre d'amélioration ; une opportunité détectée remonte vers le commercial (mission suivante).</span></div>
+  <div class="sec-note">Indicateurs = vos objectifs validés par la direction</div>
+  <div id="indicZone">${renderIndicateurs('audrey')}</div>
+
+  <div class="sec-eyebrow" style="margin-top:24px;">Projets en réalisation</div>
+  <div class="sec-title">Suivi des projets, jalons & standards Go Gemba®</div>
+  <div class="sec-note">Listez vos projets, définissez les jalons prioritaires, cochez les standards applicables puis marquez ceux respectés. Le taux se calcule automatiquement.</div>
+  ${renderRealisation()}
+  <div class="footer-note" style="margin-top:14px;"><span class="ic">↳</span><span>Standards Go Gemba® suivis par l'usage via Humetria : coachings tracés, indicateur de comportement coach, débriefs enregistrés. Une note basse alimente le registre d'amélioration ; une opportunité détectée remonte vers le commercial.</span></div>
 
   <div class="sec-eyebrow">Module 4 — Compétences</div>
   <div class="sec-title">Des valeurs aux compétences</div>
@@ -1740,7 +1874,7 @@ audrey: () => `
   <div class="sec-title">Bibliothèque Go Gemba®</div>
   <div class="sec-note">Avancement des livrables standards par phase — 25 / 50 / 75 / 100 %</div>
   <div id="libraryZone">${renderLibrary()}</div>
-  ${footer("Édition active pendant la session (démonstration). La persistance réelle viendra avec le branchement Notion. Matrice et bibliothèque pilotées par Audrey.")}
+  ${footer("Projets, jalons et standards pilotés par Audrey. Matrice et bibliothèque également à sa main.")}
 `,
 
 /* ---------- JULIETTE : MARKETING & COM ---------- */
