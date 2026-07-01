@@ -96,30 +96,6 @@ exports.handler = async (event) => {
   const token = process.env.HUBSPOT_TOKEN;
   const headers = { Accept: 'application/json', Authorization: `Bearer ${token}` };
 
-  // ===== DIAGNOSTIC TEMPORAIRE (sans auth) : ?debug=kw2027 =====
-  // À RETIRER après validation des correspondances d'étapes.
-  if (params.debug === 'kw2027') {
-    const out = {};
-    try {
-      out.token_present = Boolean(token);
-      out.token_longueur = token ? token.length : 0;
-      const { pipelineId, stages, allPipelines } = await getStages(headers);
-      out.pipeline_retenu_id = pipelineId;
-      out.etapes_du_pipeline = stages; // { id -> label } : c'est ce qu'on veut voir
-      out.tous_les_pipelines = allPipelines.map(p => ({ id: p.id, label: p.label }));
-      const deals = await getDeals(headers, pipelineId);
-      out.nb_deals_pipeline = deals.length;
-      // compte par étape (par id)
-      const parEtape = {};
-      deals.forEach(d => { parEtape[d.stage] = (parEtape[d.stage] || 0) + 1; });
-      out.deals_par_etape_id = parEtape;
-    } catch (e) {
-      out.erreur = String(e.message || e);
-    }
-    return { statusCode: 200, headers: { ...cors, 'Content-Type': 'application/json' }, body: JSON.stringify(out, null, 2) };
-  }
-  // ===== FIN DIAGNOSTIC TEMPORAIRE =====
-
   const guard = await requireCommerceOrDirection(event.headers.authorization || event.headers.Authorization);
   if (!guard.ok) return { statusCode: guard.code, headers: cors, body: JSON.stringify({ error: guard.msg }) };
 
