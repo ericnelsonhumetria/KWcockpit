@@ -246,6 +246,25 @@
   .std-done { font-size: 11px; padding: 1px 8px; border-radius: 10px; background: rgba(0,0,0,0.06); color: var(--muted); cursor: pointer; }
   .std-done.on { background: rgba(46,125,70,0.15); color: #2e7d46; font-weight: 600; }
   .add-btn.sm { font-size: 12px; padding: 3px 10px; }
+  /* Capitalisation des bonnes pratiques */
+  .bp-titre { font-size: 15px; font-weight: 700; }
+  .bp-meta { font-size: 12px; color: var(--muted); margin: 2px 0 8px; }
+  .bp-detail p { font-size: 13px; margin: 4px 0; line-height: 1.4; }
+  .bp-crits { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+  .crit-row { display: flex; align-items: center; gap: 10px; margin: 6px 0; flex-wrap: wrap; }
+  .crit-label { font-size: 13px; font-weight: 600; min-width: 130px; }
+  .crit-opts { display: flex; gap: 6px; flex-wrap: wrap; }
+  .note-btn { font-size: 12px; padding: 4px 10px; border: 1px solid var(--line); background: var(--card); border-radius: 4px; cursor: pointer; }
+  .note-btn.on { background: var(--steel); color: #fff; border-color: var(--steel); font-weight: 600; }
+  @media (max-width: 640px){ .crit-label { min-width: 100%; } }
+  /* Zone coach Humetrix */
+  .humetrix-box { background: rgba(239,184,16,0.06); border: 1px solid rgba(239,184,16,0.4); border-radius: 6px; padding: 14px; margin-bottom: 18px; }
+  .humetrix-head { font-weight: 700; font-size: 14px; color: var(--steel); margin-bottom: 4px; }
+  .humetrix-note { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+  .humetrix-challenge { margin-top: 12px; background: var(--card); border-left: 3px solid var(--gold); padding: 10px 14px; border-radius: 4px; }
+  .humetrix-challenge .hc-title { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+  .humetrix-challenge ul { margin: 0; padding-left: 18px; }
+  .humetrix-challenge li { font-size: 13px; margin: 4px 0; line-height: 1.4; }
   .kpi .k-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
   .kpi .k-val { font-size: 25px; font-weight: 800; margin-top: 3px; }
   .kpi .k-val small { font-size: 13px; font-weight: 500; color: var(--muted); }
@@ -561,6 +580,16 @@ function render(role){
   objTab.setAttribute('onclick', "switchTab('objectifs')");
   objTab.innerHTML = (role==='eric') ? 'Objectifs ✎' : 'Mes objectifs';
   tabsEl.appendChild(objTab);
+  // onglet Bonnes pratiques : capitalisation (Audrey + direction pour l'instant)
+  const oldBp = tabsEl.querySelector('[data-tab="capbp"]');
+  if(oldBp) oldBp.remove();
+  if(role==='audrey' || role==='eric'){
+    const bpTab = document.createElement('button');
+    bpTab.className = 'tab'; bpTab.dataset.tab = 'capbp';
+    bpTab.setAttribute('onclick', "switchTab('capbp')");
+    bpTab.innerHTML = 'Bonnes pratiques';
+    tabsEl.appendChild(bpTab);
+  }
   // onglet Admin : réservé SI / direction (rôle eric)
   const oldAdmin = tabsEl.querySelector('[data-tab="admin"]');
   if(oldAdmin) oldAdmin.remove();
@@ -599,6 +628,13 @@ function renderTab(){
     document.getElementById('view').innerHTML = VIEWS[CURRENT_ROLE]();
     if(CURRENT_ROLE==='paul' || CURRENT_ROLE==='eric') animateBars();
     if(CURRENT_ROLE==='eric'){ animateGoal(); loadRespCommerce(); }
+  } else if(CURRENT_TAB==='capbp'){
+    document.getElementById('view').innerHTML = `
+      <div class="sec-eyebrow">Capitalisation</div>
+      <div class="sec-title">Bonnes pratiques Go Gemba®</div>
+      <div class="sec-note">Chaque consultant partage ses pratiques ; les pairs et le CODIR les évaluent ; les meilleures deviennent des standards.</div>
+      ${renderCapitalisation()}
+      ${footer("Capter le terrain, challenger par les pairs, standardiser ce qui marche : le kaizen appliqué à Kaizen Way.")}`;
   } else if(CURRENT_TAB==='admin'){
     document.getElementById('view').innerHTML = `
       <div class="sec-eyebrow">Administration</div>
@@ -961,6 +997,32 @@ let PROJETS = [
 ];
 let PROJ_EDIT = -1;   // index projet en édition (nom/lead)
 
+/* ===== CAPITALISATION DES BONNES PRATIQUES (BP) =====
+   Canevas : titre, contexte, pratique, résultat, reproductibilité, phase, processus.
+   Évaluation : 3 critères notés 0/1/2 par évaluateur → score /6 en %.
+   États : 'brouillon' (en cours), 'evaluation' (soumise), 'promue' (proposée en standard). */
+const BP_PHASES = ['Diagnostic','Lancement de mandat','Coaching','Mi-mandat','Formation des coachs internes','Bilan de mandat'];
+const BP_CRITERES = ['pertinence','impact','reproductibilite'];
+const BP_CRIT_LABEL = {pertinence:'Pertinence', impact:'Impact', reproductibilite:'Reproductibilité'};
+const BP_NOTE_LABEL = {0:'Néant', 1:'Partiel', 2:'Total'};
+let BP = [
+  {
+    id: 'bp1',
+    titre: 'Rituel flash 5 min en début de poste',
+    auteur: 'Arnaud Torres',
+    contexte: 'Managers de proximité qui démarrent la journée sans point d\'équipe.',
+    pratique: 'Instaurer un point debout de 5 min devant le tableau visuel : sécurité, priorités du jour, irritants.',
+    resultat: 'Baisse des interruptions dans la matinée, alignement immédiat de l\'équipe.',
+    reproductibilite: 'Nécessite un tableau visuel au poste et un manager formé à l\'animation courte.',
+    phase: 'Coaching',
+    processus: 'Réalisation de mission',
+    etat: 'evaluation',
+    evaluations: {},   // { 'Nom évaluateur': {pertinence:2, impact:1, reproductibilite:2} }
+  },
+];
+let BP_EDIT = null;    // id de la BP en cours d'édition, ou 'new'
+let BP_DICTEE = null;  // champ en cours de dictée
+
 /* ===== OBJECTIFS (édition réservée à la direction) ===== */
 let OBJECTIFS = [
   {intitule:'Croissance du CA', cible:'2 M€ (≈ +25 %)', echeance:'Fin 2027', resp:'Eric', statut:'en cours', valide:'valide'},
@@ -1066,6 +1128,7 @@ const STORE_KEYS = {
   process: 'process',
   panels: 'panels',
   projets: 'projets',
+  bp: 'bp',
 };
 
 /* ===== Pavés éditables génériques (Marketing & RH) =====
@@ -1140,6 +1203,7 @@ async function loadAllShared(){
   const p = await loadShared(STORE_KEYS.process);    if(p){ PROCESS.length=0; p.forEach(x=>PROCESS.push(x)); }
   const pn = await loadShared(STORE_KEYS.panels);    if(pn){ Object.keys(pn).forEach(k=>{ if(PANELS[k]) PANELS[k]=pn[k]; }); }
   const pj = await loadShared(STORE_KEYS.projets);   if(pj){ PROJETS.length=0; pj.forEach(x=>PROJETS.push(x)); }
+  const bp = await loadShared(STORE_KEYS.bp);        if(bp){ BP.length=0; bp.forEach(x=>BP.push(x)); }
 }
 
 // Au tout premier usage, la base est vide → initialisation avec les données par défaut.
@@ -1156,6 +1220,7 @@ async function initSharedIfEmpty(){
       saveShared(STORE_KEYS.process, PROCESS),
       saveShared(STORE_KEYS.panels, PANELS),
       saveShared(STORE_KEYS.projets, PROJETS),
+      saveShared(STORE_KEYS.bp, BP),
     ]);
   }
 }
@@ -1170,6 +1235,7 @@ const persistLibrary   = () => saveShared(STORE_KEYS.library, LIBRARY);
 const persistProcess   = () => saveShared(STORE_KEYS.process, PROCESS);
 const persistPanels    = () => saveShared(STORE_KEYS.panels, PANELS);
 const persistProjets   = () => saveShared(STORE_KEYS.projets, PROJETS);
+const persistBP        = () => saveShared(STORE_KEYS.bp, BP);
 
 /* ===== Rendu et édition des pavés génériques ===== */
 function statutPill(v){
@@ -1882,6 +1948,179 @@ function toggleStandardFait(pi,s){
   const idx = f.indexOf(s);
   if(idx>=0) f.splice(idx,1); else f.push(s);
   refreshRealisation();
+}
+
+/* ===== CAPITALISATION DES BONNES PRATIQUES — rendu & logique ===== */
+function bpScore(bp){
+  const evals = Object.values(bp.evaluations || {});
+  if(!evals.length) return null;
+  let total = 0;
+  evals.forEach(e => { total += (Number(e.pertinence||0)+Number(e.impact||0)+Number(e.reproductibilite||0)); });
+  const moyenneSur6 = total / evals.length;
+  return { pct: Math.round((moyenneSur6/6)*100), nbEval: evals.length };
+}
+function moiNom(){ return ROLE_RESP[CURRENT_ROLE] || 'Utilisateur'; }
+
+function renderCapitalisation(){
+  const soumises = BP.filter(b => b.etat==='evaluation' || b.etat==='promue');
+  const classees = soumises.slice().sort((a,b)=>{ const sa=bpScore(a),sb=bpScore(b); return (sb?sb.pct:-1)-(sa?sa.pct:-1); });
+  const me = moiNom();
+  const aEvaluer = soumises.filter(b => !(b.evaluations && b.evaluations[me]));
+  const blocEval = aEvaluer.length ? aEvaluer.map(b=>renderBPEvalCard(b)).join('') :
+    '<div class="panel" style="padding:16px;color:var(--muted);font-size:13px;">Aucune bonne pratique en attente de votre évaluation.</div>';
+  const blocClassement = classees.length ? `<div class="panel" style="padding:8px 16px 16px;">
+    <table><thead><tr><th>Bonne pratique</th><th>Phase</th><th style="text-align:center">Score</th><th style="text-align:center">Éval.</th><th></th></tr></thead>
+    <tbody>${classees.map(b=>{
+      const s = bpScore(b); const pct = s?s.pct:null;
+      const cls = pct===null?'p-grey':(pct>=75?'p-green':(pct>=50?'p-amber':'p-signal'));
+      const promo = (pct!==null && pct>=75 && b.etat!=='promue') ? `<button class="add-btn sm" onclick="promouvoirBP('${b.id}')">→ Proposer en standard</button>` : (b.etat==='promue'?'<span class="pill p-green">proposée en standard</span>':'');
+      return `<tr><td><b>${b.titre}</b><br><span class="sub-cell">${b.auteur}</span></td><td>${b.phase||'—'}</td><td style="text-align:center"><span class="pill ${cls}">${pct===null?'—':pct+'%'}</span></td><td style="text-align:center">${s?s.nbEval:0}</td><td>${promo}</td></tr>`;
+    }).join('')}</tbody></table></div>` :
+    '<div class="panel" style="padding:16px;color:var(--muted);font-size:13px;">Aucune bonne pratique soumise pour le moment.</div>';
+  return `<div id="capZone">
+    <div class="sec-eyebrow">Contribuer</div>
+    <div class="sec-title">Partager une bonne pratique</div>
+    <div class="sec-note">Décrivez librement votre pratique (saisie ou dictée vocale). Elle sera ensuite évaluée par les pairs et le CODIR.</div>
+    <div class="panel" style="padding:14px 16px;">${BP_EDIT==='new' ? renderBPForm() : `<button class="add-btn" onclick="nouvelleBP()">+ Nouvelle bonne pratique</button>`}</div>
+    <div class="sec-eyebrow" style="margin-top:24px;">À évaluer</div>
+    <div class="sec-title">En attente de votre avis</div>
+    <div class="sec-note">Notez chaque critère : 0 néant · 1 partiel · 2 total</div>
+    ${blocEval}
+    <div class="sec-eyebrow" style="margin-top:24px;">Classement</div>
+    <div class="sec-title">Bonnes pratiques évaluées</div>
+    <div class="sec-note">Score = moyenne des évaluations (pertinence + impact + reproductibilité, /6) en %. À 75 % et plus, une BP peut être proposée en standard.</div>
+    ${blocClassement}
+  </div>`;
+}
+function renderBPForm(bp){
+  const b = bp || {titre:'',contexte:'',pratique:'',resultat:'',reproductibilite:'',phase:BP_PHASES[0],processus:''};
+  const champ = (id,label,val,rows)=>`<div style="margin-bottom:12px;"><label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">${label} <button class="add-btn sm ghost" onclick="dicteeBP('bpf-${id}')" title="dictée vocale">🎤 dicter</button></label><textarea id="bpf-${id}" rows="${rows||2}" style="width:100%;padding:8px;font-family:inherit;font-size:14px;">${(val||'').replace(/</g,'&lt;')}</textarea></div>`;
+  return `<div class="bp-form">
+    <div class="humetrix-box">
+      <div class="humetrix-head">🧭 Humetrix — coach IA</div>
+      <div class="humetrix-note">Décrivez votre pratique librement ci-dessous (ou dictez-la), puis laissez Humetrix la structurer et la challenger.</div>
+      <textarea id="bpf-brut" rows="4" placeholder="Ex : Sur la ligne 3, j'ai mis en place un point de 5 min chaque matin devant le tableau… racontez librement." style="width:100%;padding:8px;font-family:inherit;font-size:14px;"></textarea>
+      <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <button class="add-btn sm ghost" onclick="dicteeBP('bpf-brut')" title="dictée vocale">🎤 dicter</button>
+        <button class="add-btn" onclick="analyserHumetrix()" id="btnHumetrix">✨ Faire analyser par Humetrix</button>
+        <span class="edit-hint" id="humetrixMsg"></span>
+      </div>
+      <div id="humetrixChallenge"></div>
+    </div>
+    <div style="margin-bottom:12px;"><label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Titre</label><input id="bpf-titre" value="${(b.titre||'').replace(/"/g,'&quot;')}" style="width:100%;padding:8px;font-size:14px;"></div>
+    ${champ('contexte','Contexte / situation', b.contexte, 2)}
+    ${champ('pratique','La pratique (le geste concret)', b.pratique, 3)}
+    ${champ('resultat','Résultat obtenu', b.resultat, 2)}
+    ${champ('reproductibilite','Conditions de reproductibilité', b.reproductibilite, 2)}
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
+      <div style="flex:1;min-width:200px;"><label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Phase de réalisation</label><select id="bpf-phase" style="width:100%;padding:8px;">${BP_PHASES.map(p=>`<option ${b.phase===p?'selected':''}>${p}</option>`).join('')}</select></div>
+      <div style="flex:1;min-width:200px;"><label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Processus concerné</label><input id="bpf-processus" value="${(b.processus||'').replace(/"/g,'&quot;')}" placeholder="ex. Réalisation de mission" style="width:100%;padding:8px;font-size:14px;"></div>
+    </div>
+    <div class="edit-bar"><button class="add-btn" onclick="soumettreBP()">Soumettre à l'évaluation</button><button class="add-btn ghost" onclick="annulerBP()">Annuler</button><span class="edit-hint" id="bpDicteeMsg">Astuce : « 🎤 dicter » remplit un champ à la voix.</span></div>
+  </div>`;
+}
+function renderBPEvalCard(b){
+  const me = moiNom();
+  const ev = (b.evaluations && b.evaluations[me]) || {};
+  const critRow = (crit)=>{
+    const val = ev[crit];
+    const opts = [0,1,2].map(n=>`<button class="note-btn ${val===n?'on':''}" onclick="noterBP('${b.id}','${crit}',${n})">${n} · ${BP_NOTE_LABEL[n]}</button>`).join('');
+    return `<div class="crit-row"><span class="crit-label">${BP_CRIT_LABEL[crit]}</span><span class="crit-opts">${opts}</span></div>`;
+  };
+  return `<div class="panel bp-eval" style="padding:14px 16px;margin-bottom:12px;">
+    <div class="bp-titre">${b.titre} <span class="pill p-grey">${b.phase}</span></div>
+    <div class="bp-meta">par ${b.auteur} · processus : ${b.processus||'—'}</div>
+    <div class="bp-detail"><p><b>Contexte :</b> ${b.contexte||'—'}</p><p><b>Pratique :</b> ${b.pratique||'—'}</p><p><b>Résultat :</b> ${b.resultat||'—'}</p><p><b>Reproductibilité :</b> ${b.reproductibilite||'—'}</p></div>
+    <div class="bp-crits">${BP_CRITERES.map(critRow).join('')}</div>
+  </div>`;
+}
+function refreshCap(){ const z=document.getElementById('capZone'); if(z) z.outerHTML = renderCapitalisation(); }
+function nouvelleBP(){ BP_EDIT='new'; refreshCap(); }
+function annulerBP(){ BP_EDIT=null; refreshCap(); }
+function soumettreBP(){
+  const g = id => { const el=document.getElementById(id); return el?el.value.trim():''; };
+  const titre = g('bpf-titre');
+  if(!titre){ alert('Donnez au moins un titre.'); return; }
+  BP.push({ id:'bp'+Date.now(), titre, auteur:moiNom(), contexte:g('bpf-contexte'), pratique:g('bpf-pratique'), resultat:g('bpf-resultat'), reproductibilite:g('bpf-reproductibilite'), phase:g('bpf-phase')||BP_PHASES[0], processus:g('bpf-processus'), etat:'evaluation', evaluations:{} });
+  BP_EDIT=null; persistBP(); refreshCap();
+}
+function noterBP(id, crit, note){
+  const b = BP.find(x=>x.id===id); if(!b) return;
+  const me = moiNom();
+  b.evaluations = b.evaluations || {};
+  b.evaluations[me] = b.evaluations[me] || {};
+  b.evaluations[me][crit] = note;
+  persistBP(); refreshCap();
+}
+function promouvoirBP(id){
+  const b = BP.find(x=>x.id===id); if(!b) return;
+  if(!confirm('Proposer « '+b.titre+' » comme standard dans la phase « '+b.phase+' » ?')) return;
+  b.etat='promue';
+  if(LIBRARY[b.phase]){ LIBRARY[b.phase].push({titre:'[BP proposée] '+b.titre, pct:0}); persistLibrary(); }
+  persistBP(); refreshCap();
+  flashSync('✓ Bonne pratique proposée en standard');
+}
+function dicteeBP(champId){
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const msg = document.getElementById('bpDicteeMsg');
+  if(!SR){ if(msg) msg.textContent = 'Dictée vocale indisponible sur ce navigateur (essayez Chrome).'; return; }
+  const cible = document.getElementById(champId); if(!cible) return;
+  if(BP_DICTEE){ BP_DICTEE.stop(); BP_DICTEE=null; if(msg) msg.textContent='Dictée arrêtée.'; return; }
+  const rec = new SR(); rec.lang='fr-FR'; rec.continuous=true; rec.interimResults=true;
+  const base = cible.value ? cible.value+' ' : '';
+  if(msg) msg.textContent = '🎤 Dictée en cours… reparlez, puis recliquez pour arrêter.';
+  rec.onresult = (e)=>{ let t=''; for(let i=0;i<e.results.length;i++){ t+=e.results[i][0].transcript; } cible.value = base+t; };
+  rec.onerror = ()=>{ if(msg) msg.textContent='Dictée interrompue.'; };
+  rec.onend = ()=>{ BP_DICTEE=null; };
+  BP_DICTEE = rec; rec.start();
+}
+
+async function analyserHumetrix(){
+  const brutEl = document.getElementById('bpf-brut');
+  const msg = document.getElementById('humetrixMsg');
+  const btn = document.getElementById('btnHumetrix');
+  const challengeZone = document.getElementById('humetrixChallenge');
+  if(!brutEl) return;
+  const texte = brutEl.value.trim();
+  if(!texte){ if(msg) msg.textContent = 'Écrivez d\'abord quelques lignes à analyser.'; return; }
+  if(!SB_SESSION){ if(msg) msg.textContent = 'Session expirée.'; return; }
+  if(btn){ btn.disabled = true; btn.textContent = '⏳ Humetrix réfléchit…'; }
+  if(msg) msg.textContent = '';
+  try {
+    const phaseEl = document.getElementById('bpf-phase');
+    const res = await fetch('/api/humetrix', {
+      method:'POST',
+      headers:{ Authorization:'Bearer '+SB_SESSION.access_token, 'Content-Type':'application/json' },
+      body: JSON.stringify({ texte, phase: phaseEl ? phaseEl.value : '' }),
+    });
+    const data = await res.json();
+    if(!res.ok){ if(msg) msg.textContent = 'Humetrix indisponible ('+(data.error||res.status)+').'; return; }
+    if(data.parse_ok === false){
+      // réponse non structurée : on met le texte brut dans "pratique" pour ne rien perdre
+      const p = document.getElementById('bpf-pratique'); if(p && data.brut) p.value = data.brut;
+      if(msg) msg.textContent = 'Humetrix a répondu, mais en texte libre — vérifiez les champs.';
+      return;
+    }
+    // remplir les champs du canevas
+    const set = (id,val)=>{ const el=document.getElementById(id); if(el && val!=null) el.value = val; };
+    set('bpf-titre', data.titre);
+    set('bpf-contexte', data.contexte);
+    set('bpf-pratique', data.pratique);
+    set('bpf-resultat', data.resultat);
+    set('bpf-reproductibilite', data.reproductibilite);
+    // afficher les questions de challenge
+    if(challengeZone && Array.isArray(data.questions_challenge) && data.questions_challenge.length){
+      challengeZone.innerHTML = `<div class="humetrix-challenge">
+        <div class="hc-title">🎯 Humetrix vous challenge — enrichissez votre fiche avant de soumettre :</div>
+        <ul>${data.questions_challenge.map(q=>`<li>${q}</li>`).join('')}</ul>
+      </div>`;
+    }
+    if(msg) msg.textContent = '✓ Structuré par Humetrix — relisez, ajustez, puis soumettez.';
+  } catch(e){
+    if(msg) msg.textContent = 'Connexion à Humetrix impossible.';
+  } finally {
+    if(btn){ btn.disabled = false; btn.textContent = '✨ Faire analyser par Humetrix'; }
+  }
 }
 
 const VIEWS = {
