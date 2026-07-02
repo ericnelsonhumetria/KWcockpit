@@ -24,3 +24,8 @@
   from = "/api/admin"
   to = "/.netlify/functions/admin"
   status = 200
+
+[[redirects]]
+  from = "/api/humetrix"
+  to = "/.netlify/functions/humetrix"
+  status = 200
