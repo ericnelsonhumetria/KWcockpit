@@ -29,3 +29,8 @@
   from = "/api/humetrix"
   to = "/.netlify/functions/humetrix"
   status = 200
+
+  [[redirects]]
+  from = "/api/dojo-claude"
+  to = "/.netlify/functions/dojo-claude"
+  status = 200
