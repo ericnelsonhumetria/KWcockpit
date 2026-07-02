@@ -4,6 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cockpit KW — Système de management Kaizen Way</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#560a0f">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Cockpit KW">
+<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
 <style>
   :root {
     --ink: #1a1416; --ink-soft: #4a3d40; --paper: #f3efe9; --card: #ffffff;
@@ -208,6 +215,56 @@
   .kpi.accent::before { background: var(--signal); }
   .kpi.good::before { background: var(--green); }
   .kpi.warn::before { background: var(--amber); }
+  /* indicateurs objectifs — couleur franche (fond + valeur) */
+  .kpi.ok  { background: rgba(46,125,70,0.10); border-color: rgba(46,125,70,0.35); }
+  .kpi.ok::before  { background: #2e7d46; width: 5px; }
+  .kpi.ok .k-val   { color: #2e7d46; }
+  .kpi.ko  { background: rgba(176,42,42,0.10); border-color: rgba(176,42,42,0.40); }
+  .kpi.ko::before  { background: var(--signal); width: 5px; }
+  .kpi.ko .k-val   { color: var(--signal); }
+  .kpi.neutre::before { background: var(--steel-light); }
+  .kpi .k-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  /* Module Réalisation */
+  .proj-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 12px; }
+  @media (max-width: 860px) { .proj-grid { grid-template-columns: 1fr; } }
+  .proj-card { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; }
+  .proj-head { display: flex; align-items: flex-start; gap: 12px; }
+  .proj-nom { font-size: 16px; font-weight: 700; }
+  .proj-lead { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .proj-section { margin-top: 14px; }
+  .proj-sub { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 6px; }
+  .jalon-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 13px; }
+  .jalon-check { cursor: pointer; width: 18px; text-align: center; color: var(--muted); }
+  .jalon-check.on { color: #2e7d46; font-weight: 700; }
+  .jalon-lib { flex: 1; }
+  .jalon-lib.done { text-decoration: line-through; color: var(--muted); }
+  .jalon-ech { font-size: 12px; color: var(--muted); }
+  .std-list { display: flex; flex-direction: column; gap: 2px; }
+  .std-row { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 3px 0; cursor: pointer; }
+  .std-row.std-off { opacity: 0.5; }
+  .std-name { flex: 1; }
+  .std-done { font-size: 11px; padding: 1px 8px; border-radius: 10px; background: rgba(0,0,0,0.06); color: var(--muted); cursor: pointer; }
+  .std-done.on { background: rgba(46,125,70,0.15); color: #2e7d46; font-weight: 600; }
+  .add-btn.sm { font-size: 12px; padding: 3px 10px; }
+  /* Capitalisation des bonnes pratiques */
+  .bp-titre { font-size: 15px; font-weight: 700; }
+  .bp-meta { font-size: 12px; color: var(--muted); margin: 2px 0 8px; }
+  .bp-detail p { font-size: 13px; margin: 4px 0; line-height: 1.4; }
+  .bp-crits { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+  .crit-row { display: flex; align-items: center; gap: 10px; margin: 6px 0; flex-wrap: wrap; }
+  .crit-label { font-size: 13px; font-weight: 600; min-width: 130px; }
+  .crit-opts { display: flex; gap: 6px; flex-wrap: wrap; }
+  .note-btn { font-size: 12px; padding: 4px 10px; border: 1px solid var(--line); background: var(--card); border-radius: 4px; cursor: pointer; }
+  .note-btn.on { background: var(--steel); color: #fff; border-color: var(--steel); font-weight: 600; }
+  @media (max-width: 640px){ .crit-label { min-width: 100%; } }
+  /* Zone coach Humetrix */
+  .humetrix-box { background: rgba(239,184,16,0.06); border: 1px solid rgba(239,184,16,0.4); border-radius: 6px; padding: 14px; margin-bottom: 18px; }
+  .humetrix-head { font-weight: 700; font-size: 14px; color: var(--steel); margin-bottom: 4px; }
+  .humetrix-note { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+  .humetrix-challenge { margin-top: 12px; background: var(--card); border-left: 3px solid var(--gold); padding: 10px 14px; border-radius: 4px; }
+  .humetrix-challenge .hc-title { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+  .humetrix-challenge ul { margin: 0; padding-left: 18px; }
+  .humetrix-challenge li { font-size: 13px; margin: 4px 0; line-height: 1.4; }
   .kpi .k-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
   .kpi .k-val { font-size: 25px; font-weight: 800; margin-top: 3px; }
   .kpi .k-val small { font-size: 13px; font-weight: 500; color: var(--muted); }
@@ -240,6 +297,19 @@
   /* funnel */
   .funnel { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
   @media (max-width: 760px) { .funnel { grid-template-columns: 1fr 1fr; } }
+  /* Chemin visuel commercial (parcours du deal) */
+  .path { display: flex; align-items: stretch; gap: 0; flex-wrap: wrap; margin-top: 16px; }
+  .path-node { position: relative; flex: 1 1 0; min-width: 96px; background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 12px 10px 12px 14px; margin-right: 16px; margin-bottom: 10px; }
+  .path-node::after { content: '▸'; position: absolute; right: -14px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 14px; }
+  .path-node:last-child::after, .path-node.end::after { content: ''; }
+  .path-node .pn-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); line-height: 1.25; min-height: 26px; }
+  .path-node .pn-val { font-size: 26px; font-weight: 800; letter-spacing: -0.02em; margin-top: 4px; }
+  .path-node.start { border-left: 3px solid var(--steel-light); }
+  .path-node.mid { border-left: 3px solid var(--gold); }
+  .path-node.win { border-left: 3px solid #2e7d46; background: rgba(46,125,70,0.06); }
+  .path-node.lose { border-left: 3px solid var(--signal); background: rgba(160,40,40,0.05); }
+  .path-branch { display:flex; flex-direction:column; gap:10px; flex:1 1 0; min-width: 96px; }
+  .path-branch .path-node { margin-bottom: 0; }
   .stage { background: var(--card); border: 1px solid var(--line); border-radius: 4px; padding: 16px; position: relative; overflow: hidden; }
   .stage::before { content:''; position:absolute; left:0; top:0; bottom:0; width:3px; background: var(--steel-light); }
   .stage.s2::before{background:var(--gold)} .stage.s3::before{background:var(--gold-deep)} .stage.s4::before{background:var(--signal)}
@@ -271,6 +341,47 @@
   .footer-note .ic { color: var(--signal); font-weight: 800; }
   .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   @media (max-width: 760px){ .two-col{grid-template-columns:1fr} }
+
+  /* ===== Affichage smartphone (détection automatique) ===== */
+  @media (max-width: 640px) {
+    .wrap { padding: 0 12px 48px; }
+    .head-inner { padding: 12px 14px; gap: 8px; }
+    .head-inner .mark { font-size: 15px; }
+    .sub { display: none; }                     /* sous-titre du bandeau masqué sur mobile */
+    .head-right { width: 100%; justify-content: space-between; gap: 6px; }
+    .head-right .persona { font-size: 12px; }
+    .logout { padding: 6px 8px; font-size: 12px; }
+    /* onglets : défilement horizontal plutôt que retour à la ligne */
+    .tabs { padding: 0 12px; overflow-x: auto; -webkit-overflow-scrolling: touch; gap: 2px; }
+    .tabs::-webkit-scrollbar { display: none; }
+    .tab { white-space: nowrap; flex: 0 0 auto; font-size: 13px; padding: 10px 12px; }
+    /* frise cycle de vie : en colonne, lisible */
+    .lc-flow { flex-direction: column; gap: 6px; }
+    .lc-step { width: 100%; }
+    .lc-inner { padding: 10px 12px; }
+    /* indicateurs : une colonne */
+    .kpis, .kpis.k4 { grid-template-columns: 1fr; gap: 10px; }
+    /* titres de section un peu plus compacts */
+    .sec-title { font-size: 20px; }
+    /* tableaux : défilement horizontal encapsulé (évite le débordement de page) */
+    .panel { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    table { min-width: 520px; font-size: 13px; }
+    /* chemin visuel commercial : vertical sur mobile */
+    .path { flex-direction: column; }
+    .path-node { margin-right: 0; margin-bottom: 22px; }
+    .path-node::after { content: '▾'; right: 50%; top: auto; bottom: -18px; transform: translateX(50%); }
+    .path-node:last-child::after, .path-node.end::after { content: ''; }
+    .path-branch { flex-direction: row; }
+    /* projets réalisation : déjà en 1 colonne (860px), on compacte l'entête */
+    .proj-head { flex-wrap: wrap; }
+    .proj-taux { width: 100%; }
+    /* sélecteur de période : reste sur une ligne défilante */
+    .periode-row { overflow-x: auto; flex-wrap: nowrap; }
+    /* login : marges */
+    .login-card { padding: 30px 22px; }
+    /* formulaire objectifs : une colonne (déjà géré à 600px, on renforce) */
+    .obj-form { grid-template-columns: 1fr; }
+  }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
@@ -311,7 +422,6 @@
         <div class="sub">Système de management · Kaizen Way</div>
       </div>
       <div class="head-right">
-        <span class="demo-tag">Démo</span>
         <span class="persona"><span class="dot"></span> <span id="who"></span></span>
         <button class="logout" onclick="refreshShared()" title="Récupérer les dernières modifications partagées">↻ Rafraîchir</button>
         <button class="logout" onclick="logout()">Changer de rôle</button>
@@ -319,8 +429,6 @@
     </div>
     <div class="tabs" id="tabs">
       <button class="tab active" data-tab="dash" onclick="switchTab('dash')">Tableau de bord</button>
-      <button class="tab" data-tab="actions" onclick="switchTab('actions')">Mes actions <span class="tab-badge" id="tabBadge"></span></button>
-      <button class="tab" data-tab="reunion" onclick="switchTab('reunion')">Réunion → CR</button>
     </div>
   </header>
   <div class="lifecycle" id="lifecycle">
@@ -420,6 +528,7 @@ async function doLogin(){
   document.getElementById('login').classList.add('hidden');
   document.getElementById('app').classList.remove('hidden');
   applyLogo();
+  try { syncLifecycleOwners(); } catch(e){}
   window.scrollTo(0,0);
 }
 
@@ -471,9 +580,29 @@ function render(role){
   objTab.setAttribute('onclick', "switchTab('objectifs')");
   objTab.innerHTML = (role==='eric') ? 'Objectifs ✎' : 'Mes objectifs';
   tabsEl.appendChild(objTab);
+  // onglet Bonnes pratiques : capitalisation (Audrey + direction pour l'instant)
+  const oldBp = tabsEl.querySelector('[data-tab="capbp"]');
+  if(oldBp) oldBp.remove();
+  if(role==='audrey' || role==='eric'){
+    const bpTab = document.createElement('button');
+    bpTab.className = 'tab'; bpTab.dataset.tab = 'capbp';
+    bpTab.setAttribute('onclick', "switchTab('capbp')");
+    bpTab.innerHTML = 'Bonnes pratiques';
+    tabsEl.appendChild(bpTab);
+  }
+  // onglet Admin : réservé SI / direction (rôle eric)
+  const oldAdmin = tabsEl.querySelector('[data-tab="admin"]');
+  if(oldAdmin) oldAdmin.remove();
+  if(role==='eric'){
+    const adminTab = document.createElement('button');
+    adminTab.className = 'tab'; adminTab.dataset.tab = 'admin';
+    adminTab.setAttribute('onclick', "switchTab('admin')");
+    adminTab.innerHTML = 'Admin';
+    tabsEl.appendChild(adminTab);
+  }
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.dataset.tab==='dash'));
   const open = ACTIONS[role].filter(a=>!a.done).length;
-  document.getElementById('tabBadge').textContent = open;
+  const badge = document.getElementById('tabBadge'); if(badge) badge.textContent = open;
   highlightLifecycle(role);
   renderTab();
 }
@@ -498,7 +627,21 @@ function renderTab(){
   if(CURRENT_TAB==='dash'){
     document.getElementById('view').innerHTML = VIEWS[CURRENT_ROLE]();
     if(CURRENT_ROLE==='paul' || CURRENT_ROLE==='eric') animateBars();
-    if(CURRENT_ROLE==='eric') animateGoal();
+    if(CURRENT_ROLE==='eric'){ animateGoal(); loadRespCommerce(); }
+  } else if(CURRENT_TAB==='capbp'){
+    document.getElementById('view').innerHTML = `
+      <div class="sec-eyebrow">Capitalisation</div>
+      <div class="sec-title">Bonnes pratiques Go Gemba®</div>
+      <div class="sec-note">Chaque consultant partage ses pratiques ; les pairs et le CODIR les évaluent ; les meilleures deviennent des standards.</div>
+      ${renderCapitalisation()}
+      ${footer("Capter le terrain, challenger par les pairs, standardiser ce qui marche : le kaizen appliqué à Kaizen Way.")}`;
+  } else if(CURRENT_TAB==='admin'){
+    document.getElementById('view').innerHTML = `
+      <div class="sec-eyebrow">Administration</div>
+      <div class="sec-title">Utilisateurs & accès</div>
+      <div class="sec-note">Réservé au SI et à la direction · gérez rôles, droits et mots de passe. Les mots de passe ne sont jamais affichés — ils se réinitialisent.</div>
+      <div id="adminZone"><div class="panel" style="padding:18px 16px;"><button class="add-btn" onclick="loadAdmin()">⟱ Charger les utilisateurs</button></div></div>
+      ${footer("Sécurité : les mots de passe sont chiffrés par Supabase et illisibles, même par l'administrateur. On peut uniquement les réinitialiser.")}`;
   } else if(CURRENT_TAB==='actions'){
     document.getElementById('view').innerHTML = renderActions(CURRENT_ROLE, 'mine');
   } else if(CURRENT_TAB==='reunion'){
@@ -506,17 +649,25 @@ function renderTab(){
     initReunion();
   } else if(CURRENT_TAB==='objectifs'){
     const editable = (CURRENT_ROLE==='eric');
+    const editableSelf = (CURRENT_ROLE==='juliette' || CURRENT_ROLE==='sabrine' || CURRENT_ROLE==='paul' || CURRENT_ROLE==='audrey');
     const me = ROLE_RESP[CURRENT_ROLE];
     const title = editable ? 'Objectifs — tous (édition direction)' : 'Mes objectifs';
     const note = editable
       ? 'Liste unique de tous les objectifs · vous seul pouvez éditer (accès direction)'
-      : 'Vos objectifs, définis par la direction · lecture seule';
+      : (editableSelf ? 'Vos objectifs de fonction · vous les gérez vous-même' : 'Vos objectifs, définis par la direction · lecture seule');
     let body;
     if(editable){ body = `<div id="objZone">${renderObjectifs(true)}</div>
+      <div class="sec-eyebrow" style="margin-top:30px;">Validation</div>
+      <div class="sec-title">Objectifs proposés par les responsables</div>
+      <div class="sec-note">Approuvez ou refusez les objectifs proposés · ils ne deviennent officiels qu'après votre validation</div>
+      <div id="valQueue">${renderValidationQueue()}</div>
       <div class="sec-eyebrow" style="margin-top:30px;">Module 3 — Processus</div>
       <div class="sec-title">Propriétaires des processus</div>
       <div class="sec-note">Point unique du qui-fait-quoi · changez propriétaire et backup (accès direction)</div>
       <div id="procZone">${renderProcess()}</div>`; }
+    else if(editableSelf){
+      body = `<div id="myObjZone">${renderMyObjectives(CURRENT_ROLE)}</div>`;
+    }
     else {
       const mine = OBJECTIFS.filter(o=>o.resp===me || (o.resp && me && o.resp.includes(me.split(' ')[0])));
       body = mine.length ? renderObjectifsReadonly(mine) : '<div class="panel"><div style="padding:18px;color:var(--muted);font-size:13px;">Aucun objectif ne vous est assigné pour le moment.</div></div>';
@@ -526,7 +677,7 @@ function renderTab(){
       <div class="sec-title">${title}</div>
       <div class="sec-note">${note}</div>
       ${body}
-      ${footer(editable ? "Édition active pendant la session (démonstration). Les droits réels (vous seul éditez) seront appliqués côté serveur dans la version connectée. Les objectifs alimentent le suivi OKR de chaque vue." : "Objectifs définis par la direction. Pour toute évolution, voir avec Eric.")}`;
+      ${footer(editable ? "Les objectifs alimentent le suivi OKR de chaque vue." : (editableSelf ? "Vous gérez vos propres objectifs de fonction ; ils remontent au suivi de direction." : "Objectifs définis par la direction. Pour toute évolution, voir avec Eric."))}`;
   }
 }
 
@@ -543,7 +694,7 @@ function toggleAction(role, id){
   const a = ACTIONS[role].find(x=>x.id===id) || (DELEGATED[role]||[]).find(x=>x.id===id);
   if(a) a.done = !a.done;
   const open = ACTIONS[role].filter(x=>!x.done).length;
-  document.getElementById('tabBadge').textContent = open;
+  const badge = document.getElementById('tabBadge'); if(badge) badge.textContent = open;
   const activeSeg = document.querySelector('.seg button.on');
   const mode = activeSeg ? activeSeg.dataset.mode : 'mine';
   document.getElementById('view').innerHTML = renderActions(role, mode);
@@ -807,16 +958,84 @@ let LIBRARY = {
   'Bilan de mandat': [],
 };
 
+/* ===== MODULE RÉALISATION (piloté par Audrey) =====
+   Projets en réalisation, jalons prioritaires, et standards Go Gemba® cochés. */
+// Liste de référence des standards Go Gemba® génériques (cochables par projet)
+const STANDARDS_GG = [
+  'Cadrage Go Gemba® validé',
+  'Diagnostic terrain réalisé',
+  'Rituels de management en place',
+  'Standards visuels affichés au poste',
+  'Coaching des managers tracé',
+  'Indicateur de comportement coach suivi',
+  'Débriefs de coaching enregistrés',
+  'Résolution de problèmes (5 pourquoi) déployée',
+  'Boucle d\'amélioration active',
+  'Transfert d\'autonomie au manager',
+];
+// Projets en réalisation : chaque projet a des jalons et une sélection de standards
+let PROJETS = [
+  {
+    nom: 'Andros — séminaire dirigeants',
+    lead: 'Eric',
+    jalons: [
+      {libelle: 'Cadrage validé', echeance: '10 juil.', fait: true},
+      {libelle: 'Diagnostic terrain', echeance: '24 juil.', fait: false},
+    ],
+    standards: ['Cadrage Go Gemba® validé', 'Diagnostic terrain réalisé', 'Rituels de management en place'],
+    standardsFaits: ['Cadrage Go Gemba® validé'],
+  },
+  {
+    nom: 'Lactalis — transformation',
+    lead: 'Audrey Humbert',
+    jalons: [
+      {libelle: 'Jalon à sécuriser', echeance: '5 juil.', fait: false},
+    ],
+    standards: ['Cadrage Go Gemba® validé', 'Coaching des managers tracé', 'Débriefs de coaching enregistrés'],
+    standardsFaits: ['Cadrage Go Gemba® validé', 'Coaching des managers tracé'],
+  },
+];
+let PROJ_EDIT = -1;   // index projet en édition (nom/lead)
+
+/* ===== CAPITALISATION DES BONNES PRATIQUES (BP) =====
+   Canevas : titre, contexte, pratique, résultat, reproductibilité, phase, processus.
+   Évaluation : 3 critères notés 0/1/2 par évaluateur → score /6 en %.
+   États : 'brouillon' (en cours), 'evaluation' (soumise), 'promue' (proposée en standard). */
+const BP_PHASES = ['Diagnostic','Lancement de mandat','Coaching','Mi-mandat','Formation des coachs internes','Bilan de mandat'];
+const BP_CRITERES = ['pertinence','impact','reproductibilite'];
+const BP_CRIT_LABEL = {pertinence:'Pertinence', impact:'Impact', reproductibilite:'Reproductibilité'};
+const BP_NOTE_LABEL = {0:'Néant', 1:'Partiel', 2:'Total'};
+let BP = [
+  {
+    id: 'bp1',
+    titre: 'Rituel flash 5 min en début de poste',
+    auteur: 'Arnaud Torres',
+    contexte: 'Managers de proximité qui démarrent la journée sans point d\'équipe.',
+    pratique: 'Instaurer un point debout de 5 min devant le tableau visuel : sécurité, priorités du jour, irritants.',
+    resultat: 'Baisse des interruptions dans la matinée, alignement immédiat de l\'équipe.',
+    reproductibilite: 'Nécessite un tableau visuel au poste et un manager formé à l\'animation courte.',
+    phase: 'Coaching',
+    processus: 'Réalisation de mission',
+    etat: 'evaluation',
+    evaluations: {},   // { 'Nom évaluateur': {pertinence:2, impact:1, reproductibilite:2} }
+  },
+];
+let BP_EDIT = null;    // id de la BP en cours d'édition, ou 'new'
+let BP_DICTEE = null;  // champ en cours de dictée
+
 /* ===== OBJECTIFS (édition réservée à la direction) ===== */
 let OBJECTIFS = [
-  {intitule:'Croissance du CA', cible:'2 M€ (≈ +25 %)', echeance:'Fin 2027', resp:'Eric', statut:'en cours'},
-  {intitule:'Volume de R1 (prise de contact)', cible:'8 / semaine', echeance:'Continu 2026', resp:'Paul Ingrassia', statut:'tenu'},
-  {intitule:'Transformation R1 → R2', cible:'33 %', echeance:'Continu 2026', resp:'Paul Ingrassia', statut:'tenu'},
-  {intitule:'Transformation R2 → proposition', cible:'50 %', echeance:'Continu 2026', resp:'Eric / C. Leray', statut:'en cours'},
+  {intitule:'Croissance du CA', cible:'2 M€ (≈ +25 %)', echeance:'Fin 2027', resp:'Eric', statut:'en cours', valide:'valide'},
+  {intitule:'Volume de R1 (prise de contact)', cible:'8 / semaine', echeance:'Continu 2026', resp:'Paul Ingrassia', statut:'tenu', valide:'valide'},
+  {intitule:'Transformation R1 → R2', cible:'33 %', echeance:'Continu 2026', resp:'Paul Ingrassia', statut:'tenu', valide:'valide'},
+  {intitule:'Transformation R2 → proposition', cible:'50 %', echeance:'Continu 2026', resp:'Eric / C. Leray', statut:'en cours', valide:'valide'},
 ];
 const RESP_LIST = ['Eric','Paul Ingrassia','Audrey Humbert','Arnaud Torres','Juliette Surcouf','Sabrine Lourhmi','Najoua Amlal','Eric / C. Leray'];
 const STATUTS = ['à lancer','en cours','tenu','en retard'];
 const STATUT_CLASS = {'à lancer':'p-grey','en cours':'p-blue','tenu':'p-green','en retard':'p-signal'};
+// statut de validation d'un objectif proposé par un responsable
+const VALIDE_LABEL = {valide:'validé', propose:'en attente de validation', refuse:'refusé'};
+const VALIDE_CLASS = {valide:'p-green', propose:'p-amber', refuse:'p-signal'};
 const ROLE_RESP = { eric:'Eric', paul:'Paul Ingrassia', audrey:'Audrey Humbert', juliette:'Juliette Surcouf', sabrine:'Sabrine Lourhmi', najoua:'Najoua Amlal' };
 
 let EDIT_IDX = -1; // ligne en cours d'édition (-1 = aucune)
@@ -827,7 +1046,7 @@ function renderObjectifs(editable){
     if(editable && EDIT_IDX===i){
       // ligne en mode édition (formulaire)
       return `<tr class="obj-editing">
-        <td colspan="5">
+        <td colspan="6">
           <div class="obj-form">
             <label>Objectif<input id="f-intitule" value="${o.intitule.replace(/"/g,'&quot;')}"></label>
             <label>Cible<input id="f-cible" value="${o.cible.replace(/"/g,'&quot;')}"></label>
@@ -849,6 +1068,7 @@ function renderObjectifs(editable){
       <td class="sub-cell">${o.echeance}</td>
       <td class="owner">${o.resp}</td>
       <td><span class="pill ${STATUT_CLASS[o.statut]}">${o.statut}</span></td>
+      <td><span class="pill ${VALIDE_CLASS[o.valide||'valide']}">${VALIDE_LABEL[o.valide||'valide']}</span></td>
     </tr>`;
   }).join('');
   const addBar = editable
@@ -856,7 +1076,7 @@ function renderObjectifs(editable){
     : '';
   return `<div class="panel" style="padding:8px 16px 16px;">
       <table>
-        <thead><tr><th>Objectif</th><th>Cible</th><th>Échéance</th><th>Responsable</th><th>Statut</th></tr></thead>
+        <thead><tr><th>Objectif</th><th>Cible</th><th>Échéance</th><th>Responsable</th><th>Statut</th><th>Validation</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
       ${addBar}
@@ -906,7 +1126,50 @@ const STORE_KEYS = {
   skills: 'skills',
   library: 'library',
   process: 'process',
+  panels: 'panels',
+  projets: 'projets',
+  bp: 'bp',
 };
+
+/* ===== Pavés éditables génériques (Marketing & RH) =====
+   Chaque pavé = { titre, colonnes:[...], lignes:[[...]] }.
+   Le premier bloc KPI de chaque vue N'EST PAS ici (il reste automatique). */
+const PANELS = {
+  jul_succes: {
+    titre: 'Succès clients à valoriser',
+    colonnes: ['Succès', 'Format prévu', 'Statut', 'Action'],
+    lignes: [
+      ['Groupe Andros — 230 managers', 'Étude de cas', 'à rédiger', 'Valider accord client'],
+      ['Kriter — séminaire CODIR', 'Témoignage', 'en cours', 'Interview dirigeant'],
+      ['Best pitch French Tech / Renault', 'Post LinkedIn', 'prêt', 'Programmer'],
+    ],
+  },
+  jul_edito: {
+    titre: 'Calendrier éditorial',
+    colonnes: ['Contenu', 'Canal', 'Échéance', 'Statut'],
+    lignes: [
+      ['Le management de proximité en 2026', 'Article + LinkedIn', '3 juil.', 'rédaction'],
+      ['Go Gemba® expliqué', 'Vidéo courte', '10 juil.', 'script'],
+      ['Newsletter trimestrielle', 'Email', '15 juil.', 'à lancer'],
+    ],
+  },
+  sab_pipeline: {
+    titre: 'Pipeline recrutement — postes en cours',
+    colonnes: ['Poste', 'Sourcing', 'Entretien', 'Proposition', 'Priorité'],
+    lignes: [
+      ['Consultant senior Go Gemba®', '6', '3', '1', 'Haute'],
+      ['Consultant junior', '8', '2', '0', 'Moyenne'],
+    ],
+  },
+  sab_integration: {
+    titre: 'Intégration — nouveaux arrivants',
+    colonnes: ['Profil', 'Arrivée', 'Onboarding', 'Relais compétences'],
+    lignes: [
+      ['Consultant — démarrage', '1 juil.', 'en cours', '→ Audrey Humbert'],
+    ],
+  },
+};
+let PANEL_EDIT = null;   // { key, row, col } de la cellule en édition
 
 // Écrit un domaine (upsert d'une ligne {cle, valeur} dans cockpit_state)
 async function saveShared(key, value){
@@ -938,6 +1201,9 @@ async function loadAllShared(){
   const s = await loadShared(STORE_KEYS.skills);     if(s){ SKILLS.length=0; s.forEach(x=>SKILLS.push(x)); }
   const l = await loadShared(STORE_KEYS.library);    if(l){ Object.keys(LIBRARY).forEach(k=>delete LIBRARY[k]); Object.assign(LIBRARY, l); }
   const p = await loadShared(STORE_KEYS.process);    if(p){ PROCESS.length=0; p.forEach(x=>PROCESS.push(x)); }
+  const pn = await loadShared(STORE_KEYS.panels);    if(pn){ Object.keys(pn).forEach(k=>{ if(PANELS[k]) PANELS[k]=pn[k]; }); }
+  const pj = await loadShared(STORE_KEYS.projets);   if(pj){ PROJETS.length=0; pj.forEach(x=>PROJETS.push(x)); }
+  const bp = await loadShared(STORE_KEYS.bp);        if(bp){ BP.length=0; bp.forEach(x=>BP.push(x)); }
 }
 
 // Au tout premier usage, la base est vide → initialisation avec les données par défaut.
@@ -952,6 +1218,9 @@ async function initSharedIfEmpty(){
       saveShared(STORE_KEYS.skills, SKILLS),
       saveShared(STORE_KEYS.library, LIBRARY),
       saveShared(STORE_KEYS.process, PROCESS),
+      saveShared(STORE_KEYS.panels, PANELS),
+      saveShared(STORE_KEYS.projets, PROJETS),
+      saveShared(STORE_KEYS.bp, BP),
     ]);
   }
 }
@@ -964,6 +1233,64 @@ const persistConsultants=() => saveShared(STORE_KEYS.consultants, CONSULTANTS);
 const persistSkills    = () => saveShared(STORE_KEYS.skills, SKILLS);
 const persistLibrary   = () => saveShared(STORE_KEYS.library, LIBRARY);
 const persistProcess   = () => saveShared(STORE_KEYS.process, PROCESS);
+const persistPanels    = () => saveShared(STORE_KEYS.panels, PANELS);
+const persistProjets   = () => saveShared(STORE_KEYS.projets, PROJETS);
+const persistBP        = () => saveShared(STORE_KEYS.bp, BP);
+
+/* ===== Rendu et édition des pavés génériques ===== */
+function statutPill(v){
+  const t = String(v||'').toLowerCase();
+  let cls = 'p-grey';
+  if(/prêt|pret|conforme|publié|publie|vert|fait|ok/.test(t)) cls='p-green';
+  else if(/cours|rédaction|redaction/.test(t)) cls='p-blue';
+  else if(/lancer|rédiger|rediger|activer|moyenne/.test(t)) cls='p-amber';
+  else if(/risque|haute|retard|urgent/.test(t)) cls='p-signal';
+  return `<span class="pill ${cls}">${v}</span>`;
+}
+function renderPanel(key){
+  const p = PANELS[key];
+  if(!p) return '';
+  const statutCol = p.colonnes.findIndex(c => /statut|priorité|priorite/i.test(c));
+  const head = p.colonnes.map(c=>`<th>${c}</th>`).join('') + '<th style="width:44px"></th>';
+  const rows = p.lignes.map((ligne,ri)=>{
+    const cells = ligne.map((val,ci)=>{
+      if(PANEL_EDIT && PANEL_EDIT.key===key && PANEL_EDIT.row===ri && PANEL_EDIT.col===ci){
+        return `<td><input id="pcell" value="${String(val).replace(/"/g,'&quot;')}" style="width:100%;padding:4px 6px;" onkeydown="if(event.key==='Enter')savePanelCell()"></td>`;
+      }
+      const disp = (ci===statutCol) ? statutPill(val) : val;
+      return `<td onclick="editPanelCell('${key}',${ri},${ci})" style="cursor:pointer;" title="cliquer pour modifier">${disp}</td>`;
+    }).join('');
+    const del = `<td><span class="x-mini" onclick="removePanelRow('${key}',${ri})" title="supprimer la ligne">×</span></td>`;
+    return `<tr>${cells}${del}</tr>`;
+  }).join('');
+  return `<div class="panel" style="padding:8px 16px 16px;">
+    <table><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table>
+    <div class="edit-bar"><button class="add-btn" onclick="addPanelRow('${key}')">+ Ligne</button><span class="edit-hint">Cliquez une cellule pour la modifier. Entrée pour valider.</span></div>
+  </div>`;
+}
+function refreshPanel(key){
+  const z = document.getElementById('panel-'+key);
+  if(z) z.innerHTML = renderPanel(key);
+}
+function editPanelCell(key,row,col){ PANEL_EDIT = {key,row,col}; refreshPanel(key);
+  setTimeout(()=>{ const i=document.getElementById('pcell'); if(i){ i.focus(); i.select(); } },0); }
+function savePanelCell(){
+  if(!PANEL_EDIT) return;
+  const i = document.getElementById('pcell');
+  if(i){ PANELS[PANEL_EDIT.key].lignes[PANEL_EDIT.row][PANEL_EDIT.col] = i.value.trim(); }
+  const key = PANEL_EDIT.key; PANEL_EDIT = null;
+  refreshPanel(key); persistPanels();
+}
+function addPanelRow(key){
+  const p = PANELS[key];
+  p.lignes.push(p.colonnes.map(()=> '—'));
+  PANEL_EDIT = {key, row:p.lignes.length-1, col:0};
+  refreshPanel(key); persistPanels();
+  setTimeout(()=>{ const i=document.getElementById('pcell'); if(i){ i.focus(); i.select(); } },0);
+}
+function removePanelRow(key,row){
+  if(confirm('Supprimer cette ligne ?')){ PANELS[key].lignes.splice(row,1); PANEL_EDIT=null; refreshPanel(key); persistPanels(); }
+}
 
 // indicateur visuel de synchro
 function flashSync(msg){
@@ -1014,6 +1341,148 @@ function periodeStart(){
   return d.toISOString().slice(0, 10);
 }
 
+async function loadRespCommerce(){
+  const cell = document.getElementById('resp-commerce');
+  const stat = document.getElementById('resp-commerce-statut');
+  if(!cell || !SB_SESSION) return;
+  try {
+    const res = await fetch('/api/hubspot', { headers: { Authorization: 'Bearer ' + SB_SESSION.access_token } });
+    if(!res.ok) { cell.innerHTML = '<span class="edit-hint">HubSpot indisponible</span>'; if(stat) stat.innerHTML='<span class="pill p-grey">?</span>'; return; }
+    const h = await res.json();
+    const flux = h.flux_r1_7j || 0;
+    HUB_FLUX_R1 = flux;
+    const cible = h.cible_r1_hebdo || 8;
+    const ok = flux >= cible;
+    cell.textContent = `${flux} R1 cette sem. (cible ${cible})`;
+    if(stat) stat.innerHTML = ok ? '<span class="pill p-green">vert</span>' : '<span class="pill p-amber">sous cible</span>';
+    refreshIndicateurs('eric');
+  } catch(e){
+    cell.innerHTML = '<span class="edit-hint">HubSpot indisponible</span>';
+    if(stat) stat.innerHTML = '<span class="pill p-grey">?</span>';
+  }
+}
+
+const ROLES_DISPO = ['direction','paul','audrey','juliette','sabrine','najoua','si'];
+async function loadAdmin(){
+  const zone = document.getElementById('adminZone');
+  if(!zone || !SB_SESSION){ if(zone) zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Session expirée.</div>'; return; }
+  zone.innerHTML = '<div class="panel" style="padding:18px 16px;">Chargement des utilisateurs…</div>';
+  try {
+    const res = await fetch('/api/admin', { method:'POST', headers: { Authorization: 'Bearer ' + SB_SESSION.access_token, 'Content-Type':'application/json' }, body: JSON.stringify({ action:'list' }) });
+    if(res.status===403){ zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Accès réservé au SI et à la direction.</div>'; return; }
+    if(!res.ok){ zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Erreur ('+res.status+').</div>'; return; }
+    const data = await res.json();
+    renderAdmin(data.users || []);
+  } catch(e){ zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Connexion impossible.</div>'; }
+}
+function renderAdmin(users){
+  const zone = document.getElementById('adminZone');
+  const rows = users.map(u=>{
+    const extra = ROLES_DISPO.includes(u.role) ? '' : `<option selected>${u.role}</option>`;
+    const roleSel = `<select onchange="adminSetRole('${u.email}', this.value, this.closest('tr').querySelector('.adm-admin').checked)">${ROLES_DISPO.map(r=>`<option ${u.role===r?'selected':''}>${r}</option>`).join('')}${extra}</select>`;
+    const adminChk = `<label style="font-size:12px;"><input type="checkbox" class="adm-admin" ${u.is_admin?'checked':''} onchange="adminSetRole('${u.email}', this.closest('tr').querySelector('select').value, this.checked)"> admin</label>`;
+    const statut = u.desactive ? '<span class="pill p-signal">désactivé</span>' : (u.confirme ? '<span class="pill p-green">actif</span>' : '<span class="pill p-amber">non confirmé</span>');
+    const derniere = u.derniere_connexion ? new Date(u.derniere_connexion).toLocaleDateString('fr-FR') : '—';
+    return `<tr>
+      <td><b>${u.email}</b></td>
+      <td>${roleSel}</td>
+      <td>${adminChk}</td>
+      <td>${statut}</td>
+      <td class="sub-cell">${derniere}</td>
+      <td>
+        <button class="add-btn sm" onclick="adminReset('${u.id}','${u.email}')">↻ MDP</button>
+        <button class="add-btn sm ghost" onclick="adminToggle('${u.id}', ${!u.desactive})">${u.desactive?'Réactiver':'Désactiver'}</button>
+      </td>
+    </tr>`;
+  }).join('');
+  zone.innerHTML = `
+    <div class="panel" style="padding:8px 16px 16px;">
+      <table>
+        <thead><tr><th>Email</th><th>Rôle</th><th>Droits</th><th>Statut</th><th>Dernière connexion</th><th>Actions</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div class="edit-bar"><button class="add-btn" onclick="adminNouveau()">+ Nouvel utilisateur</button><button class="add-btn ghost" onclick="loadAdmin()">↻ Actualiser</button><span class="edit-hint">« ↻ MDP » génère un nouveau mot de passe à transmettre. Les mots de passe existants ne sont jamais affichés.</span></div>
+      <div id="adminMsg"></div>
+    </div>`;
+}
+function adminMsg(html){ const m=document.getElementById('adminMsg'); if(m) m.innerHTML = '<div class="save-ok" style="margin-top:10px;display:block;">'+html+'</div>'; }
+async function adminCall(payload){
+  const res = await fetch('/api/admin', { method:'POST', headers: { Authorization: 'Bearer ' + SB_SESSION.access_token, 'Content-Type':'application/json' }, body: JSON.stringify(payload) });
+  return { ok: res.ok, data: await res.json().catch(()=>({})) };
+}
+async function adminSetRole(email, role, is_admin){
+  const { ok } = await adminCall({ action:'set_role', email, role, is_admin: Boolean(is_admin) });
+  if(ok){ adminMsg('✓ Droits mis à jour pour '+email); } else { adminMsg('⚠ Échec de la mise à jour'); }
+}
+async function adminReset(id, email){
+  if(!confirm('Réinitialiser le mot de passe de '+email+' ? Un nouveau mot de passe sera généré.')) return;
+  const { ok, data } = await adminCall({ action:'reset_password', id });
+  if(ok && data.nouveauMotDePasse){
+    adminMsg('✓ Nouveau mot de passe pour <b>'+email+'</b> : <code style="background:#fff;padding:2px 8px;border-radius:4px;">'+data.nouveauMotDePasse+'</code><br><span style="font-weight:400;">Transmettez-le à la personne — il ne sera plus affiché. Elle pourra le changer ensuite.</span>');
+  } else { adminMsg('⚠ Échec de la réinitialisation'); }
+}
+async function adminToggle(id, desactiver){
+  const { ok } = await adminCall({ action:'toggle_active', id, desactiver });
+  if(ok){ loadAdmin(); } else { adminMsg('⚠ Échec'); }
+}
+async function adminNouveau(){
+  const email = prompt('Email du nouvel utilisateur ?'); if(!email) return;
+  const role = prompt('Rôle ? ('+ROLES_DISPO.join(' / ')+')', 'paul'); if(role===null) return;
+  const { ok, data } = await adminCall({ action:'create', email: email.trim().toLowerCase(), role: role.trim(), is_admin:false });
+  if(ok && data.motDePasseInitial){
+    loadAdmin();
+    setTimeout(()=>adminMsg('✓ Utilisateur <b>'+email+'</b> créé. Mot de passe initial : <code style="background:#fff;padding:2px 8px;border-radius:4px;">'+data.motDePasseInitial+'</code><br><span style="font-weight:400;">Transmettez-le — il ne sera plus affiché.</span>'), 400);
+  } else { adminMsg('⚠ '+(data.error||'Échec de la création')); }
+}
+
+async function loadHubspot(){
+  const zone = document.getElementById('hubZone');
+  if(!zone) return;
+  if(!SB_SESSION){ zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Session expirée — reconnectez-vous.</div>'; return; }
+  zone.innerHTML = '<div class="panel" style="padding:18px 16px;">Chargement HubSpot…</div>';
+  try {
+    const res = await fetch('/api/hubspot', { headers: { Authorization: 'Bearer ' + SB_SESSION.access_token } });
+    if(res.status === 403){ zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Accès refusé.</div>'; return; }
+    if(!res.ok){ zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Erreur HubSpot (' + res.status + ').</div>'; return; }
+    const h = await res.json();
+
+    // Chemin visuel : parcours du deal, du R1 aux issues Gagnée / Perdue
+    const stock = h.stock || {};
+    const cheminMilieu = ['R1','A recontacter suite R1','Nurturing suite R1','Évaluation des besoins','Présentation de solutions','Traitement des objections','Finalisation des conditions'];
+    const nodes = cheminMilieu.filter(e => e in stock).map((e,idx)=>{
+      const cls = idx===0 ? 'start' : 'mid';
+      return `<div class="path-node ${cls}"><div class="pn-label">${e}</div><div class="pn-val">${stock[e]||0}</div></div>`;
+    }).join('');
+    // Deux issues terminales côte à côte
+    const gagnees = stock['Fermées gagnées'] || h.gagnees || 0;
+    const perdues = stock['Fermé perdu'] || h.perdues || 0;
+    const noshow = stock['No Show / A repositionner'] || 0;
+    const issues = `<div class="path-branch">
+        <div class="path-node win end"><div class="pn-label">Gagnée</div><div class="pn-val">${gagnees}</div></div>
+        <div class="path-node lose end"><div class="pn-label">Perdue</div><div class="pn-val">${perdues}</div></div>
+      </div>`;
+
+    const fluxOk = (h.flux_r1_7j || 0) >= (h.cible_r1_hebdo || 8);
+    HUB_FLUX_R1 = h.flux_r1_7j || 0;
+    refreshIndicateurs('paul');
+
+    zone.innerHTML = `
+      <div class="kpis k4">
+        <div class="kpi ${fluxOk?'good':'warn'}"><div class="k-label">R1 cette semaine</div><div class="k-val" style="color:${fluxOk?'#2e7d46':'var(--signal)'}">${h.flux_r1_7j||0} <small style="color:var(--muted)">/ ${h.cible_r1_hebdo||8}</small></div><div class="k-trend ${fluxOk?'up':''}">${fluxOk?'▲ cible atteinte':'sous la cible'}</div></div>
+        <div class="kpi"><div class="k-label">R1 (stock)</div><div class="k-val">${h.volumes?h.volumes.r1:0}</div><div class="k-trend">en cours</div></div>
+        <div class="kpi"><div class="k-label">R2 · qualif. (stock)</div><div class="k-val">${h.volumes?h.volumes.r2:0}</div><div class="k-trend">Évaluation des besoins</div></div>
+        <div class="kpi accent"><div class="k-label">Propositions (stock)</div><div class="k-val">${h.volumes?h.volumes.proposition:0}</div><div class="k-trend">Présentation de solutions</div></div>
+      </div>
+      <div class="panel" style="padding:14px 16px; margin-top:12px;">
+        <div class="sec-note" style="margin:2px 0 4px">Parcours des affaires — du R1 aux issues</div>
+        <div class="path">${nodes}${issues}</div>
+        <div class="edit-hint" style="margin-top:10px;">No Show / à repositionner : <b>${noshow}</b> &nbsp;·&nbsp; <button class="add-btn" onclick="loadHubspot()">↻ Actualiser</button> &nbsp; Lecture seule depuis HubSpot. Le « R1 cette semaine » suit votre objectif de 8/sem.</div>
+      </div>`;
+  } catch(err){
+    zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Connexion impossible à HubSpot.</div>';
+  }
+}
+
 async function loadFinance(){
   const zone = document.getElementById('finZone');
   if(!zone) return;
@@ -1057,13 +1526,7 @@ async function loadFinance(){
         <div class="kpi ${e.encours_ttc > 0 ? 'warn' : ''}"><div class="k-label">Encours clients TTC</div><div class="k-val">${fmtEuro(e.encours_ttc)}</div><div class="k-trend">${e.nb_impayees || 0} facture(s) impayée(s)</div></div>
         <div class="kpi"><div class="k-label">Flux net (période)</div><div class="k-val">${fmtEuro(q.flux_net)}</div><div class="k-trend">${q.nb_transactions || 0} opérations</div></div>
       </div>
-      <div class="panel" style="padding:8px 16px 14px; margin-top:12px;">
-        <div class="sec-note" style="margin:6px 0">Dernières transactions Qonto</div>
-        <table><thead><tr><th>Date</th><th>Libellé</th><th style="text-align:right">Montant</th></tr></thead><tbody>
-        ${(q.dernieres_transactions||[]).slice(0,8).map(t=>`<tr><td class="sub-cell">${t.date||''}</td><td>${(t.label||'').slice(0,48)}</td><td style="text-align:right; color:${t.amount<0?'var(--signal)':'var(--green)'}">${fmtEuro(t.amount)}</td></tr>`).join('')}
-        </tbody></table>
-        <div class="edit-hint" style="margin-top:8px;">Lecture seule. La trésorerie est le solde actuel des comptes ; le CA et le flux portent sur la période choisie. Le détail complet reste piloté par Najoua.</div>
-      </div>`;
+      <div class="edit-hint" style="margin-top:10px;">Lecture seule. La trésorerie est le solde actuel des comptes ; le CA et le flux portent sur la période choisie. Le détail complet reste piloté par Najoua.</div>`;
   } catch(err){
     zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Connexion impossible aux fonctions financières. En local, utilisez « netlify dev ».</div>';
   }
@@ -1096,9 +1559,19 @@ function editProc(i, champ, val){
   setTimeout(()=>{ PROC_MSG=''; const z=document.getElementById('procZone'); if(z) z.innerHTML = renderProcess(); }, 2500);
 }
 function syncLifecycleOwners(){
-  PROCESS.filter(p=>p.step && p.grp==='Chaîne de valeur').forEach(p=>{
-    const el = document.querySelector('.lc-step[data-step="'+p.step+'"] .lc-owner');
+  const me = ROLE_RESP[CURRENT_ROLE] || '';       // nom de l'utilisateur connecté
+  const monPrenom = me.split(' ')[0] || '';        // ex. "Audrey", "Paul", "Eric"
+  const estMoi = (prop) => {
+    if(!prop || !monPrenom) return false;
+    return prop.toLowerCase().includes(monPrenom.toLowerCase());
+  };
+  PROCESS.filter(p=>p.step).forEach(p=>{
+    const step = document.querySelector('.lc-step[data-step="'+p.step+'"]');
+    if(!step) return;
+    const el = step.querySelector('.lc-owner');
     if(el) el.textContent = p.prop;
+    // surbrillance jaune si le propriétaire est l'utilisateur connecté
+    step.classList.toggle('mine', estMoi(p.prop));
   });
 }
 
@@ -1125,6 +1598,158 @@ function addObj(){
 }
 function removeObj(i){
   if(confirm('Supprimer cet objectif ?')){ OBJECTIFS.splice(i,1); EDIT_IDX=-1; document.getElementById('objZone').innerHTML = renderObjectifs(true); persistObjectifs(); }
+}
+
+/* ===== Objectifs éditables PAR responsable (Juliette, Sabrine…) ===== */
+let MY_EDIT_IDX = -1;      // index (dans OBJECTIFS) de la ligne en édition
+let MY_OBJ_MSG = '';
+let MY_ROLE = null;        // rôle courant qui édite ses objectifs
+
+// rend un tableau d'objectifs filtré sur le responsable du rôle, éditable
+/* ===== Bloc d'indicateurs = objectifs validés (par profil) ===== */
+let HUB_FLUX_R1 = null;   // dernier flux R1 HubSpot connu (rempli par loadRespCommerce/loadHubspot)
+
+// couleur d'un objectif : valeur réelle si connue (R1), sinon statut
+function objCouleur(o){
+  // cas mesurable : Volume de R1 → comparé au flux HubSpot réel
+  if(/volume de r1|r1 \(prise|r1 par semaine/i.test(o.intitule) && HUB_FLUX_R1!==null){
+    const cible = parseInt((o.cible.match(/\d+/)||[8])[0], 10);
+    return { cls: HUB_FLUX_R1 >= cible ? 'ok':'ko', val: HUB_FLUX_R1, sub: 'réel HubSpot · cible '+cible+'/sem' };
+  }
+  // sinon : couleur par statut saisi
+  if(o.statut==='tenu')    return { cls:'ok',     val:o.cible, sub:'statut : tenu' };
+  if(o.statut==='en retard')return { cls:'ko',    val:o.cible, sub:'statut : en retard' };
+  return { cls:'neutre', val:o.cible, sub:'statut : '+o.statut };
+}
+
+// bloc d'indicateurs pour un rôle donné (ses objectifs validés)
+function renderIndicateurs(role){
+  const me = ROLE_RESP[role];
+  const mine = OBJECTIFS.filter(o => (o.valide||'valide')==='valide' && (o.resp===me || (me && o.resp && o.resp.includes(me.split(' ')[0]))));
+  if(!mine.length){
+    return '<div class="panel" style="padding:16px;color:var(--muted);font-size:13px;">Aucun objectif validé pour le moment. Vos indicateurs apparaîtront ici une fois vos objectifs validés par la direction.</div>';
+  }
+  const cards = mine.map(o=>{
+    const c = objCouleur(o);
+    return `<div class="kpi ${c.cls}"><div class="k-label">${o.intitule}</div><div class="k-val">${c.val}</div><div class="k-sub">${c.sub}</div></div>`;
+  }).join('');
+  return `<div class="kpis k4">${cards}</div>`;
+}
+
+// synthèse direction : TOUS les objectifs validés de l'équipe
+function renderIndicateursDirection(){
+  const valides = OBJECTIFS.filter(o => (o.valide||'valide')==='valide');
+  if(!valides.length) return '<div class="panel" style="padding:16px;color:var(--muted);font-size:13px;">Aucun objectif validé.</div>';
+  const cards = valides.map(o=>{
+    const c = objCouleur(o);
+    return `<div class="kpi ${c.cls}"><div class="k-label">${o.intitule}</div><div class="k-val">${c.val}</div><div class="k-sub">${o.resp} · ${c.sub}</div></div>`;
+  }).join('');
+  return `<div class="kpis k4">${cards}</div>`;
+}
+function refreshIndicateurs(role){
+  const z = document.getElementById('indicZone');
+  if(z) z.innerHTML = (role==='eric') ? renderIndicateursDirection() : renderIndicateurs(role);
+}
+
+function renderMyObjectives(role){
+  MY_ROLE = role;
+  const me = ROLE_RESP[role];
+  // indices réels dans OBJECTIFS pour ce responsable
+  const mine = OBJECTIFS.map((o,i)=>({o,i})).filter(x => x.o.resp === me);
+  const rows = mine.map(({o,i})=>{
+    if(MY_EDIT_IDX===i){
+      return `<tr class="obj-editing"><td colspan="4">
+        <div class="obj-form">
+          <label>Objectif<input id="mf-intitule" value="${o.intitule.replace(/"/g,'&quot;')}"></label>
+          <label>Cible<input id="mf-cible" value="${o.cible.replace(/"/g,'&quot;')}"></label>
+          <label>Échéance<input id="mf-echeance" value="${o.echeance.replace(/"/g,'&quot;')}"></label>
+          <label>Statut<select id="mf-statut">${STATUTS.map(s=>`<option ${s===o.statut?'selected':''}>${s}</option>`).join('')}</select></label>
+          <div class="obj-form-actions">
+            <button class="add-btn" onclick="saveMyObj(${i})">Enregistrer</button>
+            <button class="add-btn ghost" onclick="cancelMyObj()">Annuler</button>
+          </div>
+        </div></td></tr>`;
+    }
+    return `<tr>
+      <td><b>${o.intitule}</b> <button class="edit-row" onclick="startEditMyObj(${i})" title="modifier">✎</button> <span class="x-mini" onclick="removeMyObj(${i})" title="supprimer">×</span></td>
+      <td>${o.cible}</td>
+      <td class="sub-cell">${o.echeance}</td>
+      <td><span class="pill ${STATUT_CLASS[o.statut]}">${o.statut}</span></td>
+      <td><span class="pill ${VALIDE_CLASS[o.valide||'valide']}">${VALIDE_LABEL[o.valide||'valide']}</span></td>
+    </tr>`;
+  }).join('');
+  const empty = mine.length ? '' : '<tr><td colspan="5" style="color:var(--muted);font-size:13px;padding:14px;">Aucun objectif pour le moment. Ajoutez-en un ci-dessous.</td></tr>';
+  return `<div class="panel" style="padding:8px 16px 16px;">
+    <table>
+      <thead><tr><th>Mon objectif</th><th>Cible</th><th>Échéance</th><th>Statut</th><th>Validation</th></tr></thead>
+      <tbody>${rows || empty}</tbody>
+    </table>
+    <div class="edit-bar"><button class="add-btn" onclick="addMyObj()">+ Mon objectif</button>${MY_OBJ_MSG?`<span class="save-ok">✓ ${MY_OBJ_MSG}</span>`:'<span class="edit-hint">Vous proposez vos objectifs ; ils deviennent officiels après validation par la direction.</span>'}</div>
+  </div>`;
+}
+function refreshMyObjZone(){ const z=document.getElementById('myObjZone'); if(z) z.innerHTML = renderMyObjectives(MY_ROLE); }
+function startEditMyObj(i){ MY_EDIT_IDX = i; MY_OBJ_MSG=''; refreshMyObjZone(); }
+function cancelMyObj(){ MY_EDIT_IDX = -1; refreshMyObjZone(); }
+function saveMyObj(i){
+  OBJECTIFS[i] = {
+    intitule: document.getElementById('mf-intitule').value.trim() || '—',
+    cible: document.getElementById('mf-cible').value.trim() || '—',
+    echeance: document.getElementById('mf-echeance').value.trim() || '—',
+    resp: OBJECTIFS[i].resp,   // le responsable ne change pas (c'est le sien)
+    statut: document.getElementById('mf-statut').value,
+    valide: 'propose',         // toute modification par le responsable repasse en attente
+  };
+  MY_EDIT_IDX = -1; MY_OBJ_MSG = 'Objectif proposé — en attente de validation';
+  refreshMyObjZone(); persistObjectifs();
+  setTimeout(()=>{ MY_OBJ_MSG=''; refreshMyObjZone(); }, 2500);
+}
+function addMyObj(){
+  const me = ROLE_RESP[MY_ROLE];
+  OBJECTIFS.push({intitule:'Nouvel objectif', cible:'—', echeance:'—', resp:me, statut:'à lancer', valide:'propose'});
+  MY_EDIT_IDX = OBJECTIFS.length-1; MY_OBJ_MSG='';
+  refreshMyObjZone(); persistObjectifs();
+}
+function removeMyObj(i){
+  if(confirm('Supprimer cet objectif ?')){ OBJECTIFS.splice(i,1); MY_EDIT_IDX=-1; refreshMyObjZone(); persistObjectifs(); }
+}
+
+/* ===== File de validation des objectifs (vue direction) ===== */
+function renderValidationQueue(){
+  const pending = OBJECTIFS.map((o,i)=>({o,i})).filter(x => (x.o.valide||'valide')==='propose');
+  if(!pending.length){
+    return '<div class="panel" style="padding:16px;color:var(--muted);font-size:13px;">Aucun objectif en attente de validation.</div>';
+  }
+  const rows = pending.map(({o,i})=>`<tr>
+    <td><b>${o.intitule}</b></td>
+    <td>${o.cible}</td>
+    <td class="sub-cell">${o.echeance}</td>
+    <td class="owner">${o.resp}</td>
+    <td>
+      <button class="add-btn" onclick="validerObj(${i})" style="padding:3px 10px;">✓ Valider</button>
+      <button class="add-btn ghost" onclick="refuserObj(${i})" style="padding:3px 10px;">✕ Refuser</button>
+    </td>
+  </tr>`).join('');
+  return `<div class="panel" style="padding:8px 16px 16px;">
+    <table><thead><tr><th>Objectif proposé</th><th>Cible</th><th>Échéance</th><th>Proposé par</th><th>Décision</th></tr></thead>
+    <tbody>${rows}</tbody></table>
+  </div>`;
+}
+function refreshValidationQueue(){ const z=document.getElementById('valQueue'); if(z) z.innerHTML = renderValidationQueue(); }
+function validerObj(i){
+  OBJECTIFS[i].valide = 'valide';
+  persistObjectifs();
+  refreshValidationQueue();
+  const z=document.getElementById('objZone'); if(z) z.innerHTML = renderObjectifs(true);
+  refreshIndicateurs('eric');
+  flashSync('✓ Objectif validé');
+}
+function refuserObj(i){
+  if(confirm('Refuser cet objectif ? Le responsable en sera informé par le statut.')){
+    OBJECTIFS[i].valide = 'refuse';
+    persistObjectifs();
+    refreshValidationQueue();
+    const z=document.getElementById('objZone'); if(z) z.innerHTML = renderObjectifs(true);
+  }
 }
 function myObjectives(role){
   const me = ROLE_RESP[role];
@@ -1197,25 +1822,369 @@ function setAvancement(phase, i, pct){
   document.getElementById('libraryZone').innerHTML = renderLibrary();
   persistLibrary();
 }
+function addLivrable(phase){
+  const titre = prompt('Nom du livrable standard pour « '+phase+' » ?');
+  if(titre===null || !titre.trim()) return;
+  LIBRARY[phase] = LIBRARY[phase] || [];
+  LIBRARY[phase].push({titre: titre.trim(), pct: 0});
+  document.getElementById('libraryZone').innerHTML = renderLibrary();
+  persistLibrary();
+}
+function renameLivrable(phase, i){
+  const actuel = LIBRARY[phase][i].titre;
+  const titre = prompt('Renommer le livrable :', actuel);
+  if(titre===null || !titre.trim()) return;
+  LIBRARY[phase][i].titre = titre.trim();
+  document.getElementById('libraryZone').innerHTML = renderLibrary();
+  persistLibrary();
+}
+function removeLivrable(phase, i){
+  if(confirm('Supprimer ce livrable ?')){
+    LIBRARY[phase].splice(i,1);
+    document.getElementById('libraryZone').innerHTML = renderLibrary();
+    persistLibrary();
+  }
+}
 
 function renderLibrary(){
+  // BP suggérées (éligibles, non encore intégrées/écartées) → à l'intégration par Audrey
+  const suggestions = BP.filter(b => bpEligible(b) && b.etat!=='standard' && b.etat!=='ecartee');
+  const blocSuggestions = suggestions.length ? `<div class="panel" style="padding:12px 16px;margin-bottom:16px;border-left:3px solid var(--gold);">
+    <div class="sec-note" style="margin:2px 0 8px;font-weight:600;color:var(--steel);">🎯 Bonnes pratiques suggérées comme standards (validées par les pairs, Audrey et la direction)</div>
+    ${suggestions.map(b=>`<div class="jalon-row" style="align-items:flex-start;">
+      <div style="flex:1;"><b>${b.titre}</b> <span class="pill p-grey">${b.phase}</span><br><span class="sub-cell">${b.pratique||''}</span></div>
+      <button class="add-btn sm" onclick="integrerBPStandard('${b.id}')">✓ Intégrer</button>
+      <button class="add-btn sm ghost" onclick="ecarterBPSuggestion('${b.id}')">Écarter</button>
+    </div>`).join('')}
+  </div>` : '';
   const blocks = Object.keys(LIBRARY).map(phase=>{
     const items = LIBRARY[phase];
+    const ph = phase.replace(/'/g,"\\\\'");
     const rows = items.length ? items.map((d,i)=>{
       const pct = d.pct || 0;
-      const steps = [25,50,75,100].map(s=>`<span class="pct-step ${pct>=s?'on':''}" onclick="setAvancement('${phase.replace(/'/g,"\\\\'")}',${i},${s})">${s}</span>`).join('');
+      const steps = [25,50,75,100].map(s=>`<span class="pct-step ${pct>=s?'on':''}" onclick="setAvancement('${ph}',${i},${s})">${s}</span>`).join('');
       return `<div class="lib-row">
-        <span class="lib-title">${d.titre}</span>
+        <span class="lib-title">${d.titre} <button class="edit-row" onclick="renameLivrable('${ph}',${i})" title="renommer">✎</button> <span class="x-mini" onclick="removeLivrable('${ph}',${i})" title="supprimer">×</span></span>
         <span class="pct-track">${steps}</span>
         <span class="pct-val">${pct}%</span>
       </div>`;
-    }).join('') : '<div class="lib-empty">Livrables standards à définir par Audrey — puis suivre leur avancement (25 / 50 / 75 / 100 %).</div>';
+    }).join('') : '<div class="lib-empty">Aucun livrable — ajoutez-en un ci-dessous.</div>';
     return `<div class="lib-phase">
-        <div class="lib-head"><span class="lib-phase-name">${phase}</span></div>
+        <div class="lib-head"><span class="lib-phase-name">${phase}</span> <button class="add-btn sm" onclick="addLivrable('${ph}')">+ Livrable</button></div>
         ${rows}
       </div>`;
   }).join('');
-  return `<div class="panel" style="padding:14px 16px;">${blocks}<div class="edit-hint" style="margin-top:12px;">Suivi de complétude du patrimoine méthodologique : chaque livrable standard avance par paliers de 25 %. Structure à compléter par Audrey.</div></div>`;
+  return `${blocSuggestions}<div class="panel" style="padding:14px 16px;">${blocks}<div class="edit-hint" style="margin-top:12px;">Ajoutez, renommez ou supprimez les livrables standards ; suivez leur avancement par paliers de 25 %.</div></div>`;
+}
+
+/* ===== MODULE RÉALISATION — rendu & édition ===== */
+function tauxRespect(p){
+  const applicables = (p.standards||[]).length;
+  if(!applicables) return null;
+  const respectes = (p.standardsFaits||[]).filter(s => (p.standards||[]).includes(s)).length;
+  return Math.round((respectes/applicables)*100);
+}
+function renderRealisation(){
+  const cards = PROJETS.map((p,pi)=>{
+    const taux = tauxRespect(p);
+    const tauxCls = taux===null ? 'neutre' : (taux>=80 ? 'ok' : (taux>=50 ? '' : 'ko'));
+    const tauxTxt = taux===null ? '—' : taux+'%';
+    const jalons = (p.jalons||[]).map((j,ji)=>`
+      <div class="jalon-row">
+        <span class="jalon-check ${j.fait?'on':''}" onclick="toggleJalon(${pi},${ji})" title="${j.fait?'fait':'à faire'}">${j.fait?'✓':'○'}</span>
+        <span class="jalon-lib ${j.fait?'done':''}">${j.libelle}</span>
+        <span class="jalon-ech">${j.echeance||''}</span>
+        <span class="x-mini" onclick="removeJalon(${pi},${ji})" title="supprimer">×</span>
+      </div>`).join('') || '<div class="edit-hint" style="padding:4px 0;">Aucun jalon — ajoutez-en un.</div>';
+    const standards = STANDARDS_GG.map(s=>{
+      const applicable = (p.standards||[]).includes(s);
+      const fait = (p.standardsFaits||[]).includes(s);
+      const sesc = s.replace(/'/g,"\\\\'");
+      return `<label class="std-row ${applicable?'':'std-off'}">
+        <input type="checkbox" ${applicable?'checked':''} onchange="toggleStandardApplicable(${pi},'${sesc}')">
+        <span class="std-name">${s}</span>
+        ${applicable ? `<span class="std-done ${fait?'on':''}" onclick="event.preventDefault();toggleStandardFait(${pi},'${sesc}')" title="respecté ?">${fait?'respecté ✓':'à respecter'}</span>` : ''}
+      </label>`;
+    }).join('');
+    return `<div class="proj-card">
+      <div class="proj-head">
+        <div style="flex:1;">
+          <div class="proj-nom">${p.nom}</div>
+          <div class="proj-lead">Lead : ${p.lead||'—'}</div>
+        </div>
+        <div class="proj-taux kpi ${tauxCls}" style="padding:8px 12px;min-width:110px;">
+          <div class="k-label">Respect standards</div>
+          <div class="k-val" style="font-size:22px;">${tauxTxt}</div>
+        </div>
+        <span class="x-mini" onclick="removeProjet(${pi})" title="supprimer le projet" style="align-self:flex-start;margin-left:8px;">×</span>
+      </div>
+      <div class="proj-section">
+        <div class="proj-sub">Jalons prioritaires</div>
+        ${jalons}
+        <button class="add-btn sm" onclick="addJalon(${pi})" style="margin-top:6px;">+ Jalon</button>
+      </div>
+      <div class="proj-section">
+        <div class="proj-sub">Standards Go Gemba® — cochez les applicables, puis marquez les respectés</div>
+        <div class="std-list">${standards}</div>
+      </div>
+    </div>`;
+  }).join('');
+  return `<div id="realZone">
+    <div class="proj-grid">${cards}</div>
+    <div class="edit-bar"><button class="add-btn" onclick="addProjet()">+ Projet en réalisation</button><span class="edit-hint">Taux de respect = standards respectés ÷ standards applicables, par projet.</span></div>
+  </div>`;
+}
+function refreshRealisation(){ const z=document.getElementById('realZone'); if(z) z.outerHTML = renderRealisation(); persistProjets(); }
+function addProjet(){ PROJETS.push({nom:'Nouveau projet', lead:'Audrey Humbert', jalons:[], standards:[], standardsFaits:[]}); refreshRealisation(); }
+function removeProjet(pi){ if(confirm('Supprimer ce projet ?')){ PROJETS.splice(pi,1); refreshRealisation(); } }
+function addJalon(pi){
+  const lib = prompt('Libellé du jalon ?'); if(lib===null) return;
+  const ech = prompt('Échéance ? (ex. 15 juil.)') || '';
+  PROJETS[pi].jalons = PROJETS[pi].jalons || [];
+  PROJETS[pi].jalons.push({libelle: lib||'Jalon', echeance: ech, fait:false});
+  refreshRealisation();
+}
+function toggleJalon(pi,ji){ PROJETS[pi].jalons[ji].fait = !PROJETS[pi].jalons[ji].fait; refreshRealisation(); }
+function removeJalon(pi,ji){ PROJETS[pi].jalons.splice(ji,1); refreshRealisation(); }
+function toggleStandardApplicable(pi,s){
+  const arr = PROJETS[pi].standards = PROJETS[pi].standards || [];
+  const idx = arr.indexOf(s);
+  if(idx>=0){ arr.splice(idx,1); const f = PROJETS[pi].standardsFaits||[]; const fi=f.indexOf(s); if(fi>=0) f.splice(fi,1); }
+  else { arr.push(s); }
+  refreshRealisation();
+}
+function toggleStandardFait(pi,s){
+  const f = PROJETS[pi].standardsFaits = PROJETS[pi].standardsFaits || [];
+  const idx = f.indexOf(s);
+  if(idx>=0) f.splice(idx,1); else f.push(s);
+  refreshRealisation();
+}
+
+/* ===== CAPITALISATION DES BONNES PRATIQUES — rendu & logique ===== */
+// une évaluation est complète quand les 3 critères sont notés (0/1/2 comptent, pas undefined)
+function bpEvalComplete(bp, evaluateur){
+  const e = bp.evaluations && bp.evaluations[evaluateur];
+  if(!e) return false;
+  return BP_CRITERES.every(c => e[c] === 0 || e[c] === 1 || e[c] === 2);
+}
+function bpScore(bp){
+  // ne compte que les évaluations COMPLÈTES (3 critères notés)
+  const evals = Object.entries(bp.evaluations || {})
+    .filter(([nom]) => bpEvalComplete(bp, nom))
+    .map(([,e]) => e);
+  if(!evals.length) return null;
+  let total = 0;
+  evals.forEach(e => { total += (Number(e.pertinence||0)+Number(e.impact||0)+Number(e.reproductibilite||0)); });
+  const moyenneSur6 = total / evals.length;
+  return { pct: Math.round((moyenneSur6/6)*100), nbEval: evals.length };
+}
+// moyenne d'un critère donné (sur les évaluations complètes)
+function bpMoyenneCritere(bp, crit){
+  const evals = Object.entries(bp.evaluations || {})
+    .filter(([nom]) => bpEvalComplete(bp, nom))
+    .map(([,e]) => Number(e[crit]||0));
+  if(!evals.length) return null;
+  return evals.reduce((s,v)=>s+v,0) / evals.length;   // sur 2
+}
+// noms requis pour la double validation (interprétation A : ils doivent avoir évalué)
+const BP_VALIDEURS_REQUIS = ['Audrey Humbert', 'Eric'];
+function bpValideursOk(bp){
+  return BP_VALIDEURS_REQUIS.every(nom => bpEvalComplete(bp, nom));
+}
+// éligibilité à devenir standard : score global ≥83% ET chaque critère ≥50% (1/2) ET double validation
+function bpEligible(bp){
+  const s = bpScore(bp);
+  if(!s || s.pct < 83) return false;
+  const critOk = BP_CRITERES.every(c => { const m = bpMoyenneCritere(bp, c); return m !== null && m >= 1; });
+  if(!critOk) return false;
+  if(!bpValideursOk(bp)) return false;
+  return true;
+}
+function moiNom(){ return ROLE_RESP[CURRENT_ROLE] || 'Utilisateur'; }
+
+function renderCapitalisation(){
+  const soumises = BP.filter(b => b.etat==='evaluation' || b.etat==='promue');
+  const classees = soumises.slice().sort((a,b)=>{ const sa=bpScore(a),sb=bpScore(b); return (sb?sb.pct:-1)-(sa?sa.pct:-1); });
+  const me = moiNom();
+  const aEvaluer = soumises.filter(b => !bpEvalComplete(b, me));
+  const blocEval = aEvaluer.length ? aEvaluer.map(b=>renderBPEvalCard(b)).join('') :
+    '<div class="panel" style="padding:16px;color:var(--muted);font-size:13px;">Aucune bonne pratique en attente de votre évaluation.</div>';
+  const blocClassement = classees.length ? `<div class="panel" style="padding:8px 16px 16px;">
+    <table><thead><tr><th>Bonne pratique</th><th>Phase</th><th style="text-align:center">Score</th><th style="text-align:center">Éval.</th><th>État</th></tr></thead>
+    <tbody>${classees.map(b=>{
+      const s = bpScore(b); const pct = s?s.pct:null;
+      const cls = pct===null?'p-grey':(pct>=83?'p-green':(pct>=50?'p-amber':'p-signal'));
+      let etat;
+      if(b.etat==='standard') etat = '<span class="pill p-green">✓ standard bibliothèque</span>';
+      else if(b.etat==='ecartee') etat = '<span class="pill p-grey">écartée</span>';
+      else if(bpEligible(b)) etat = '<span class="pill p-green">suggérée en standard</span>';
+      else {
+        // détailler ce qui manque pour être éligible
+        const manques = [];
+        if(!s || s.pct<83) manques.push('score < 83%');
+        if(s){ const faibles = BP_CRITERES.filter(c=>{ const m=bpMoyenneCritere(b,c); return m===null||m<1; }); if(faibles.length) manques.push('critère faible'); }
+        const valManque = BP_VALIDEURS_REQUIS.filter(n=>!bpEvalComplete(b,n));
+        if(valManque.length) manques.push('validation ' + valManque.map(n=>n.split(' ')[0]).join(' & '));
+        etat = `<span class="sub-cell">${manques.length?manques.join(' · '):'en cours'}</span>`;
+      }
+      return `<tr><td><b>${b.titre}</b><br><span class="sub-cell">${b.auteur}</span></td><td>${b.phase||'—'}</td><td style="text-align:center"><span class="pill ${cls}">${pct===null?'—':pct+'%'}</span></td><td style="text-align:center">${s?s.nbEval:0}</td><td>${etat}</td></tr>`;
+    }).join('')}</tbody></table></div>` :
+    '<div class="panel" style="padding:16px;color:var(--muted);font-size:13px;">Aucune bonne pratique soumise pour le moment.</div>';
+  return `<div id="capZone">
+    <div class="sec-eyebrow">Contribuer</div>
+    <div class="sec-title">Partager une bonne pratique</div>
+    <div class="sec-note">Décrivez librement votre pratique (saisie ou dictée vocale). Elle sera ensuite évaluée par les pairs et le CODIR.</div>
+    <div class="panel" style="padding:14px 16px;">${BP_EDIT==='new' ? renderBPForm() : `<button class="add-btn" onclick="nouvelleBP()">+ Nouvelle bonne pratique</button>`}</div>
+    <div class="sec-eyebrow" style="margin-top:24px;">À évaluer</div>
+    <div class="sec-title">En attente de votre avis</div>
+    <div class="sec-note">Notez chaque critère : 0 néant · 1 partiel · 2 total</div>
+    ${blocEval}
+    <div class="sec-eyebrow" style="margin-top:24px;">Classement</div>
+    <div class="sec-title">Bonnes pratiques évaluées</div>
+    <div class="sec-note">Score = moyenne des évaluations complètes (/6) en %. Une BP devient standard si : score global ≥ 83 %, chaque critère ≥ 50 %, et évaluation par Audrey (Réalisation & IP) et la direction. Elle est alors suggérée automatiquement dans la bibliothèque.</div>
+    ${blocClassement}
+  </div>`;
+}
+function renderBPForm(bp){
+  const b = bp || {titre:'',contexte:'',pratique:'',resultat:'',reproductibilite:'',phase:BP_PHASES[0],processus:''};
+  const champ = (id,label,val,rows)=>`<div style="margin-bottom:12px;"><label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">${label} <button class="add-btn sm ghost" onclick="dicteeBP('bpf-${id}')" title="dictée vocale">🎤 dicter</button></label><textarea id="bpf-${id}" rows="${rows||2}" style="width:100%;padding:8px;font-family:inherit;font-size:14px;">${(val||'').replace(/</g,'&lt;')}</textarea></div>`;
+  return `<div class="bp-form">
+    <div class="humetrix-box">
+      <div class="humetrix-head">🧭 Humetrix — coach IA</div>
+      <div class="humetrix-note">Décrivez votre pratique librement ci-dessous (ou dictez-la), puis laissez Humetrix la structurer et la challenger.</div>
+      <textarea id="bpf-brut" rows="4" placeholder="Ex : Sur la ligne 3, j'ai mis en place un point de 5 min chaque matin devant le tableau… racontez librement." style="width:100%;padding:8px;font-family:inherit;font-size:14px;"></textarea>
+      <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <button class="add-btn sm ghost" onclick="dicteeBP('bpf-brut')" title="dictée vocale">🎤 dicter</button>
+        <button class="add-btn" onclick="analyserHumetrix()" id="btnHumetrix">✨ Faire analyser par Humetrix</button>
+        <span class="edit-hint" id="humetrixMsg"></span>
+      </div>
+      <div id="humetrixChallenge"></div>
+    </div>
+    <div style="margin-bottom:12px;"><label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Titre</label><input id="bpf-titre" value="${(b.titre||'').replace(/"/g,'&quot;')}" style="width:100%;padding:8px;font-size:14px;"></div>
+    ${champ('contexte','Contexte / situation', b.contexte, 2)}
+    ${champ('pratique','La pratique (le geste concret)', b.pratique, 3)}
+    ${champ('resultat','Résultat obtenu', b.resultat, 2)}
+    ${champ('reproductibilite','Conditions de reproductibilité', b.reproductibilite, 2)}
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
+      <div style="flex:1;min-width:200px;"><label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Phase de réalisation</label><select id="bpf-phase" style="width:100%;padding:8px;">${BP_PHASES.map(p=>`<option ${b.phase===p?'selected':''}>${p}</option>`).join('')}</select></div>
+      <div style="flex:1;min-width:200px;"><label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Processus concerné</label><input id="bpf-processus" value="${(b.processus||'').replace(/"/g,'&quot;')}" placeholder="ex. Réalisation de mission" style="width:100%;padding:8px;font-size:14px;"></div>
+    </div>
+    <div class="edit-bar"><button class="add-btn" onclick="soumettreBP()">Soumettre à l'évaluation</button><button class="add-btn ghost" onclick="annulerBP()">Annuler</button><span class="edit-hint" id="bpDicteeMsg">Astuce : « 🎤 dicter » remplit un champ à la voix.</span></div>
+  </div>`;
+}
+function renderBPEvalCard(b){
+  const me = moiNom();
+  const ev = (b.evaluations && b.evaluations[me]) || {};
+  const critRow = (crit)=>{
+    const val = ev[crit];
+    const opts = [0,1,2].map(n=>`<button class="note-btn ${val===n?'on':''}" onclick="noterBP('${b.id}','${crit}',${n})">${n} · ${BP_NOTE_LABEL[n]}</button>`).join('');
+    return `<div class="crit-row"><span class="crit-label">${BP_CRIT_LABEL[crit]}</span><span class="crit-opts">${opts}</span></div>`;
+  };
+  return `<div class="panel bp-eval" style="padding:14px 16px;margin-bottom:12px;">
+    <div class="bp-titre">${b.titre} <span class="pill p-grey">${b.phase}</span></div>
+    <div class="bp-meta">par ${b.auteur} · processus : ${b.processus||'—'}</div>
+    <div class="bp-detail"><p><b>Contexte :</b> ${b.contexte||'—'}</p><p><b>Pratique :</b> ${b.pratique||'—'}</p><p><b>Résultat :</b> ${b.resultat||'—'}</p><p><b>Reproductibilité :</b> ${b.reproductibilite||'—'}</p></div>
+    <div class="bp-crits">${BP_CRITERES.map(critRow).join('')}</div>
+  </div>`;
+}
+function refreshCap(){ const z=document.getElementById('capZone'); if(z) z.outerHTML = renderCapitalisation(); }
+function nouvelleBP(){ BP_EDIT='new'; refreshCap(); }
+function annulerBP(){ BP_EDIT=null; refreshCap(); }
+function soumettreBP(){
+  const g = id => { const el=document.getElementById(id); return el?el.value.trim():''; };
+  const titre = g('bpf-titre');
+  if(!titre){ alert('Donnez au moins un titre.'); return; }
+  BP.push({ id:'bp'+Date.now(), titre, auteur:moiNom(), contexte:g('bpf-contexte'), pratique:g('bpf-pratique'), resultat:g('bpf-resultat'), reproductibilite:g('bpf-reproductibilite'), phase:g('bpf-phase')||BP_PHASES[0], processus:g('bpf-processus'), etat:'evaluation', evaluations:{} });
+  BP_EDIT=null; persistBP(); refreshCap();
+}
+function noterBP(id, crit, note){
+  const b = BP.find(x=>x.id===id); if(!b) return;
+  const me = moiNom();
+  b.evaluations = b.evaluations || {};
+  b.evaluations[me] = b.evaluations[me] || {};
+  b.evaluations[me][crit] = note;
+  persistBP(); refreshCap();
+}
+// Audrey (ou direction) intègre une BP suggérée comme standard dans la bibliothèque
+function integrerBPStandard(id){
+  const b = BP.find(x=>x.id===id); if(!b) return;
+  if(!confirm('Intégrer « '+b.titre+' » comme standard Go Gemba® dans la phase « '+b.phase+' » ?')) return;
+  b.etat='standard';
+  if(LIBRARY[b.phase]){ LIBRARY[b.phase].push({titre: b.titre, pct:0}); persistLibrary(); }
+  persistBP();
+  const z=document.getElementById('libraryZone'); if(z) z.innerHTML = renderLibrary();
+  const c=document.getElementById('capZone'); if(c) c.outerHTML = renderCapitalisation();
+  flashSync('✓ Bonne pratique intégrée comme standard');
+}
+function ecarterBPSuggestion(id){
+  const b = BP.find(x=>x.id===id); if(!b) return;
+  if(!confirm('Écarter la suggestion « '+b.titre+' » ? Elle ne sera pas intégrée comme standard.')) return;
+  b.etat='ecartee';
+  persistBP();
+  const z=document.getElementById('libraryZone'); if(z) z.innerHTML = renderLibrary();
+  const c=document.getElementById('capZone'); if(c) c.outerHTML = renderCapitalisation();
+}
+function dicteeBP(champId){
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const msg = document.getElementById('bpDicteeMsg');
+  if(!SR){ if(msg) msg.textContent = 'Dictée vocale indisponible sur ce navigateur (essayez Chrome).'; return; }
+  const cible = document.getElementById(champId); if(!cible) return;
+  if(BP_DICTEE){ BP_DICTEE.stop(); BP_DICTEE=null; if(msg) msg.textContent='Dictée arrêtée.'; return; }
+  const rec = new SR(); rec.lang='fr-FR'; rec.continuous=true; rec.interimResults=true;
+  const base = cible.value ? cible.value+' ' : '';
+  if(msg) msg.textContent = '🎤 Dictée en cours… reparlez, puis recliquez pour arrêter.';
+  rec.onresult = (e)=>{ let t=''; for(let i=0;i<e.results.length;i++){ t+=e.results[i][0].transcript; } cible.value = base+t; };
+  rec.onerror = ()=>{ if(msg) msg.textContent='Dictée interrompue.'; };
+  rec.onend = ()=>{ BP_DICTEE=null; };
+  BP_DICTEE = rec; rec.start();
+}
+
+async function analyserHumetrix(){
+  const brutEl = document.getElementById('bpf-brut');
+  const msg = document.getElementById('humetrixMsg');
+  const btn = document.getElementById('btnHumetrix');
+  const challengeZone = document.getElementById('humetrixChallenge');
+  if(!brutEl) return;
+  const texte = brutEl.value.trim();
+  if(!texte){ if(msg) msg.textContent = 'Écrivez d\'abord quelques lignes à analyser.'; return; }
+  if(!SB_SESSION){ if(msg) msg.textContent = 'Session expirée.'; return; }
+  if(btn){ btn.disabled = true; btn.textContent = '⏳ Humetrix réfléchit…'; }
+  if(msg) msg.textContent = '';
+  try {
+    const phaseEl = document.getElementById('bpf-phase');
+    const res = await fetch('/api/humetrix', {
+      method:'POST',
+      headers:{ Authorization:'Bearer '+SB_SESSION.access_token, 'Content-Type':'application/json' },
+      body: JSON.stringify({ texte, phase: phaseEl ? phaseEl.value : '' }),
+    });
+    const data = await res.json();
+    if(!res.ok){ if(msg) msg.textContent = 'Humetrix indisponible ('+(data.error||res.status)+').'; return; }
+    if(data.parse_ok === false){
+      // réponse non structurée : on met le texte brut dans "pratique" pour ne rien perdre
+      const p = document.getElementById('bpf-pratique'); if(p && data.brut) p.value = data.brut;
+      if(msg) msg.textContent = 'Humetrix a répondu, mais en texte libre — vérifiez les champs.';
+      return;
+    }
+    // remplir les champs du canevas
+    const set = (id,val)=>{ const el=document.getElementById(id); if(el && val!=null) el.value = val; };
+    set('bpf-titre', data.titre);
+    set('bpf-contexte', data.contexte);
+    set('bpf-pratique', data.pratique);
+    set('bpf-resultat', data.resultat);
+    set('bpf-reproductibilite', data.reproductibilite);
+    // afficher les questions de challenge
+    if(challengeZone && Array.isArray(data.questions_challenge) && data.questions_challenge.length){
+      challengeZone.innerHTML = `<div class="humetrix-challenge">
+        <div class="hc-title">🎯 Humetrix vous challenge — enrichissez votre fiche avant de soumettre :</div>
+        <ul>${data.questions_challenge.map(q=>`<li>${q}</li>`).join('')}</ul>
+      </div>`;
+    }
+    if(msg) msg.textContent = '✓ Structuré par Humetrix — relisez, ajustez, puis soumettez.';
+  } catch(e){
+    if(msg) msg.textContent = 'Connexion à Humetrix impossible.';
+  } finally {
+    if(btn){ btn.disabled = false; btn.textContent = '✨ Faire analyser par Humetrix'; }
+  }
 }
 
 const VIEWS = {
@@ -1231,6 +2200,11 @@ eric: () => `
     <div class="proj"><div class="label">Projection entonnoir</div><div class="pval">≈ 2,9 M€</div><div class="label" style="opacity:.6">marge de sécurité</div></div>
     <div class="bar-track"><div class="bar-fill" id="goalbar"></div></div>
   </div>
+
+  <div class="sec-eyebrow">Objectifs de l'équipe</div>
+  <div class="sec-title">Indicateurs — objectifs validés</div>
+  <div class="sec-note">Synthèse de tous les objectifs validés · vert = tenu / à l'objectif · rouge = en retard / sous l'objectif</div>
+  <div id="indicZone">${renderIndicateursDirection()}</div>
 
   <div class="sec-eyebrow">Tableau de bord financier</div>
   <div class="sec-title">Synthèse Qonto + Evoliz</div>
@@ -1299,7 +2273,7 @@ eric: () => `
     <table>
       <thead><tr><th>Fonction</th><th>Responsable</th><th>Indicateur clé</th><th>Statut</th></tr></thead>
       <tbody>
-        <tr><td>Commerce</td><td class="owner">Paul Ingrassia</td><td>9 R1 cette sem.</td><td><span class="pill p-green">vert</span></td></tr>
+        <tr><td>Commerce</td><td class="owner">Paul Ingrassia</td><td id="resp-commerce">— <span class="edit-hint">(chargement HubSpot…)</span></td><td id="resp-commerce-statut"><span class="pill p-grey">…</span></td></tr>
         <tr><td>Réalisation & compétences</td><td class="owner">Audrey Humbert</td><td>5 missions actives</td><td><span class="pill p-green">vert</span></td></tr>
         <tr><td>Marketing & com</td><td class="owner">Juliette Surcouf</td><td>3 succès à publier</td><td><span class="pill p-amber">à activer</span></td></tr>
         <tr onclick="openSubview('sabrine')" style="cursor:pointer;"><td>RH — recrutement <span class="open-link">ouvrir →</span></td><td class="owner">Eric (intérim)</td><td>2 postes ouverts</td><td><span class="pill p-amber">en chasse</span></td></tr>
@@ -1315,68 +2289,35 @@ eric: () => `
 paul: () => `
   <div class="sec-eyebrow">Objectif annuel</div>
   <div class="sec-title">Cap commercial — objectif 2027</div>
+  <div class="sec-note">Indicateurs = vos objectifs validés par la direction</div>
+  <div id="indicZone">${renderIndicateurs('paul')}</div>
+
+  <div class="sec-eyebrow" style="margin-top:24px;">Pipeline</div>
+  <div class="sec-title">Parcours des affaires — en direct</div>
   <div class="sec-note">Pilotage par indicateurs avancés — cycle de vente &gt; 12 mois · <span class="src hub"><span class="sdot"></span>source HubSpot</span></div>
 
-  <div class="funnel" style="margin-top:18px;">
-    <div class="stage s1"><div class="st-label">R1 · contact</div><div class="st-val">351</div><div class="st-unit">cumul · 8,0/sem</div><div class="st-conv">cible <b>8/sem</b> <span class="conv-ok">✓</span></div></div>
-    <div class="stage s2"><div class="st-label">R2 · qualif.</div><div class="st-val">119</div><div class="st-unit">cumul 2026</div><div class="st-conv">R1→R2 <b>34 %</b> <span class="conv-ok">✓ 33 %</span></div></div>
-    <div class="stage s3"><div class="st-label">Propositions</div><div class="st-val">57</div><div class="st-unit">cumul 2026</div><div class="st-conv">R2→prop. <b>48 %</b> <span class="conv-warn">≈ 50 %</span></div></div>
-    <div class="stage s4"><div class="st-label">Signatures</div><div class="st-val">11</div><div class="st-unit">cumul 2026</div><div class="st-conv">prop.→sign. <b>19 %</b> <span class="conv-ok">non ciblé</span></div></div>
+  <div id="hubZone">
+    <div class="panel" style="padding:18px 16px;">
+      <button class="add-btn" onclick="loadHubspot()">⟱ Charger les données HubSpot</button>
+      <span class="edit-hint" style="margin-left:10px;">État du pipeline de prospects + R1 de la semaine, en direct depuis HubSpot.</span>
+    </div>
   </div>
 
-  <div class="kpis">
-    <div class="kpi accent"><div class="k-label">R1 cette semaine</div><div class="k-val">9 <small>/ 8</small></div><div class="k-trend up">▲ au-dessus cible</div></div>
-    <div class="kpi"><div class="k-label">Pipeline pondéré</div><div class="k-val">3,1 <small>M€</small></div><div class="k-trend up">▲ +0,4 M€</div></div>
-    <div class="kpi"><div class="k-label">Proposition moyenne</div><div class="k-val">205 <small>k€</small></div><div class="k-trend">stable</div></div>
-  </div>
-
-  <div class="panel">
-    <h3>R1 par semaine — 10 dernières <span class="target">cible : 8/sem</span></h3>
-    <div class="chart" id="chart"></div>
-  </div>
-
-  <div class="sec-eyebrow">Pipeline actif</div>
-  <div class="sec-title">Affaires en cours</div>
-  <div class="sec-note"><span class="src hub"><span class="sdot"></span>HubSpot</span> — données de démonstration</div>
-  <div class="panel" style="padding:8px 16px 16px;">
-    <table>
-      <thead><tr><th>Prospect</th><th>Étape</th><th>Valeur</th><th>Porteur R2</th><th>Prochaine action</th></tr></thead>
-      <tbody>
-        <tr><td>Groupe Andros — extension</td><td><span class="pill p-signal">Négociation</span></td><td class="val">340 k€</td><td class="owner">Eric</td><td>Relance COMEX — 2 j</td></tr>
-        <tr><td>Pierre Fabre — Gaillac</td><td><span class="pill p-amber">Proposition</span></td><td class="val">220 k€</td><td class="owner">C. Leray</td><td>Débrief proposition</td></tr>
-        <tr><td>Renault Trucks — pilote</td><td><span class="pill p-amber">Proposition</span></td><td class="val">180 k€</td><td class="owner">Eric</td><td>Attente DRH</td></tr>
-        <tr><td>Havea — déploiement</td><td><span class="pill p-blue">R2 planifié</span></td><td class="val">~250 k€</td><td class="owner">C. Leray</td><td>R2 le 3 juillet</td></tr>
-        <tr><td>Michelin — diagnostic</td><td><span class="pill p-blue">R2 planifié</span></td><td class="val">~150 k€</td><td class="owner">Eric</td><td>Cadrer périmètre</td></tr>
-      </tbody>
-    </table>
-  </div>
-  ${footer("L'entonnoir et le pipeline se calculent en direct depuis HubSpot. Cockpit KW lit, il ne ressaisit rien.")}
+  ${footer("Vos indicateurs reflètent vos objectifs validés. Le parcours détaillé se calcule en direct depuis HubSpot. Cockpit KW lit, il ne ressaisit rien.")}
 `,
 
 /* ---------- AUDREY : RÉALISATION & COMPÉTENCES ---------- */
 audrey: () => `
   <div class="sec-eyebrow">Réalisation</div>
   <div class="sec-title">Santé des missions en cours</div>
-  <div class="sec-note">Trois axes de monitoring : planning · standards Go Gemba® (via Humetria) · risques & opportunités</div>
-  <div class="kpis k4">
-    <div class="kpi good"><div class="k-label">Missions actives</div><div class="k-val">5</div><div class="k-trend">en delivery</div></div>
-    <div class="kpi warn"><div class="k-label">Alerte planning</div><div class="k-val">1</div><div class="k-trend down">▲ Lactalis</div></div>
-    <div class="kpi good"><div class="k-label">Standards conformes</div><div class="k-val">4<small>/5</small></div><div class="k-trend up">▲ via Humetria</div></div>
-    <div class="kpi accent"><div class="k-label">Opportunités détectées</div><div class="k-val">2</div><div class="k-trend up">▲ extension / réachat</div></div>
-  </div>
-  <div class="panel" style="padding:8px 16px 16px;">
-    <table>
-      <thead><tr><th>Mission</th><th>Lead</th><th>Planning</th><th>Standards Go Gemba®</th><th>Risque / Opportunité</th></tr></thead>
-      <tbody>
-        <tr><td>Andros — DU séminaire</td><td class="owner">Eric</td><td><div class="prog"><div style="width:70%"></div></div><span class="sub-cell">à l'heure</span></td><td><span class="pill p-green">conforme</span></td><td><span class="pill p-green">Opp.</span> <span class="sub-cell">extension pressentie</span></td></tr>
-        <tr><td>Kriter — CODIR</td><td class="owner">C. Leray</td><td><div class="prog"><div style="width:90%"></div></div><span class="sub-cell">à l'heure</span></td><td><span class="pill p-green">conforme</span></td><td><span class="pill p-green">Opp.</span> <span class="sub-cell">réachat probable</span></td></tr>
-        <tr><td>Lactalis — transformation</td><td class="owner">Audrey Humbert</td><td><div class="prog"><div style="width:55%"></div></div><span class="sub-cell">retard léger</span></td><td><span class="pill p-amber">à vérifier</span></td><td><span class="pill p-signal">Risque</span> <span class="sub-cell">jalon à sécuriser</span></td></tr>
-        <tr><td>Havea — accompagnement</td><td class="owner">C. Leray</td><td><div class="prog"><div style="width:30%"></div></div><span class="sub-cell">à l'heure</span></td><td><span class="pill p-green">conforme</span></td><td><span class="pill p-grey">—</span></td></tr>
-        <tr><td>PMGI — diagnostic</td><td class="owner">Eric</td><td><div class="prog"><div style="width:20%"></div></div><span class="sub-cell">démarrage</span></td><td><span class="pill p-blue">en cours</span></td><td><span class="pill p-grey">—</span></td></tr>
-      </tbody>
-    </table>
-  </div>
-  <div class="footer-note" style="margin-top:14px;"><span class="ic">↳</span><span>Standards Go Gemba® suivis par l'usage via Humetria : coachings tracés, indicateur de comportement coach, débriefs enregistrés. Une note basse alimente le registre d'amélioration ; une opportunité détectée remonte vers le commercial (mission suivante).</span></div>
+  <div class="sec-note">Indicateurs = vos objectifs validés par la direction</div>
+  <div id="indicZone">${renderIndicateurs('audrey')}</div>
+
+  <div class="sec-eyebrow" style="margin-top:24px;">Projets en réalisation</div>
+  <div class="sec-title">Suivi des projets, jalons & standards Go Gemba®</div>
+  <div class="sec-note">Listez vos projets, définissez les jalons prioritaires, cochez les standards applicables puis marquez ceux respectés. Le taux se calcule automatiquement.</div>
+  ${renderRealisation()}
+  <div class="footer-note" style="margin-top:14px;"><span class="ic">↳</span><span>Standards Go Gemba® suivis par l'usage via Humetria : coachings tracés, indicateur de comportement coach, débriefs enregistrés. Une note basse alimente le registre d'amélioration ; une opportunité détectée remonte vers le commercial.</span></div>
 
   <div class="sec-eyebrow">Module 4 — Compétences</div>
   <div class="sec-title">Des valeurs aux compétences</div>
@@ -1398,47 +2339,31 @@ audrey: () => `
   <div class="sec-title">Bibliothèque Go Gemba®</div>
   <div class="sec-note">Avancement des livrables standards par phase — 25 / 50 / 75 / 100 %</div>
   <div id="libraryZone">${renderLibrary()}</div>
-  ${footer("Édition active pendant la session (démonstration). La persistance réelle viendra avec le branchement Notion. Matrice et bibliothèque pilotées par Audrey.")}
+  ${footer("Projets, jalons et standards pilotés par Audrey. Matrice et bibliothèque également à sa main.")}
 `,
 
 /* ---------- JULIETTE : MARKETING & COM ---------- */
 juliette: () => `
   <div class="sec-eyebrow">Marketing & communication</div>
   <div class="sec-title">Transformer les succès en visibilité</div>
-  <div class="sec-note">Capitaliser sur les grands projets · opportunité du Module 2</div>
-  <div class="kpis k4">
-    <div class="kpi accent"><div class="k-label">Succès à publier</div><div class="k-val">3</div><div class="k-trend down">▲ à activer</div></div>
-    <div class="kpi"><div class="k-label">Contenus en cours</div><div class="k-val">5</div><div class="k-trend">production</div></div>
-    <div class="kpi good"><div class="k-label">Publiés (mois)</div><div class="k-val">8</div><div class="k-trend up">▲ rythme</div></div>
-    <div class="kpi"><div class="k-label">Leads inbound</div><div class="k-val">12</div><div class="k-trend up">▲ vers Paul</div></div>
-  </div>
+  <div class="sec-note">Indicateurs = vos objectifs validés par la direction</div>
+  <div id="indicZone">${renderIndicateurs('juliette')}</div>
 
   <div class="sec-eyebrow">Capitalisation</div>
   <div class="sec-title">Succès clients à valoriser</div>
-  <div class="sec-note">Issus des missions clôturées (réputation = opportunité stratégique)</div>
-  <div class="panel" style="padding:8px 16px 16px;">
-    <table>
-      <thead><tr><th>Succès</th><th>Format prévu</th><th>Statut</th><th>Action</th></tr></thead>
-      <tbody>
-        <tr><td>Groupe Andros — 230 managers</td><td>Étude de cas</td><td><span class="pill p-amber">à rédiger</span></td><td class="sub-cell">Valider accord client</td></tr>
-        <tr><td>Kriter — séminaire CODIR</td><td>Témoignage</td><td><span class="pill p-blue">en cours</span></td><td class="sub-cell">Interview dirigeant</td></tr>
-        <tr><td>Best pitch French Tech / Renault</td><td>Post LinkedIn</td><td><span class="pill p-green">prêt</span></td><td class="sub-cell">Programmer</td></tr>
-      </tbody>
-    </table>
-  </div>
+  <div class="sec-note">Issus des missions clôturées (réputation = opportunité stratégique) · éditable</div>
+  <div id="panel-jul_succes">${renderPanel('jul_succes')}</div>
 
   <div class="sec-eyebrow">Pipeline de contenus</div>
   <div class="sec-title">Calendrier éditorial</div>
-  <div class="panel" style="padding:8px 16px 16px;">
-    <table>
-      <thead><tr><th>Contenu</th><th>Canal</th><th>Échéance</th><th>Statut</th></tr></thead>
-      <tbody>
-        <tr><td>Le management de proximité en 2026</td><td>Article + LinkedIn</td><td>3 juil.</td><td><span class="pill p-blue">rédaction</span></td></tr>
-        <tr><td>Go Gemba® expliqué</td><td>Vidéo courte</td><td>10 juil.</td><td><span class="pill p-grey">script</span></td></tr>
-        <tr><td>Newsletter trimestrielle</td><td>Email</td><td>15 juil.</td><td><span class="pill p-amber">à lancer</span></td></tr>
-      </tbody>
-    </table>
-  </div>
+  <div class="sec-note">Éditable — vous gérez votre planning de publication.</div>
+  <div id="panel-jul_edito">${renderPanel('jul_edito')}</div>
+
+  <div class="sec-eyebrow">Mes objectifs</div>
+  <div class="sec-title">Objectifs de la fonction marketing & communication</div>
+  <div class="sec-note">Vous gérez vos propres objectifs — ils alimentent le suivi de direction.</div>
+  <div id="myObjZone">${renderMyObjectives('juliette')}</div>
+
   ${footer("Marketing & com : seule fonction KW portée par Juliette. Les leads inbound alimentent le pipeline commercial de Paul.")}
 `,
 
@@ -1446,38 +2371,24 @@ juliette: () => `
 sabrine: () => `
   <div class="sec-eyebrow">RH — Chasse & recrutement</div>
   <div class="sec-title">Acquisition des talents</div>
-  <div class="sec-note">Faire entrer les bons profils · <span class="src trello"><span class="sdot"></span>source Trello</span></div>
-  <div class="kpis k4">
-    <div class="kpi accent"><div class="k-label">Postes ouverts</div><div class="k-val">2</div><div class="k-trend">en chasse</div></div>
-    <div class="kpi"><div class="k-label">Candidats en cours</div><div class="k-val">14</div><div class="k-trend up">▲ pipeline</div></div>
-    <div class="kpi warn"><div class="k-label">Entretiens cette sem.</div><div class="k-val">4</div><div class="k-trend">à mener</div></div>
-    <div class="kpi good"><div class="k-label">Délai moyen recrut.</div><div class="k-val">48 <small>j</small></div><div class="k-trend up">▲ -6 j</div></div>
-  </div>
+  <div class="sec-note">Indicateurs = vos objectifs validés par la direction</div>
+  <div id="indicZone">${renderIndicateurs('sabrine')}</div>
 
   <div class="sec-eyebrow">Pipeline recrutement</div>
   <div class="sec-title">Postes en cours</div>
-  <div class="sec-note">Colonnes Trello : sourcing → entretien → proposition → intégration</div>
-  <div class="panel" style="padding:8px 16px 16px;">
-    <table>
-      <thead><tr><th>Poste</th><th>Sourcing</th><th>Entretien</th><th>Proposition</th><th>Priorité</th></tr></thead>
-      <tbody>
-        <tr><td>Consultant senior Go Gemba®</td><td class="val">6</td><td class="val">3</td><td class="val">1</td><td><span class="pill p-signal">Haute</span></td></tr>
-        <tr><td>Consultant junior</td><td class="val">8</td><td class="val">2</td><td class="val">0</td><td><span class="pill p-amber">Moyenne</span></td></tr>
-      </tbody>
-    </table>
-  </div>
+  <div class="sec-note">Éditable — sourcing → entretien → proposition → intégration</div>
+  <div id="panel-sab_pipeline">${renderPanel('sab_pipeline')}</div>
 
   <div class="sec-eyebrow">Intégration</div>
   <div class="sec-title">Nouveaux arrivants</div>
-  <div class="sec-note">Relais vers Audrey pour la montée en compétence (frontière acquisition / développement)</div>
-  <div class="panel" style="padding:8px 16px 16px;">
-    <table>
-      <thead><tr><th>Profil</th><th>Arrivée</th><th>Onboarding</th><th>Relais compétences</th></tr></thead>
-      <tbody>
-        <tr><td>Consultant — démarrage</td><td>1 juil.</td><td><div class="prog"><div style="width:40%"></div></div></td><td class="sub-cell">→ Audrey Humbert</td></tr>
-      </tbody>
-    </table>
-  </div>
+  <div class="sec-note">Éditable — relais vers Audrey pour la montée en compétence</div>
+  <div id="panel-sab_integration">${renderPanel('sab_integration')}</div>
+
+  <div class="sec-eyebrow">Mes objectifs</div>
+  <div class="sec-title">Objectifs de la fonction RH</div>
+  <div class="sec-note">Vous gérez vos propres objectifs — ils alimentent le suivi de direction.</div>
+  <div id="myObjZone">${renderMyObjectives('sabrine')}</div>
+
   ${footer("RH alimenté par Trello (chasse & recrutement). Sabrine fait entrer les profils ; Audrey les fait monter en compétence — pas de chevauchement.")}
 `,
 
