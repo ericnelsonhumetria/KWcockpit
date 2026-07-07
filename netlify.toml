@@ -1,5 +1,4 @@
 [build]
-  command = "npm install"
   publish = "public"
   functions = "netlify/functions"
 
@@ -31,7 +30,17 @@
   to = "/.netlify/functions/humetrix"
   status = 200
 
-  [[redirects]]
+[[redirects]]
   from = "/api/dojo-claude"
   to = "/.netlify/functions/dojo-claude"
+  status = 200
+
+[[redirects]]
+  from = "/api/pdc-analyse"
+  to = "/.netlify/functions/pdc-analyse"
+  status = 200
+
+[[redirects]]
+  from = "/api/pdc-conseil"
+  to = "/.netlify/functions/pdc-conseil"
   status = 200
