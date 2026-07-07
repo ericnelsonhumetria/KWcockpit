@@ -2901,11 +2901,203 @@ function renderPdcConsView(){
       <div class="edit-hint" style="margin-top:10px;">Une ressource en surcharge un mois donne = risque de retard ou de qualite ; une mission au-dela du vendu ronge la marge. Ce sont les deux points a arbitrer en priorite.</div>
     </div>`;
 
-  zone.innerHTML = kpi + ctrl + pdccAnalyseBar() + heat + miss + goulets;
+  zone.innerHTML = kpi + ctrl + pdccAnalyseBar() + heat + miss + goulets + pdccManageSection();
 }
 
 function PDCC_ETAT(e){ return e==='planifie' ? 'Planifie' : 'Realise'; }
 function pdccSetYear(y){ PDCC.year = y; renderPdcConsView(); }
+/* ---- Gestion projets / affectations / salaries dans la vue consolidee ----
+   Projets + affectations : editables par eric ET audrey.
+   Salaries : editable par eric (direction) uniquement.
+   Ecriture directe Supabase (RLS elargie via plan_de_charge_droits.sql). ---- */
+
+function pdccManageSection(){
+  if(CURRENT_ROLE!=='eric' && CURRENT_ROLE!=='audrey') return '';
+  const roster = pdccRoster();
+  const affBy = {};
+  PDCC.affectations.forEach(a=>{ (affBy[a.mission_code]=affBy[a.mission_code]||[]).push(a.email); });
+  const statuts = ['En cours','Termine','Non demarre','En pause'];
+
+  const missRows = PDCC.missions.slice()
+    .sort((a,b)=> String(a.code).localeCompare(String(b.code)))
+    .map(m=>{
+      const affs = (affBy[m.code]||[]).slice().sort();
+      const chips = affs.map(e=>`<span class="pill p-grey" style="margin:2px 3px;display:inline-block;">${pdccName(e)} <a onclick="pdccDelAff('${m.code}','${e}')" style="cursor:pointer;color:var(--signal);font-weight:700;" title="retirer">&times;</a></span>`).join('') || '<span class="sub-cell">aucun</span>';
+      const dispo = roster.filter(e=>!affs.includes(e));
+      const addSel = `<select class="obj-sel" onchange="pdccAffPick('${m.code}',this)"><option value="">+ affecter&hellip;</option>${dispo.map(e=>`<option value="${e}">${pdccName(e)}</option>`).join('')}<option value="__new__">+ autre email&hellip;</option></select>`;
+      const statOpts = statuts.map(s=>`<option ${m.statut===s?'selected':''}>${s}</option>`).join('');
+      const iv = String(m.intitule||'').replace(/"/g,'&quot;');
+      const cv = String(m.client||'').replace(/"/g,'&quot;');
+      return `<tr>
+        <td><b>${m.code}</b></td>
+        <td><input value="${iv}" onchange="pdccSaveMission('${m.code}','intitule',this.value)" style="width:100%;min-width:160px;"></td>
+        <td><input value="${cv}" onchange="pdccSaveMission('${m.code}','client',this.value)" style="width:110px;"></td>
+        <td><input type="number" step="0.5" value="${m.jh_vendus!=null?m.jh_vendus:''}" onchange="pdccSaveMission('${m.code}','jh_vendus',this.value)" style="width:66px;text-align:center;"></td>
+        <td><select onchange="pdccSaveMission('${m.code}','statut',this.value)">${statOpts}</select></td>
+        <td style="min-width:220px;">${chips} ${addSel}</td>
+        <td style="text-align:center;"><a onclick="pdccDelMission('${m.code}')" style="cursor:pointer;color:var(--signal);font-size:16px;" title="supprimer la mission">&#128465;</a></td>
+      </tr>`;
+    }).join('');
+
+  const projets = `<div class="sec-eyebrow" style="margin-top:26px;">Gestion</div>
+    <div class="sec-title">Projets & affectations</div>
+    <div class="sec-note">Modifiez intitule, client, jours vendus, statut ; affectez ou retirez des consultants. Enregistrement automatique.</div>
+    <div class="panel" style="padding:8px 12px 12px;overflow-x:auto;"><table>
+      <thead><tr><th>Code</th><th>Intitule</th><th>Client</th><th>Vendus</th><th>Statut</th><th>Consultants affectes</th><th></th></tr></thead>
+      <tbody>${missRows || '<tr><td colspan="7" class="sub-cell" style="padding:12px;">Aucune mission.</td></tr>'}</tbody>
+    </table>
+    <div class="edit-bar" style="margin-top:10px;"><button class="add-btn" onclick="pdccAddMission()">+ Nouvelle mission</button><span class="edit-hint">Supprimer une mission efface aussi sa charge et ses affectations.</span></div>
+    </div>`;
+
+  let salaries = '';
+  if(CURRENT_ROLE==='eric'){
+    salaries = `<div class="sec-eyebrow" style="margin-top:26px;">Direction</div>
+      <div class="sec-title">Consultants salaries</div>
+      <div class="sec-note">Cochez les salaries : le taux de charge global &laquo; salaries &raquo; et l'analyse IA portent sur cette liste.</div>
+      <div class="panel" style="padding:12px 16px 16px;">
+        <div style="display:flex;flex-wrap:wrap;gap:8px;">${roster.map(e=>`<label style="cursor:pointer;font-size:12px;border:1px solid var(--line);border-radius:20px;padding:5px 12px;background:${PDCC.salaries.includes(e)?'#dfece2':'#faf7f2'};"><input type="checkbox" ${PDCC.salaries.includes(e)?'checked':''} onchange="pdccToggleSalarie('${e}')" style="vertical-align:middle;"> ${pdccName(e)}</label>`).join('')}</div>
+        <div class="edit-hint" style="margin-top:10px;">${PDCC.salaries.length} salarie(s). Egalement modifiable dans l'onglet Admin.</div>
+      </div>`;
+  }
+  return projets + pdccCapEditor(roster) + salaries;
+}
+
+async function pdccSaveMission(code, field, value){
+  const patch = {};
+  if(field==='jh_vendus'){ const v=parseFloat(value); patch.jh_vendus = isNaN(v)? null : v; }
+  else patch[field] = value;
+  try {
+    const { error } = await SB.from('pdc_missions').update(patch).eq('code', code);
+    if(error) throw error;
+    const m = PDCC.missions.find(x=>x.code===code); if(m) Object.assign(m, patch);
+    flashSync('&#10003; enregistre');
+  } catch(e){ flashSync('&#9888; ' + ((e&&e.message)||'refus')); }
+}
+
+async function pdccAddMission(){
+  const code = prompt('Code de la mission (identifiant unique) ?'); if(!code) return;
+  const intitule = prompt('Intitule de la mission ?') || '';
+  const client = prompt('Client ?') || '';
+  try {
+    const { error } = await SB.from('pdc_missions').insert({ code: code.trim(), intitule, client, statut: 'En cours' });
+    if(error) throw error;
+    flashSync('&#10003; mission creee'); loadPdcCons();
+  } catch(e){ flashSync('&#9888; ' + ((e&&e.message)||'refus')); }
+}
+
+async function pdccDelMission(code){
+  if(!confirm('Supprimer la mission ' + code + ' ?\nSa charge et ses affectations seront aussi supprimees.')) return;
+  try {
+    const { error } = await SB.from('pdc_missions').delete().eq('code', code);
+    if(error) throw error;
+    flashSync('&#10003; supprimee'); loadPdcCons();
+  } catch(e){ flashSync('&#9888; ' + ((e&&e.message)||'refus')); }
+}
+
+function pdccAffPick(mission, sel){
+  let v = sel.value; sel.value = '';
+  if(!v) return;
+  if(v==='__new__'){ v = prompt('Email du consultant a affecter ?'); if(!v) return; v = v.trim().toLowerCase(); }
+  pdccAddAff(mission, v);
+}
+
+async function pdccAddAff(mission, email){
+  if(!email) return;
+  try {
+    const { error } = await SB.from('pdc_affectations').upsert({ mission_code: mission, email }, { onConflict: 'mission_code,email' });
+    if(error) throw error;
+    if(!PDCC.affectations.some(a=>a.mission_code===mission && a.email===email)) PDCC.affectations.push({ mission_code: mission, email });
+    flashSync('&#10003; affecte'); renderPdcConsView();
+  } catch(e){ flashSync('&#9888; ' + ((e&&e.message)||'refus')); }
+}
+
+async function pdccDelAff(mission, email){
+  try {
+    const { error } = await SB.from('pdc_affectations').delete().eq('mission_code', mission).eq('email', email);
+    if(error) throw error;
+    PDCC.affectations = PDCC.affectations.filter(a=>!(a.mission_code===mission && a.email===email));
+    flashSync('&#10003; retire'); renderPdcConsView();
+  } catch(e){ flashSync('&#9888; ' + ((e&&e.message)||'refus')); }
+}
+
+async function pdccToggleSalarie(email){
+  const i = PDCC.salaries.indexOf(email);
+  if(i>=0) PDCC.salaries.splice(i,1); else PDCC.salaries.push(email);
+  await saveShared('pdc_salaries', PDCC.salaries);
+  renderPdcConsView();
+}
+
+/* ---- Edition de la capacite (jours ouvrables / mois) ----
+   Denominateur du taux de charge. Editable eric + audrey.
+   Par cellule : maj silencieuse (l'input affiche deja la valeur). Bouton
+   "Recalculer les taux" pour rafraichir heatmap/KPI. "-> annee" applique une
+   valeur a tous les mois d'une ligne (pratique pour les freelances). ---- */
+
+function pdccCapEditor(roster){
+  const y = PDCC.year;
+  const head = `<th style="min-width:150px;">Ressource</th>`
+    + PDCC_MOIS.map(m=>`<th style="text-align:center;font-size:11px;">${m}</th>`).join('')
+    + `<th style="text-align:center;font-size:11px;">tout ${y}</th>`;
+  const rows = roster.map(e=>{
+    const cells = [];
+    for(let mo=1;mo<=12;mo++){
+      const v = PDCC.capacite[`${e}|${y}|${mo}`];
+      cells.push(`<td style="padding:2px;"><input type="number" step="0.5" min="0" value="${v!=null?v:''}" onchange="pdccSaveCap('${e}',${mo},this.value)" style="width:46px;text-align:center;font-size:12px;"></td>`);
+    }
+    const id = 'capall_' + e.replace(/[^a-z0-9]/gi,'_');
+    return `<tr>
+      <td style="min-width:150px;"><b>${pdccName(e)}</b>${PDCC.salaries.includes(e)?' <span class="pill p-green" style="font-size:9px;padding:1px 6px;">salarie</span>':''}</td>
+      ${cells.join('')}
+      <td style="white-space:nowrap;"><input type="number" step="0.5" min="0" id="${id}" placeholder="j" style="width:46px;text-align:center;font-size:12px;"> <a onclick="pdccSetCapYear('${e}')" style="cursor:pointer;color:var(--steel);font-size:11px;font-weight:700;" title="appliquer a tous les mois de ${y}">&rarr; annee</a></td>
+    </tr>`;
+  }).join('');
+  return `<div class="sec-eyebrow" style="margin-top:26px;">Gestion</div>
+    <div class="sec-title">Capacite &mdash; jours ouvrables / mois (${y})
+      <button class="per-btn" style="margin-left:10px;font-size:11px;padding:3px 10px;" onclick="renderPdcConsView()" title="recalculer heatmap et taux">&#8635; Recalculer les taux</button></div>
+    <div class="sec-note">Jours disponibles par consultant et par mois &mdash; le denominateur du taux de charge. Ajustez ici les freelances / temps partiels. Vide = capacite non definie. Enregistrement automatique.</div>
+    <div class="panel" style="padding:8px 12px 12px;overflow-x:auto;"><table><thead><tr>${head}</tr></thead><tbody>${rows||''}</tbody></table>
+      <div class="edit-hint" style="margin-top:8px;">&laquo; &rarr; annee &raquo; applique la valeur saisie a tous les mois de ${y} pour la ligne. Les taux affiches se mettent a jour via &laquo; Recalculer les taux &raquo; (ou en changeant d'annee).</div>
+    </div>`;
+}
+
+async function pdccSaveCap(email, mois, value){
+  const y = PDCC.year;
+  const key = `${email}|${y}|${mois}`;
+  const v = parseFloat(value);
+  try {
+    if(value==='' || isNaN(v) || v<0){
+      const { error } = await SB.from('pdc_capacite').delete().eq('email',email).eq('annee',y).eq('mois',mois);
+      if(error) throw error;
+      delete PDCC.capacite[key];
+    } else {
+      const { error } = await SB.from('pdc_capacite').upsert(
+        { email, annee:y, mois, jours_dispo:v, updated_at:new Date().toISOString() },
+        { onConflict:'email,annee,mois' });
+      if(error) throw error;
+      PDCC.capacite[key] = v;
+    }
+    flashSync('&#10003; capacite maj');
+  } catch(e){ flashSync('&#9888; ' + ((e&&e.message)||'refus')); }
+}
+
+async function pdccSetCapYear(email){
+  const y = PDCC.year;
+  const inp = document.getElementById('capall_' + email.replace(/[^a-z0-9]/gi,'_'));
+  const v = inp ? parseFloat(inp.value) : NaN;
+  if(isNaN(v) || v<0){ flashSync('&#9888; valeur invalide'); return; }
+  const now = new Date().toISOString();
+  const payload = [];
+  for(let mo=1;mo<=12;mo++) payload.push({ email, annee:y, mois:mo, jours_dispo:v, updated_at:now });
+  try {
+    const { error } = await SB.from('pdc_capacite').upsert(payload, { onConflict:'email,annee,mois' });
+    if(error) throw error;
+    for(let mo=1;mo<=12;mo++) PDCC.capacite[`${email}|${y}|${mo}`] = v;
+    flashSync('&#10003; capacite annuelle maj');
+    renderPdcConsView();
+  } catch(e){ flashSync('&#9888; ' + ((e&&e.message)||'refus')); }
+}
+
+
 function pdccSetEtat(e){ PDCC.etat = e; renderPdcConsView(); }
 
 function pdccAnalyseBar(){
