@@ -401,6 +401,7 @@
   }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script>
   // Config Supabase — valeurs PUBLIQUES (sans danger dans le navigateur).
   // L'URL est renseignée. Remplace COLLE_TA_CLE_PUBLISHABLE_ICI par ta
@@ -625,6 +626,16 @@ function render(role){
   pdcTab.setAttribute('onclick', "switchTab('pdc')");
   pdcTab.innerHTML = 'Plan de charge';
   tabsEl.appendChild(pdcTab);
+  // onglet Charge equipe : vue consolidee, reservee direction (eric) et Audrey
+  const oldPdcc = tabsEl.querySelector('[data-tab="pdccons"]');
+  if(oldPdcc) oldPdcc.remove();
+  if(role==='eric' || role==='audrey'){
+    const pdccTab = document.createElement('button');
+    pdccTab.className = 'tab'; pdccTab.dataset.tab = 'pdccons';
+    pdccTab.setAttribute('onclick', "switchTab('pdccons')");
+    pdccTab.innerHTML = 'Charge equipe';
+    tabsEl.appendChild(pdccTab);
+  }
   // onglet Admin : réservé SI / direction (rôle eric)
   const oldAdmin = tabsEl.querySelector('[data-tab="admin"]');
   if(oldAdmin) oldAdmin.remove();
@@ -666,6 +677,8 @@ function renderTab(){
     if(CURRENT_ROLE==='consultant') loadPdc();
   } else if(CURRENT_TAB==='pdc'){
     document.getElementById('view').innerHTML = renderPdc();
+  } else if(CURRENT_TAB==='pdccons'){
+    document.getElementById('view').innerHTML = renderPdcCons();
   } else if(CURRENT_TAB==='capbp'){
     document.getElementById('view').innerHTML = `
       <div class="sec-eyebrow">Capitalisation</div>
@@ -1410,7 +1423,9 @@ async function loadAdmin(){
     if(res.status===403){ zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Accès réservé au SI et à la direction.</div>'; return; }
     if(!res.ok){ zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Erreur ('+res.status+').</div>'; return; }
     const data = await res.json();
-    renderAdmin(data.users || []);
+    ADMIN_USERS = data.users || [];
+    SALARIES = (await loadShared('pdc_salaries')) || [];
+    renderAdmin(ADMIN_USERS);
   } catch(e){ zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Connexion impossible.</div>'; }
 }
 function renderAdmin(users){
@@ -1441,7 +1456,31 @@ function renderAdmin(users){
       </table>
       <div class="edit-bar"><button class="add-btn" onclick="adminNouveau()">+ Nouvel utilisateur</button><button class="add-btn ghost" onclick="loadAdmin()">↻ Actualiser</button><span class="edit-hint">« ↻ MDP » génère un nouveau mot de passe à transmettre. Les mots de passe existants ne sont jamais affichés.</span></div>
       <div id="adminMsg"></div>
+    </div>
+    <div id="salZone"></div>`;
+  renderSalaries();
+}
+let SALARIES = [];
+let ADMIN_USERS = [];
+async function loadSalaries(){ SALARIES = (await loadShared('pdc_salaries')) || []; }
+function renderSalaries(){
+  const z = document.getElementById('salZone'); if(!z) return;
+  const emails = (ADMIN_USERS||[]).map(u=>u.email).filter(Boolean).sort();
+  z.innerHTML = `<div class="panel" style="padding:12px 16px 16px;margin-top:16px;">
+      <div class="sec-eyebrow">Plan de charge</div>
+      <div class="sec-title" style="font-size:16px;">Consultants salaries</div>
+      <div class="sec-note">Cochez les consultants salaries. Le taux de charge global &laquo; salaries &raquo; et l'analyse IA du plan de charge (vue Charge equipe) portent sur cette liste.</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;">
+        ${emails.map(e=>`<label style="cursor:pointer;font-size:12px;border:1px solid var(--line);border-radius:20px;padding:5px 12px;background:${SALARIES.includes(e)?'#dfece2':'#faf7f2'};"><input type="checkbox" ${SALARIES.includes(e)?'checked':''} onchange="toggleSalarie('${e}')" style="vertical-align:middle;"> ${e}</label>`).join('') || '<span class="edit-hint">Aucun utilisateur charge.</span>'}
+      </div>
+      <div class="edit-hint" style="margin-top:10px;">${SALARIES.length} salarie(s) defini(s).</div>
     </div>`;
+}
+async function toggleSalarie(email){
+  const i = SALARIES.indexOf(email);
+  if(i>=0) SALARIES.splice(i,1); else SALARIES.push(email);
+  await saveShared('pdc_salaries', SALARIES);
+  renderSalaries();
 }
 function adminMsg(html){ const m=document.getElementById('adminMsg'); if(m) m.innerHTML = '<div class="save-ok" style="margin-top:10px;display:block;">'+html+'</div>'; }
 async function adminCall(payload){
@@ -2312,6 +2351,7 @@ let PDC = {
   charge: {},          // cle `${mission}|${YYYY-MM-DD}|${etat}` -> jours
   rowAct: {},          // activite choisie par mission (cle mission_code)
   capacite: null,      // {jours_dispo, type_ressource} du mois courant
+  aiFile: null,        // fichier planning a analyser (import IA)
 };
 const PDC_ETAT_LABEL = { planifie:'Planifie', revise:'Revise', realise:'Realise' };
 const PDC_JOURS = ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
@@ -2444,7 +2484,7 @@ function renderPdcGrid(){
       <div class="edit-hint" style="margin-top:8px;">Etat affiche : <b>${PDC_ETAT_LABEL[PDC.etat]}</b>. Un total jour &gt; 1 (rouge) signale une sur-affectation. L'activite est choisie par mission.</div>
     </div>`;
   }
-  zone.innerHTML = kpi + nav + grid;
+  zone.innerHTML = kpi + nav + (PDC.affectations.length ? pdcImportBar() : '') + grid;
 }
 
 function pdcSetEtat(e){ PDC.etat = e; renderPdcGrid(); }
@@ -2477,6 +2517,434 @@ async function pdcCycle(mission, iso){
     flashSync('&#10003; enregistre');
   } catch(e){ flashSync('&#9888; ' + ((e&&e.message)||'refus')); }
 }
+
+/* ---- Import d'un planning + analyse IA + arbitrage des conflits (espace consultant) ---- */
+
+function pdcImportBar(){
+  const f = PDC.aiFile;
+  return `<div class="panel" style="padding:12px 14px;margin-bottom:12px;">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      <b style="font-size:13px;">&#10024; Importer un planning</b>
+      <input type="file" id="pdcFile" accept=".csv,.txt,.xlsx,.xls,.png,.jpg,.jpeg,.pdf" onchange="pdcSetFile(this)" style="font-size:12px;max-width:240px;">
+      <button class="per-btn" onclick="pdcAnalyser()">Analyser par IA</button>
+      <span class="edit-hint" id="pdcAiHint">${f ? ('Fichier : ' + f.name) : "CSV, Excel, image ou PDF. L'IA en extrait vos jours et pre-remplit la grille ; vous arbitrez les conflits avant enregistrement."}</span>
+    </div>
+  </div>`;
+}
+
+function pdcSetFile(input){
+  PDC.aiFile = (input.files && input.files[0]) || null;
+  const h = document.getElementById('pdcAiHint');
+  if(h) h.textContent = PDC.aiFile ? ('Fichier : ' + PDC.aiFile.name) : '';
+}
+
+function pdcReadText(file){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(String(r.result||'')); r.onerror=()=>rej(new Error('lecture impossible')); r.readAsText(file); }); }
+function pdcReadB64(file){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(String(r.result||'').split(',')[1]||''); r.onerror=()=>rej(new Error('lecture impossible')); r.readAsDataURL(file); }); }
+function pdcReadBuf(file){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=()=>rej(new Error('lecture impossible')); r.readAsArrayBuffer(file); }); }
+
+function pdcNormJours(x){ const v=parseFloat(x)||0; if(v<=0) return 0; return v>=0.75 ? 1 : 0.5; }
+function pdcMissName(code){ const m=PDC.affectations.find(x=>x.mission_code===code); return m?m.intitule:code; }
+function pdcActLabel(code){ if(!code) return '&mdash;'; const a=PDC.activites.find(x=>x.code===code); return a?a.libelle:code; }
+function pdcJfmt(j){ return j===0.5 ? '&frac12;' : j; }
+
+function pdcOpenModal(inner){
+  pdcCloseImport();
+  const d = document.createElement('div');
+  d.id = 'pdcImportModal';
+  d.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(20,10,10,.45);display:flex;align-items:center;justify-content:center;padding:16px;';
+  d.innerHTML = `<div class="panel" style="background:#fff;max-width:860px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3);">${inner}</div>`;
+  d.addEventListener('click', ev=>{ if(ev.target===d) pdcCloseImport(); });
+  document.body.appendChild(d);
+}
+function pdcCloseImport(){ const d=document.getElementById('pdcImportModal'); if(d) d.remove(); }
+
+async function pdcAnalyser(){
+  if(!PDC.aiFile){ flashSync('&#9888; choisissez un fichier'); return; }
+  if(!PDC.affectations.length){ flashSync('&#9888; aucune mission affectee'); return; }
+  if(typeof SB_SESSION==='undefined' || !SB_SESSION){ flashSync('&#9888; session expiree'); return; }
+  const file = PDC.aiFile;
+  const name = (file.name||'').toLowerCase();
+  pdcOpenModal(`<div style="padding:22px 20px;">Analyse du planning en cours&hellip;<div class="edit-hint" style="margin-top:8px;">${file.name}</div></div>`);
+  try {
+    const payload = {
+      missions: PDC.affectations.map(m=>({ code:m.mission_code, intitule:m.intitule, client:m.client })),
+      activites: PDC.activites.map(a=>({ code:a.code, libelle:a.libelle })),
+    };
+    if(name.endsWith('.xlsx') || name.endsWith('.xls')){
+      if(typeof XLSX==='undefined') throw new Error('Excel non pris en charge ici : exportez la feuille en CSV.');
+      const buf = await pdcReadBuf(file);
+      const wb = XLSX.read(new Uint8Array(buf), { type:'array' });
+      payload.fileText = XLSX.utils.sheet_to_csv(wb.Sheets[wb.SheetNames[0]]);
+    } else if(name.endsWith('.pdf') || file.type==='application/pdf'){
+      payload.fileBase64 = await pdcReadB64(file); payload.mediaType = 'application/pdf';
+    } else if((file.type||'').startsWith('image') || /\.(png|jpe?g|gif|webp)$/.test(name)){
+      payload.fileBase64 = await pdcReadB64(file); payload.mediaType = file.type || 'image/png';
+    } else {
+      payload.fileText = await pdcReadText(file);
+    }
+    const r = await fetch('/api/pdc-analyse', {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+SB_SESSION.access_token },
+      body: JSON.stringify(payload),
+    });
+    const data = await r.json();
+    if(!r.ok || data.error) throw new Error(data.error || ('HTTP '+r.status));
+    if(data.parse_ok===false) throw new Error("l'IA n'a pas renvoye de donnees exploitables");
+    await pdcBuildReview(Array.isArray(data.entries)? data.entries : []);
+  } catch(e){
+    pdcOpenModal(`<div style="padding:22px 20px;color:var(--signal);">Echec de l'analyse : ${(e&&e.message)||e}
+      <div style="margin-top:14px;text-align:right;"><button class="per-btn" onclick="pdcCloseImport()">Fermer</button></div></div>`);
+  }
+}
+
+async function pdcBuildReview(entries){
+  const codes = new Set(PDC.affectations.map(m=>m.mission_code));
+  const actCodes = new Set(PDC.activites.map(a=>a.code));
+  const valid=[], unmatched=[];
+  entries.forEach(e=>{
+    const date = String(e.date||'').slice(0,10);
+    const j = pdcNormJours(e.jours);
+    const etat = ['planifie','realise','revise'].includes(e.etat) ? e.etat : 'planifie';
+    const act = actCodes.has(e.activite) ? e.activite : null;
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(date) || j<=0) return;
+    if(!codes.has(e.mission_code)){ unmatched.push(e); return; }
+    valid.push({ date, mission_code:e.mission_code, activite:act, etat, jours:j });
+  });
+  if(!valid.length){
+    pdcOpenModal(`<div style="padding:22px 20px;">Aucune ligne exploitable extraite du planning.${unmatched.length?` (${unmatched.length} ligne(s) non rattachable(s) a vos missions)`:''}
+      <div style="margin-top:14px;text-align:right;"><button class="per-btn" onclick="pdcCloseImport()">Fermer</button></div></div>`);
+    return;
+  }
+  const dates = valid.map(v=>v.date).sort();
+  const existing = {};
+  try {
+    const { data } = await SB.from('pdc_charge').select('mission_code,date_jour,etat,jours,activite')
+      .eq('email', CURRENT_EMAIL).gte('date_jour', dates[0]).lte('date_jour', dates[dates.length-1]);
+    (data||[]).forEach(r=>{ existing[`${r.mission_code}|${r.date_jour}|${r.etat}`] = { jours:r.jours, activite:r.activite }; });
+  } catch(e){}
+  const newE=[], conf=[]; let sameN=0;
+  valid.forEach(v=>{
+    const ex = existing[`${v.mission_code}|${v.date}|${v.etat}`];
+    if(!ex) newE.push(v);
+    else if(ex.jours===v.jours && (ex.activite||null)===(v.activite||null)) sameN++;
+    else conf.push({ ...v, ex });
+  });
+  PDC._imp = { newE, conf };
+  pdcRenderReview(newE, conf, sameN, unmatched.length);
+}
+
+function pdcRenderReview(newE, conf, sameN, unmatchedN){
+  const addRows = newE.map((v,i)=>`<tr>
+      <td style="text-align:center;"><input type="checkbox" id="add_${i}" checked></td>
+      <td>${v.date}</td>
+      <td>${pdcMissName(v.mission_code)}<br><span class="sub-cell">${v.mission_code}</span></td>
+      <td>${PDC_ETAT_LABEL[v.etat]}</td>
+      <td>${pdcActLabel(v.activite)}</td>
+      <td style="text-align:center;font-weight:700;">${pdcJfmt(v.jours)} j</td>
+    </tr>`).join('');
+  const confRows = conf.map((c,i)=>`<tr>
+      <td>${c.date}</td>
+      <td>${pdcMissName(c.mission_code)}<br><span class="sub-cell">${c.mission_code} &middot; ${PDC_ETAT_LABEL[c.etat]}</span></td>
+      <td style="text-align:center;">${pdcJfmt(c.ex.jours)} j<br><span class="sub-cell">${pdcActLabel(c.ex.activite)}</span></td>
+      <td style="text-align:center;">${pdcJfmt(c.jours)} j<br><span class="sub-cell">${pdcActLabel(c.activite)}</span></td>
+      <td style="white-space:nowrap;">
+        <label style="display:block;font-size:12px;"><input type="radio" name="cf_${i}" value="ex" checked> garder l'existant</label>
+        <label style="display:block;font-size:12px;"><input type="radio" name="cf_${i}" value="ia"> remplacer par l'IA</label>
+      </td>
+    </tr>`).join('');
+  const html = `
+    <div style="padding:18px 20px;max-height:84vh;overflow-y:auto;">
+      <div class="sec-title" style="margin:0 0 4px;">Import du planning &mdash; arbitrage</div>
+      <div class="edit-hint" style="margin-bottom:14px;">${newE.length} a ajouter &middot; ${conf.length} conflit(s)${sameN?` &middot; ${sameN} deja a jour`:''}${unmatchedN?` &middot; ${unmatchedN} non rattachable(s) (ignorees)`:''}. Rien n'est enregistre tant que vous n'avez pas valide.</div>
+      ${conf.length ? `<div class="sec-eyebrow">Conflits</div>
+      <div class="sec-note">Une valeur existe deja pour ces cases. Choisissez, ligne par ligne, ce qui doit etre retenu.</div>
+      <div class="panel" style="padding:6px 10px;margin:6px 0 16px;overflow-x:auto;"><table>
+        <thead><tr><th>Date</th><th>Mission</th><th style="text-align:center;">Existant</th><th style="text-align:center;">IA</th><th>Decision</th></tr></thead>
+        <tbody>${confRows}</tbody></table></div>` : ''}
+      ${newE.length ? `<div class="sec-eyebrow">A ajouter</div>
+      <div class="sec-note">Nouvelles lignes proposees par l'IA. Decochez celles que vous ne souhaitez pas enregistrer.</div>
+      <div class="panel" style="padding:6px 10px;margin:6px 0 16px;overflow-x:auto;"><table>
+        <thead><tr><th></th><th>Date</th><th>Mission</th><th>Etat</th><th>Activite</th><th style="text-align:center;">Jours</th></tr></thead>
+        <tbody>${addRows}</tbody></table></div>` : ''}
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:6px;">
+        <button class="per-btn" onclick="pdcCloseImport()">Annuler</button>
+        <button class="add-btn" onclick="pdcApplyImport()">Appliquer</button>
+      </div>
+    </div>`;
+  pdcOpenModal(html);
+}
+
+async function pdcApplyImport(){
+  const imp = PDC._imp || { newE:[], conf:[] };
+  const rows = [];
+  imp.newE.forEach((v,i)=>{ const c=document.getElementById('add_'+i); if(c && c.checked) rows.push(v); });
+  imp.conf.forEach((c,i)=>{ const sel=document.querySelector('input[name="cf_'+i+'"]:checked'); if(sel && sel.value==='ia') rows.push({ date:c.date, mission_code:c.mission_code, activite:c.activite, etat:c.etat, jours:c.jours }); });
+  if(!rows.length){ pdcCloseImport(); flashSync('rien a appliquer'); return; }
+  const now = new Date().toISOString();
+  const payload = rows.map(v=>({ email:CURRENT_EMAIL, mission_code:v.mission_code, date_jour:v.date, etat:v.etat, jours:v.jours, activite:v.activite, saisi_par:CURRENT_EMAIL, updated_at:now }));
+  try {
+    const { error } = await SB.from('pdc_charge').upsert(payload, { onConflict:'email,date_jour,mission_code,etat' });
+    if(error) throw error;
+    pdcCloseImport();
+    flashSync('&#10003; ' + rows.length + ' ligne(s) importee(s)');
+    loadPdc();
+  } catch(e){ flashSync('&#9888; ' + ((e&&e.message)||'refus')); }
+}
+
+
+
+/* ===================================================================
+   PLAN DE CHARGE — vue consolidee (brique 2, Audrey/Eric, lecture seule)
+   Heatmap taux de charge ressource x mois (couleur sur/sous-charge),
+   vue missions (vendus/realise/restant/%/marge + picto sante), goulets.
+   Lit tout pdc_* (RLS admin/audrey). A coller avant "const VIEWS = {".
+   =================================================================== */
+let PDCC = {
+  year: new Date().getFullYear(),
+  etat: 'planifie',        // heatmap : 'planifie' | 'realise'
+  charge: [],              // [{email,date_jour,mission_code,etat,jours}]
+  capacite: {},            // `${email}|${annee}|${mois}` -> jours_dispo
+  missions: [],            // [{code,intitule,client,jh_vendus,statut}]
+  affectations: [],        // [{email,mission_code}]
+  salaries: [],           // emails des salaries (defini en Admin direction)
+  loaded: false,
+};
+const PDCC_MOIS = ['Jan','Fev','Mar','Avr','Mai','Jun','Jul','Aou','Sep','Oct','Nov','Dec'];
+
+function pdccName(email){
+  const local = String(email||'').split('@')[0];
+  const p = local.split('.');
+  if(p.length>=2) return p[1].charAt(0).toUpperCase()+p[1].slice(1)+' '+p[0].charAt(0).toUpperCase()+'.';
+  return local;
+}
+
+function renderPdcCons(){
+  return `
+    <div class="sec-eyebrow">Plan de charge &middot; equipe</div>
+    <div class="sec-title">Charge consolidee &mdash; ressources & missions</div>
+    <div class="sec-note">Vue transverse (lecture seule) : taux de charge par ressource, economie des missions, goulets de delivery. Capacite = jours ouvrables saisis.</div>
+    <div id="pdccZone"><div class="panel" style="padding:18px 16px;">
+      <button class="add-btn" onclick="loadPdcCons()">&#x27F1; Charger la vue consolidee</button>
+      <span class="edit-hint" style="margin-left:10px;">Charge, capacite, missions et affectations de toute l'equipe.</span>
+    </div></div>
+    ${footer("Le facteur limitant de la croissance n'est pas commercial mais la capacite de delivery : cette vue rend visible qui est en sur/sous-charge et quelles missions depassent le vendu.")}
+  `;
+}
+
+async function loadPdcCons(){
+  const zone = document.getElementById('pdccZone');
+  if(!zone) return;
+  if(!SB){ zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Base indisponible.</div>'; return; }
+  zone.innerHTML = '<div class="panel" style="padding:18px 16px;">Chargement&hellip;</div>';
+  try {
+    const [ch, cap, mis, aff, sal] = await Promise.all([
+      SB.from('pdc_charge').select('email,date_jour,mission_code,etat,jours'),
+      SB.from('pdc_capacite').select('email,annee,mois,jours_dispo'),
+      SB.from('pdc_missions').select('code,intitule,client,jh_vendus,statut'),
+      SB.from('pdc_affectations').select('email,mission_code'),
+      loadShared('pdc_salaries'),
+    ]);
+    PDCC.charge = ch.data || [];
+    PDCC.capacite = {};
+    (cap.data||[]).forEach(r=>{ PDCC.capacite[`${r.email}|${r.annee}|${r.mois}`] = r.jours_dispo; });
+    PDCC.missions = mis.data || [];
+    PDCC.affectations = aff.data || [];
+    PDCC.salaries = Array.isArray(sal) ? sal : [];
+    PDCC.loaded = true;
+    // annee par defaut : la plus recente ayant de la charge, sinon annee courante
+    const years = new Set(PDCC.charge.map(r=>+String(r.date_jour).slice(0,4)));
+    if(years.size && !years.has(PDCC.year)) PDCC.year = Math.max(...years);
+    renderPdcConsView();
+  } catch(e){
+    zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Erreur : '+((e&&e.message)||e)+'</div>';
+  }
+}
+
+// roster : ensemble des emails (affectations + capacite + charge)
+function pdccRoster(){
+  const s = new Set();
+  PDCC.affectations.forEach(a=>s.add(a.email));
+  PDCC.charge.forEach(c=>s.add(c.email));
+  Object.keys(PDCC.capacite).forEach(k=>s.add(k.split('|')[0]));
+  return [...s].sort();
+}
+
+// somme des jours par (email, mois) pour l'annee et l'etat courants
+function pdccChargeMap(){
+  const m = {};
+  PDCC.charge.forEach(r=>{
+    if(r.etat!==PDCC.etat) return;
+    const y = +String(r.date_jour).slice(0,4);
+    if(y!==PDCC.year) return;
+    const mo = +String(r.date_jour).slice(5,7);
+    m[`${r.email}|${mo}`] = (m[`${r.email}|${mo}`]||0) + (r.jours||0);
+  });
+  return m;
+}
+
+function pdccCellStyle(taux){
+  if(taux>100) return 'background:#f5ddcf;color:var(--signal);font-weight:700;';
+  if(taux>=70) return 'background:#dfece2;color:var(--green);font-weight:700;';
+  if(taux>0)   return 'background:#faf0d2;color:var(--gold-deep);';
+  return 'color:var(--muted);';
+}
+
+function renderPdcConsView(){
+  const zone = document.getElementById('pdccZone');
+  if(!zone) return;
+  const roster = pdccRoster();
+  const cmap = pdccChargeMap();
+  const y = PDCC.year;
+
+  // ---- KPIs annee ----
+  let capTot=0, chTot=0, capSal=0, chSal=0, surcharge=new Set();
+  const isSal = e => PDCC.salaries.includes(e);
+  roster.forEach(e=>{
+    for(let mo=1;mo<=12;mo++){
+      const cap = PDCC.capacite[`${e}|${y}|${mo}`];
+      const j = cmap[`${e}|${mo}`]||0;
+      if(cap){ capTot+=cap; if(j/cap*100>100) surcharge.add(e); if(isSal(e)) capSal+=cap; }
+      chTot+=j;
+      if(isSal(e)) chSal+=j;
+    }
+  });
+  const tauxSal = capSal ? Math.round(chSal/capSal*100) : null;
+  const clsSal = tauxSal===null?'neutre':(tauxSal>100?'ko':(tauxSal>=70?'ok':''));
+  const nbSal = roster.filter(isSal).length;
+  const tauxMoy = capTot ? Math.round(chTot/capTot*100) : null;
+  // missions depassant le vendu (realise > vendus)
+  const realiseByMission = {};
+  PDCC.charge.forEach(r=>{ if(r.etat==='realise') realiseByMission[r.mission_code]=(realiseByMission[r.mission_code]||0)+(r.jours||0); });
+  const missOver = PDCC.missions.filter(m=> m.jh_vendus>0 && (realiseByMission[m.code]||0) > m.jh_vendus).length;
+  const clsMoy = tauxMoy===null?'neutre':(tauxMoy>100?'ko':(tauxMoy>=70?'ok':''));
+
+  const kpi = `<div class="kpis k4">
+    <div class="kpi ${clsSal}"><div class="k-label">Charge globale &middot; salaries ${y}</div><div class="k-val">${tauxSal===null?'&mdash;':tauxSal+'%'}</div><div class="k-sub">${nbSal} salarie(s) &middot; ${Math.round(chSal)}/${Math.round(capSal)} j</div></div>
+    <div class="kpi ${clsMoy}"><div class="k-label">Charge equipe (tous)</div><div class="k-val">${tauxMoy===null?'&mdash;':tauxMoy+'%'}</div><div class="k-sub">${roster.length} ressources &middot; ${Math.round(chTot)}/${Math.round(capTot)} j</div></div>
+    <div class="kpi ${surcharge.size?'ko':'ok'}"><div class="k-label">Ressources en surcharge</div><div class="k-val">${surcharge.size}</div><div class="k-sub">au moins un mois &gt; 100%</div></div>
+    <div class="kpi ${missOver?'warn':''}"><div class="k-label">Missions au-dela du vendu</div><div class="k-val">${missOver}</div><div class="k-sub">realise &gt; vendus</div></div>
+  </div>`;
+
+  // ---- controles ----
+  const years = [...new Set([...Object.keys(PDCC.capacite).map(k=>+k.split('|')[1]), ...PDCC.charge.map(r=>+String(r.date_jour).slice(0,4))])].sort();
+  const yearBtns = years.map(yy=>`<button class="per-btn ${yy===y?'on':''}" onclick="pdccSetYear(${yy})">${yy}</button>`).join('');
+  const etatBtns = `<div class="seg">${['planifie','realise'].map(e=>`<button class="${PDCC.etat===e?'on':''}" onclick="pdccSetEtat('${e}')">${PDCC_ETAT(e)}</button>`).join('')}</div>`;
+  const ctrl = `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:12px 0;">
+      <span class="field-label" style="margin:0;">Annee</span><div class="periode-row">${yearBtns}</div>
+      <span style="margin-left:auto;display:flex;align-items:center;gap:8px;"><span class="field-label" style="margin:0;">Etat</span>${etatBtns}</span>
+    </div>`;
+
+  // ---- heatmap ressource x mois ----
+  const head = `<th style="min-width:150px;">Ressource</th>`+PDCC_MOIS.map(m=>`<th style="text-align:center;">${m}</th>`).join('')+`<th style="text-align:center;">Annee</th>`;
+  const rows = roster.map(e=>{
+    let sj=0, sc=0;
+    const cells = [];
+    for(let mo=1;mo<=12;mo++){
+      const cap = PDCC.capacite[`${e}|${y}|${mo}`];
+      const j = cmap[`${e}|${mo}`]||0;
+      sj+=j; if(cap) sc+=cap;
+      if(!cap){ cells.push(`<td style="text-align:center;color:var(--muted);" title="capacite non definie">${j?j:''}</td>`); continue; }
+      const taux = Math.round(j/cap*100);
+      cells.push(`<td style="text-align:center;${pdccCellStyle(taux)}" title="${j} / ${cap} j">${j?taux+'%':''}</td>`);
+    }
+    const tauxAn = sc?Math.round(sj/sc*100):null;
+    return `<tr><td><b>${pdccName(e)}</b>${PDCC.salaries.includes(e)?' <span class="pill p-green" style="font-size:9px;padding:1px 6px;">salarie</span>':''}<br><span class="sub-cell">${e.split('@')[0]}</span></td>${cells.join('')}<td style="text-align:center;${tauxAn===null?'color:var(--muted);':pdccCellStyle(tauxAn)}">${tauxAn===null?'&mdash;':tauxAn+'%'}</td></tr>`;
+  }).join('');
+  const heat = `<div class="sec-eyebrow" style="margin-top:8px;">Taux de charge</div>
+    <div class="sec-title">Ressource &times; mois &mdash; ${PDCC_ETAT(PDCC.etat)} ${y}</div>
+    <div class="sec-note">Vert 70&ndash;100% (bien charge) &middot; rouge &gt; 100% (surcharge) &middot; jaune &lt; 70% (sous-charge) &middot; gris : capacite non definie.</div>
+    <div class="panel" style="padding:8px 12px 12px;overflow-x:auto;"><table><thead><tr>${head}</tr></thead><tbody>${rows||''}</tbody></table></div>`;
+
+  // ---- vue missions (economie) ----
+  const planByMission = {};
+  PDCC.charge.forEach(r=>{ if(r.etat==='planifie') planByMission[r.mission_code]=(planByMission[r.mission_code]||0)+(r.jours||0); });
+  const missRows = PDCC.missions
+    .map(m=>{
+      const vendus = m.jh_vendus||0;
+      const real = realiseByMission[m.code]||0;
+      const restant = vendus - real;
+      const pct = vendus>0 ? Math.round(real/vendus*100) : null;
+      let picto='&#128528;', pcls='p-amber';           // neutre
+      if(pct!==null){
+        if(pct>105){ picto='&#128577;'; pcls='p-signal'; }      // depasse
+        else if(pct<90){ picto='&#128578;'; pcls='p-green'; }   // sous le vendu (sain)
+      }
+      return {m, vendus, real, restant, pct, picto, pcls};
+    })
+    .filter(x=> x.vendus>0 || x.real>0)
+    .sort((a,b)=> (b.pct??-1)-(a.pct??-1));
+  const mrows = missRows.map(x=>`<tr>
+      <td><b>${x.m.intitule||x.m.code}</b><br><span class="sub-cell">${x.m.code}${x.m.client?' &middot; '+x.m.client:''}</span></td>
+      <td style="text-align:center;">${x.vendus||'&mdash;'}</td>
+      <td style="text-align:center;">${x.real||0}</td>
+      <td style="text-align:center;font-weight:700;color:${x.restant<0?'var(--signal)':'var(--ink)'};">${x.vendus>0?x.restant.toFixed(1):'&mdash;'}</td>
+      <td style="text-align:center;">${x.pct===null?'&mdash;':x.pct+'%'}</td>
+      <td>${x.m.statut?`<span class="pill p-grey">${x.m.statut}</span>`:''}</td>
+      <td style="text-align:center;font-size:18px;" title="${x.pct===null?'':x.pct+'% du vendu consomme'}">${x.picto}</td>
+    </tr>`).join('');
+  const miss = `<div class="sec-eyebrow" style="margin-top:24px;">Economie des missions</div>
+    <div class="sec-title">Vendus vs realise &mdash; marge de delivery</div>
+    <div class="sec-note">Marge (j) = vendus &minus; realise (rouge si negatif = mission qui coute plus qu'elle n'a ete vendue). Trie par % consomme decroissant.</div>
+    <div class="panel" style="padding:8px 12px 12px;overflow-x:auto;"><table>
+      <thead><tr><th>Mission</th><th style="text-align:center;">Vendus</th><th style="text-align:center;">Realise</th><th style="text-align:center;">Marge (j)</th><th style="text-align:center;">% Avt</th><th>Statut</th><th style="text-align:center;">Sante</th></tr></thead>
+      <tbody>${mrows||'<tr><td colspan="7" style="color:var(--muted);padding:14px;">Aucune mission.</td></tr>'}</tbody>
+    </table></div>`;
+
+  // ---- goulets ----
+  const gRes = [...surcharge].map(e=>pdccName(e));
+  const gMiss = missRows.filter(x=>x.pct!==null && x.pct>105).map(x=>`${x.m.intitule||x.m.code} (${x.pct}%)`);
+  const goulets = `<div class="sec-eyebrow" style="margin-top:24px;">Goulets de delivery</div>
+    <div class="sec-title">Ou ca coince</div>
+    <div class="panel" style="padding:14px 16px;">
+      <div style="margin-bottom:10px;"><b>Ressources en surcharge (${y}, ${PDCC_ETAT(PDCC.etat)})</b> : ${gRes.length?gRes.join(', '):'<span class="sub-cell">aucune</span>'}</div>
+      <div><b>Missions au-dela du vendu</b> : ${gMiss.length?gMiss.join(', '):'<span class="sub-cell">aucune</span>'}</div>
+      <div class="edit-hint" style="margin-top:10px;">Une ressource en surcharge un mois donne = risque de retard ou de qualite ; une mission au-dela du vendu ronge la marge. Ce sont les deux points a arbitrer en priorite.</div>
+    </div>`;
+
+  zone.innerHTML = kpi + ctrl + pdccAnalyseBar() + heat + miss + goulets;
+}
+
+function PDCC_ETAT(e){ return e==='planifie' ? 'Planifie' : 'Realise'; }
+function pdccSetYear(y){ PDCC.year = y; renderPdcConsView(); }
+function pdccSetEtat(e){ PDCC.etat = e; renderPdcConsView(); }
+
+function pdccAnalyseBar(){
+  return `<div class="panel" style="padding:10px 14px;margin-bottom:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      <button class="add-btn" onclick="pdccAnalyse()">&#10024; Analyser le plan de charge (IA)</button>
+      <span class="edit-hint">L'IA analyse la charge des salaries et signale les moins charges (${PDCC.salaries.length} salarie(s) defini(s)${PDCC.salaries.length?'':' &mdash; a definir en Admin'}).</span>
+    </div>`;
+}
+async function pdccAnalyse(){
+  if(typeof SB_SESSION==='undefined' || !SB_SESSION){ flashSync('&#9888; session expiree'); return; }
+  if(!PDCC.salaries.length){ flashSync('&#9888; definissez les salaries en Admin'); return; }
+  const y=PDCC.year, cmap=pdccChargeMap();
+  const roster = pdccRoster().filter(e=>PDCC.salaries.includes(e));
+  const salaries = roster.map(e=>{
+    let sj=0, sc=0; const parMois=[];
+    for(let mo=1;mo<=12;mo++){
+      const cap=PDCC.capacite[`${e}|${y}|${mo}`]; const j=cmap[`${e}|${mo}`]||0; sj+=j;
+      if(cap){ sc+=cap; parMois.push({mois:mo, taux:Math.round(j/cap*100)}); }
+    }
+    return { nom:pdccName(e), taux_annuel: sc?Math.round(sj/sc*100):null, jours_charge:Math.round(sj), jours_capacite:Math.round(sc), par_mois:parMois };
+  });
+  pdcOpenModal(`<div style="padding:22px 20px;">Analyse du plan de charge en cours&hellip;</div>`);
+  try{
+    const r=await fetch('/api/pdc-conseil',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+SB_SESSION.access_token},body:JSON.stringify({annee:y,etat:PDCC.etat,salaries})});
+    const data=await r.json();
+    if(!r.ok||data.error) throw new Error(data.error||('HTTP '+r.status));
+    const txt=(data.analyse||'').trim()||'(aucune analyse)';
+    const html=txt.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/\n/g,'<br>');
+    pdcOpenModal(`<div style="padding:20px 22px;max-height:82vh;overflow-y:auto;">
+        <div class="sec-title" style="margin:0 0 4px;">Analyse du plan de charge &mdash; salaries ${y}</div>
+        <div class="sec-note" style="margin-bottom:12px;">Etat : ${PDCC_ETAT(PDCC.etat)}. Genere par l'IA a partir de la charge des salaries.</div>
+        <div style="font-size:14px;line-height:1.55;">${html}</div>
+        <div style="text-align:right;margin-top:16px;"><button class="per-btn" onclick="pdcCloseImport()">Fermer</button></div>
+      </div>`);
+  }catch(e){
+    pdcOpenModal(`<div style="padding:22px 20px;color:var(--signal);">Echec de l'analyse : ${(e&&e.message)||e}<div style="text-align:right;margin-top:14px;"><button class="per-btn" onclick="pdcCloseImport()">Fermer</button></div></div>`);
+  }
+}
+
 
 
 const VIEWS = {
