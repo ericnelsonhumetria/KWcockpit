@@ -2873,7 +2873,7 @@ function renderPdcConsView(){
     })
     .filter(x=> x.vendus>0 || x.real>0)
     .sort((a,b)=> (b.pct??-1)-(a.pct??-1));
-  const mrows = missRows.map(x=>`<tr>
+  const missRowHtml = x=>`<tr>
       <td><b>${x.m.intitule||x.m.code}</b><br><span class="sub-cell">${x.m.code}${x.m.client?' &middot; '+x.m.client:''}</span></td>
       <td style="text-align:center;">${x.vendus||'&mdash;'}</td>
       <td style="text-align:center;">${x.real||0}</td>
@@ -2881,14 +2881,16 @@ function renderPdcConsView(){
       <td style="text-align:center;">${x.pct===null?'&mdash;':x.pct+'%'}</td>
       <td>${x.m.statut?`<span class="pill p-grey">${x.m.statut}</span>`:''}</td>
       <td style="text-align:center;font-size:18px;" title="${x.pct===null?'':x.pct+'% du vendu consomme'}">${x.picto}</td>
-    </tr>`).join('');
+    </tr>`;
+  const missHead = `<thead><tr><th>Mission</th><th style="text-align:center;">Vendus</th><th style="text-align:center;">Realise</th><th style="text-align:center;">Marge (j)</th><th style="text-align:center;">% Avt</th><th>Statut</th><th style="text-align:center;">Sante</th></tr></thead>`;
+  const missActifs = missRows.filter(x=>!pdccDone(x.m.statut));
+  const missTermines = missRows.filter(x=>pdccDone(x.m.statut));
   const miss = `<div class="sec-eyebrow" style="margin-top:24px;">Economie des missions</div>
     <div class="sec-title">Vendus vs realise &mdash; marge de delivery</div>
-    <div class="sec-note">Marge (j) = vendus &minus; realise (rouge si negatif = mission qui coute plus qu'elle n'a ete vendue). Trie par % consomme decroissant.</div>
-    <div class="panel" style="padding:8px 12px 12px;overflow-x:auto;"><table>
-      <thead><tr><th>Mission</th><th style="text-align:center;">Vendus</th><th style="text-align:center;">Realise</th><th style="text-align:center;">Marge (j)</th><th style="text-align:center;">% Avt</th><th>Statut</th><th style="text-align:center;">Sante</th></tr></thead>
-      <tbody>${mrows||'<tr><td colspan="7" style="color:var(--muted);padding:14px;">Aucune mission.</td></tr>'}</tbody>
-    </table></div>`;
+    <div class="sec-note">Marge (j) = vendus &minus; realise (rouge si negatif = mission qui coute plus qu'elle n'a ete vendue). Les missions terminees sont repliees. Trie par % consomme decroissant.</div>
+    <div class="panel" style="padding:8px 12px 12px;overflow-x:auto;"><table>${missHead}
+      <tbody>${missActifs.map(missRowHtml).join('')||'<tr><td colspan="7" style="color:var(--muted);padding:14px;">Aucune mission en cours.</td></tr>'}</tbody>
+    </table>${missTermines.length?`<details style="margin-top:10px;"><summary style="cursor:pointer;font-size:13px;color:var(--muted);padding:6px 0;">Missions terminees (${missTermines.length}) &mdash; afficher / masquer</summary><div style="overflow-x:auto;margin-top:6px;"><table>${missHead}<tbody>${missTermines.map(missRowHtml).join('')}</tbody></table></div></details>`:''}</div>`;
 
   // ---- goulets ----
   const gRes = [...surcharge].map(e=>pdccName(e));
@@ -2916,19 +2918,20 @@ function pdccManageSection(){
   const roster = pdccRoster();
   const affBy = {};
   PDCC.affectations.forEach(a=>{ (affBy[a.mission_code]=affBy[a.mission_code]||[]).push(a.email); });
-  const statuts = ['En cours','Termine','Non demarre','En pause'];
+  const statuts = ['En cours','Terminé','Non démarré','En pause'];
 
-  const missRows = PDCC.missions.slice()
+  const missObjs = PDCC.missions.slice()
     .sort((a,b)=> String(a.code).localeCompare(String(b.code)))
     .map(m=>{
       const affs = (affBy[m.code]||[]).slice().sort();
       const chips = affs.map(e=>`<span class="pill p-grey" style="margin:2px 3px;display:inline-block;">${pdccName(e)} <a onclick="pdccDelAff('${m.code}','${e}')" style="cursor:pointer;color:var(--signal);font-weight:700;" title="retirer">&times;</a></span>`).join('') || '<span class="sub-cell">aucun</span>';
       const dispo = roster.filter(e=>!affs.includes(e));
       const addSel = `<select class="obj-sel" onchange="pdccAffPick('${m.code}',this)"><option value="">+ affecter&hellip;</option>${dispo.map(e=>`<option value="${e}">${pdccName(e)}</option>`).join('')}<option value="__new__">+ autre email&hellip;</option></select>`;
-      const statOpts = statuts.map(s=>`<option ${m.statut===s?'selected':''}>${s}</option>`).join('');
+      const statList = (statuts.includes(m.statut)||!m.statut) ? statuts : statuts.concat([m.statut]);
+      const statOpts = statList.map(s=>`<option ${m.statut===s?'selected':''}>${s}</option>`).join('');
       const iv = String(m.intitule||'').replace(/"/g,'&quot;');
       const cv = String(m.client||'').replace(/"/g,'&quot;');
-      return `<tr>
+      const html = `<tr>
         <td><b>${m.code}</b></td>
         <td><input value="${iv}" onchange="pdccSaveMission('${m.code}','intitule',this.value)" style="width:100%;min-width:160px;"></td>
         <td><input value="${cv}" onchange="pdccSaveMission('${m.code}','client',this.value)" style="width:110px;"></td>
@@ -2937,15 +2940,18 @@ function pdccManageSection(){
         <td style="min-width:220px;">${chips} ${addSel}</td>
         <td style="text-align:center;"><a onclick="pdccDelMission('${m.code}')" style="cursor:pointer;color:var(--signal);font-size:16px;" title="supprimer la mission">&#128465;</a></td>
       </tr>`;
-    }).join('');
-
+      return { done: pdccDone(m.statut), html };
+    });
+  const projActifs = missObjs.filter(o=>!o.done).map(o=>o.html).join('');
+  const projTermines = missObjs.filter(o=>o.done);
+  const projHead = `<thead><tr><th>Code</th><th>Intitule</th><th>Client</th><th>Vendus</th><th>Statut</th><th>Consultants affectes</th><th></th></tr></thead>`;
   const projets = `<div class="sec-eyebrow" style="margin-top:26px;">Gestion</div>
     <div class="sec-title">Projets & affectations</div>
-    <div class="sec-note">Modifiez intitule, client, jours vendus, statut ; affectez ou retirez des consultants. Enregistrement automatique.</div>
-    <div class="panel" style="padding:8px 12px 12px;overflow-x:auto;"><table>
-      <thead><tr><th>Code</th><th>Intitule</th><th>Client</th><th>Vendus</th><th>Statut</th><th>Consultants affectes</th><th></th></tr></thead>
-      <tbody>${missRows || '<tr><td colspan="7" class="sub-cell" style="padding:12px;">Aucune mission.</td></tr>'}</tbody>
+    <div class="sec-note">Modifiez intitule, client, jours vendus, statut ; affectez ou retirez des consultants. Les missions terminees sont repliees. Enregistrement automatique.</div>
+    <div class="panel" style="padding:8px 12px 12px;overflow-x:auto;"><table>${projHead}
+      <tbody>${projActifs || '<tr><td colspan="7" class="sub-cell" style="padding:12px;">Aucune mission en cours.</td></tr>'}</tbody>
     </table>
+    ${projTermines.length?`<details style="margin-top:10px;"><summary style="cursor:pointer;font-size:13px;color:var(--muted);padding:6px 0;">Missions terminees (${projTermines.length}) &mdash; afficher / masquer</summary><div style="overflow-x:auto;margin-top:6px;"><table>${projHead}<tbody>${projTermines.map(o=>o.html).join('')}</tbody></table></div></details>`:''}
     <div class="edit-bar" style="margin-top:10px;"><button class="add-btn" onclick="pdccAddMission()">+ Nouvelle mission</button><span class="edit-hint">Supprimer une mission efface aussi sa charge et ses affectations.</span></div>
     </div>`;
 
@@ -3033,6 +3039,19 @@ async function pdccToggleSalarie(email){
    "Recalculer les taux" pour rafraichir heatmap/KPI. "-> annee" applique une
    valeur a tous les mois d'une ligne (pratique pour les freelances). ---- */
 
+function pdccDone(s){ return /termin/i.test(String(s||'')); }
+async function pdccDelConsultant(email){
+  if(!confirm('Retirer '+pdccName(email)+' du plan de charge ?\nSa capacite, ses affectations et sa charge seront supprimees. Son compte de connexion n\'est pas affecte.')) return;
+  try{
+    let r = await SB.from('pdc_charge').delete().eq('email', email); if(r.error) throw r.error;
+    r = await SB.from('pdc_affectations').delete().eq('email', email); if(r.error) throw r.error;
+    r = await SB.from('pdc_capacite').delete().eq('email', email); if(r.error) throw r.error;
+    const i = PDCC.salaries.indexOf(email);
+    if(i>=0){ PDCC.salaries.splice(i,1); await saveShared('pdc_salaries', PDCC.salaries); }
+    flashSync('&#10003; consultant retire');
+    loadPdcCons();
+  }catch(e){ flashSync('&#9888; ' + ((e&&e.message)||'refus')); }
+}
 function pdccCapEditor(roster){
   const y = PDCC.year;
   const head = `<th style="min-width:150px;">Ressource</th>`
@@ -3048,7 +3067,7 @@ function pdccCapEditor(roster){
     return `<tr>
       <td style="min-width:150px;"><b>${pdccName(e)}</b>${PDCC.salaries.includes(e)?' <span class="pill p-green" style="font-size:9px;padding:1px 6px;">salarie</span>':''}</td>
       ${cells.join('')}
-      <td style="white-space:nowrap;"><input type="number" step="0.5" min="0" id="${id}" placeholder="j" style="width:46px;text-align:center;font-size:12px;"> <a onclick="pdccSetCapYear('${e}')" style="cursor:pointer;color:var(--steel);font-size:11px;font-weight:700;" title="appliquer a tous les mois de ${y}">&rarr; annee</a></td>
+      <td style="white-space:nowrap;"><input type="number" step="0.5" min="0" id="${id}" placeholder="j" style="width:46px;text-align:center;font-size:12px;"> <a onclick="pdccSetCapYear('${e}')" style="cursor:pointer;color:var(--steel);font-size:11px;font-weight:700;" title="appliquer a tous les mois de ${y}">&rarr; annee</a> <a onclick="pdccDelConsultant('${e}')" style="cursor:pointer;color:var(--signal);font-size:15px;margin-left:6px;" title="retirer ce consultant du plan de charge">&#128465;</a></td>
     </tr>`;
   }).join('');
   return `<div class="sec-eyebrow" style="margin-top:26px;">Gestion</div>
