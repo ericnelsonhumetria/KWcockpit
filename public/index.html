@@ -1457,8 +1457,10 @@ function renderAdmin(users){
       <div class="edit-bar"><button class="add-btn" onclick="adminNouveau()">+ Nouvel utilisateur</button><button class="add-btn ghost" onclick="loadAdmin()">↻ Actualiser</button><span class="edit-hint">« ↻ MDP » génère un nouveau mot de passe à transmettre. Les mots de passe existants ne sont jamais affichés.</span></div>
       <div id="adminMsg"></div>
     </div>
-    <div id="salZone"></div>`;
+    <div id="salZone"></div>
+    <div id="consAccessZone"></div>`;
   renderSalaries();
+  renderConsultantAccess();
 }
 let SALARIES = [];
 let ADMIN_USERS = [];
@@ -1482,6 +1484,70 @@ async function toggleSalarie(email){
   await saveShared('pdc_salaries', SALARIES);
   renderSalaries();
 }
+/* ---- Acces consultants : creation en lot (onglet Admin, role consultant) ----
+   Cree les comptes manquants via /api/admin (action create) et affiche les
+   mots de passe initiaux (une seule fois). Ignore les comptes deja existants. */
+
+const CONS_DEFAUT = [
+  'Thibaut DRAGA; t.draga@kaizenway.fr',
+  'Arnaud TORRES; a.torres@kaizenway.fr',
+  'Delphine GOURGUES; d.gourgues@kaizenway.fr',
+  'Rodolphe VIARD; r.viard@kaizenway.fr',
+  'Bertrand FRAISSARD; b.fraissard@kaizenway.fr',
+  'Mandine BUSCAIL; m.buscail@kaizenway.fr',
+  'Thomas LEJOILLE; t.lejoille@kaizenway.fr'
+].join('\n');
+
+function renderConsultantAccess(){
+  const z = document.getElementById('consAccessZone'); if(!z) return;
+  z.innerHTML = `<div class="panel" style="padding:12px 16px 16px;margin-top:16px;">
+      <div class="sec-eyebrow">Plan de charge</div>
+      <div class="sec-title" style="font-size:16px;">Acces consultants</div>
+      <div class="sec-note">Cree un compte (role <b>consultant</b>) par email. Une ligne = un consultant ; l'email est detecte automatiquement (le nom est libre). Les comptes deja existants sont ignores. Le mot de passe initial s'affiche <b>une seule fois</b> &mdash; copie-le pour le transmettre, la personne le changera ensuite.</div>
+      <textarea id="consList" spellcheck="false" style="width:100%;min-height:155px;font-size:13px;font-family:ui-monospace,Menlo,Consolas,monospace;padding:8px;border:1px solid var(--line);border-radius:6px;">${CONS_DEFAUT}</textarea>
+      <div class="edit-bar" style="margin-top:8px;"><button class="add-btn" onclick="pdcCreateConsultants()">Creer les acces (role consultant)</button><span class="edit-hint">Verifie les emails deduits (Viard, Fraissard, Buscail, Lejoille) avant de creer &mdash; un email errone = login inutilisable et plan de charge vide.</span></div>
+      <div id="consResults"></div>
+    </div>`;
+}
+
+async function pdcCreateConsultants(){
+  const ta = document.getElementById('consList'); if(!ta) return;
+  const res = document.getElementById('consResults');
+  const existing = new Set((ADMIN_USERS||[]).map(u=>(u.email||'').toLowerCase()));
+  const emails = [];
+  ta.value.split('\n').map(l=>l.trim()).filter(Boolean).forEach(l=>{
+    const m = l.match(/[^\s;,<>]+@[^\s;,<>]+/);
+    if(m && !emails.includes(m[0].toLowerCase())) emails.push(m[0].toLowerCase());
+  });
+  if(!emails.length){ if(res) res.innerHTML = '<div class="edit-hint" style="margin-top:10px;">Aucun email detecte.</div>'; return; }
+  if(res) res.innerHTML = '<div class="edit-hint" style="margin-top:10px;">Creation en cours&hellip;</div>';
+  const out = [];
+  for(const email of emails){
+    if(existing.has(email)){ out.push({ email, statut:'deja', mdp:'' }); continue; }
+    try {
+      const { ok, data } = await adminCall({ action:'create', email, role:'consultant', is_admin:false });
+      if(ok && data && data.motDePasseInitial){
+        out.push({ email, statut:'cree', mdp:data.motDePasseInitial });
+        existing.add(email);
+        ADMIN_USERS.push({ email, role:'consultant', is_admin:false, confirme:true });
+      } else {
+        out.push({ email, statut:'erreur', mdp:'', err:(data && data.error) || '' });
+      }
+    } catch(e){ out.push({ email, statut:'erreur', mdp:'', err:(e&&e.message)||String(e) }); }
+  }
+  const rows = out.map(o=>{
+    const badge = o.statut==='cree' ? '<span class="pill p-green">cree</span>'
+                : o.statut==='deja' ? '<span class="pill p-grey">deja cree</span>'
+                : `<span class="pill p-signal">erreur</span>${o.err?` <span class="sub-cell">${o.err}</span>`:''}`;
+    return `<tr><td><b>${o.email}</b></td><td>${badge}</td><td>${o.mdp?`<code style="background:#fff;padding:2px 8px;border-radius:4px;">${o.mdp}</code>`:'&mdash;'}</td></tr>`;
+  }).join('');
+  const nbCree = out.filter(o=>o.statut==='cree').length;
+  if(res) res.innerHTML = `<div class="panel" style="padding:8px 12px 12px;margin-top:12px;background:#fff;">
+      <div class="edit-hint" style="margin-bottom:6px;">${nbCree} compte(s) cree(s). Transmets chaque mot de passe a la personne &mdash; il ne sera plus reaffiche. Actualise la liste des utilisateurs pour les y voir.</div>
+      <table><thead><tr><th>Email</th><th>Statut</th><th>Mot de passe initial</th></tr></thead><tbody>${rows}</tbody></table>
+    </div>`;
+}
+
 function adminMsg(html){ const m=document.getElementById('adminMsg'); if(m) m.innerHTML = '<div class="save-ok" style="margin-top:10px;display:block;">'+html+'</div>'; }
 async function adminCall(payload){
   const res = await fetch('/api/admin', { method:'POST', headers: { Authorization: 'Bearer ' + SB_SESSION.access_token, 'Content-Type':'application/json' }, body: JSON.stringify(payload) });
