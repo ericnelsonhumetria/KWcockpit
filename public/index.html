@@ -503,7 +503,7 @@ function roleFromAccess(access, email){
   if(access.is_admin === true || access.role === 'direction' || access.role === 'eric') return 'eric';
   // mapping souple : on lit une éventuelle colonne role, sinon on déduit de l'email
   const r = (access.role || '').toLowerCase();
-  if(['eric','paul','audrey','juliette','sabrine','najoua'].includes(r)) return r;
+  if(['eric','paul','audrey','juliette','sabrine','najoua','consultant'].includes(r)) return r;
   const e = (email||'').toLowerCase();
   if(e.startsWith('paul')) return 'paul';
   if(e.startsWith('audrey')) return 'audrey';
@@ -562,7 +562,8 @@ const NAMES = {
   eric:"Eric — Direction", paul:"Paul Ingrassia — Commerce",
   audrey:"Audrey Humbert — Réalisation & compétences",
   juliette:"Juliette Surcouf — Marketing & communication",
-  sabrine:"Sabrine Lourhmi — RH", najoua:"Najoua Amlal — Finance & admin"
+  sabrine:"Sabrine Lourhmi — RH", najoua:"Najoua Amlal — Finance & admin",
+  consultant:"Consultant — Plan de charge"
 };
 
 let CURRENT_ROLE = 'eric';
@@ -575,6 +576,7 @@ const ROLE_STEPS = {
   juliette: ['marketing'],
   sabrine: ['rh'],
   najoua: ['finance'],
+  consultant: ['realisation'],
 };
 
 function highlightLifecycle(role){
@@ -634,7 +636,7 @@ function render(role){
     tabsEl.appendChild(adminTab);
   }
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.dataset.tab==='dash'));
-  const open = ACTIONS[role].filter(a=>!a.done).length;
+  const open = (ACTIONS[role]||[]).filter(a=>!a.done).length;
   const badge = document.getElementById('tabBadge'); if(badge) badge.textContent = open;
   highlightLifecycle(role);
   renderTab();
@@ -661,6 +663,7 @@ function renderTab(){
     document.getElementById('view').innerHTML = VIEWS[CURRENT_ROLE]();
     if(CURRENT_ROLE==='paul' || CURRENT_ROLE==='eric') animateBars();
     if(CURRENT_ROLE==='eric'){ animateGoal(); loadRespCommerce(); }
+    if(CURRENT_ROLE==='consultant') loadPdc();
   } else if(CURRENT_TAB==='pdc'){
     document.getElementById('view').innerHTML = renderPdc();
   } else if(CURRENT_TAB==='capbp'){
@@ -1397,7 +1400,7 @@ async function loadRespCommerce(){
   }
 }
 
-const ROLES_DISPO = ['direction','paul','audrey','juliette','sabrine','najoua','si'];
+const ROLES_DISPO = ['direction','consultant','paul','audrey','juliette','sabrine','najoua','si'];
 async function loadAdmin(){
   const zone = document.getElementById('adminZone');
   if(!zone || !SB_SESSION){ if(zone) zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Session expirée.</div>'; return; }
@@ -2477,6 +2480,9 @@ async function pdcCycle(mission, iso){
 
 
 const VIEWS = {
+
+/* ---------- CONSULTANT : espace personnel plan de charge ---------- */
+consultant: () => renderPdc(),
 
 /* ---------- ERIC : DIRECTION ---------- */
 eric: () => `
