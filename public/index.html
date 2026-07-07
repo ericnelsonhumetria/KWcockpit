@@ -615,6 +615,14 @@ function render(role){
   dojoTab.setAttribute('onclick', "window.location.href='/dojo/'");
   dojoTab.innerHTML = 'Dojo ↗';
   tabsEl.appendChild(dojoTab);
+  // onglet Plan de charge : espace personnel (tous) ; consolide Audrey/Eric a venir
+  const oldPdc = tabsEl.querySelector('[data-tab="pdc"]');
+  if(oldPdc) oldPdc.remove();
+  const pdcTab = document.createElement('button');
+  pdcTab.className = 'tab'; pdcTab.dataset.tab = 'pdc';
+  pdcTab.setAttribute('onclick', "switchTab('pdc')");
+  pdcTab.innerHTML = 'Plan de charge';
+  tabsEl.appendChild(pdcTab);
   // onglet Admin : réservé SI / direction (rôle eric)
   const oldAdmin = tabsEl.querySelector('[data-tab="admin"]');
   if(oldAdmin) oldAdmin.remove();
@@ -653,6 +661,8 @@ function renderTab(){
     document.getElementById('view').innerHTML = VIEWS[CURRENT_ROLE]();
     if(CURRENT_ROLE==='paul' || CURRENT_ROLE==='eric') animateBars();
     if(CURRENT_ROLE==='eric'){ animateGoal(); loadRespCommerce(); }
+  } else if(CURRENT_TAB==='pdc'){
+    document.getElementById('view').innerHTML = renderPdc();
   } else if(CURRENT_TAB==='capbp'){
     document.getElementById('view').innerHTML = `
       <div class="sec-eyebrow">Capitalisation</div>
@@ -2282,6 +2292,189 @@ async function analyserHumetrix(){
     if(btn){ btn.disabled = false; btn.textContent = '✨ Faire analyser par Humetrix'; }
   }
 }
+
+/* ===================================================================
+   PLAN DE CHARGE — espace consultant (brique 1)
+   Chaque personne connectee saisit SA charge (0,5 j), etat Planifie /
+   Realise (+ Revise optionnel). Ecriture directe dans Supabase pdc_*
+   (RLS = ses propres lignes). Vue consolidee Audrey/Eric = brique 2.
+   A coller tel quel dans <script>, par ex. juste avant "const VIEWS = {".
+   =================================================================== */
+let PDC = {
+  weekStart: null,     // Date (lundi) de la semaine affichee
+  etat: 'realise',     // 'planifie' | 'realise' | 'revise'
+  reviseOn: false,     // affiche l'etat Revise (optionnel)
+  affectations: [],    // [{mission_code, intitule, client}]
+  activites: [],       // [{code, libelle}]
+  charge: {},          // cle `${mission}|${YYYY-MM-DD}|${etat}` -> jours
+  rowAct: {},          // activite choisie par mission (cle mission_code)
+  capacite: null,      // {jours_dispo, type_ressource} du mois courant
+};
+const PDC_ETAT_LABEL = { planifie:'Planifie', revise:'Revise', realise:'Realise' };
+const PDC_JOURS = ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
+
+function pdcISO(d){ return d.toISOString().slice(0,10); }
+function pdcMonday(d){ const x=new Date(d); const j=(x.getDay()+6)%7; x.setDate(x.getDate()-j); x.setHours(0,0,0,0); return x; }
+function pdcAdd(d,n){ const x=new Date(d); x.setDate(x.getDate()+n); return x; }
+function pdcWeek(){ const o=[]; for(let i=0;i<7;i++) o.push(pdcAdd(PDC.weekStart,i)); return o; }
+function pdcJJ(d){ return d.getDate()+'/'+(d.getMonth()+1); }
+
+// Shell rendu par renderTab (branche 'pdc')
+function renderPdc(){
+  return `
+    <div class="sec-eyebrow">Plan de charge</div>
+    <div class="sec-title">Mon plan de charge</div>
+    <div class="sec-note">Saisissez votre charge par demi-journee. Cliquez une case pour cycler &mdash; &rarr; 0,5 &rarr; 1 jour. Etat par defaut : Realise. Enregistrement automatique.</div>
+    <div id="pdcZone"><div class="panel" style="padding:18px 16px;">
+      <button class="add-btn" onclick="loadPdc()">&#x27F1; Charger mon plan de charge</button>
+      <span class="edit-hint" style="margin-left:10px;">Vos missions, votre charge du mois et votre capacite.</span>
+    </div></div>
+    ${footer("Espace personnel : vous ne voyez et n'editez que vos propres lignes (RLS Supabase). La vue consolidee equipe est reservee a Audrey et Eric.")}
+  `;
+}
+
+async function loadPdc(){
+  const zone = document.getElementById('pdcZone');
+  if(!zone) return;
+  if(!SB || !CURRENT_EMAIL){ zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Session expiree &mdash; reconnectez-vous.</div>'; return; }
+  zone.innerHTML = '<div class="panel" style="padding:18px 16px;">Chargement&hellip;</div>';
+  if(!PDC.weekStart) PDC.weekStart = pdcMonday(new Date());
+  const y = PDC.weekStart.getFullYear(), m = PDC.weekStart.getMonth();
+  const monthStart = new Date(y, m, 1), monthEnd = new Date(y, m+1, 0);
+  try {
+    const [aff, act, ch, cap] = await Promise.all([
+      SB.from('pdc_affectations').select('mission_code, pdc_missions(intitule, client)').eq('email', CURRENT_EMAIL),
+      SB.from('pdc_activite').select('code, libelle').order('ordre'),
+      SB.from('pdc_charge').select('mission_code, date_jour, etat, jours, activite')
+        .eq('email', CURRENT_EMAIL).gte('date_jour', pdcISO(monthStart)).lte('date_jour', pdcISO(monthEnd)),
+      SB.from('pdc_capacite').select('jours_dispo, type_ressource')
+        .eq('email', CURRENT_EMAIL).eq('annee', y).eq('mois', m+1).maybeSingle(),
+    ]);
+    PDC.affectations = (aff.data||[]).map(r=>({
+      mission_code: r.mission_code,
+      intitule: (r.pdc_missions && r.pdc_missions.intitule) || r.mission_code,
+      client:   (r.pdc_missions && r.pdc_missions.client)   || '',
+    }));
+    PDC.activites = act.data || [];
+    PDC.charge = {}; PDC.rowAct = {};
+    (ch.data||[]).forEach(r=>{
+      PDC.charge[`${r.mission_code}|${r.date_jour}|${r.etat}`] = r.jours;
+      if(r.activite && !PDC.rowAct[r.mission_code]) PDC.rowAct[r.mission_code] = r.activite;
+    });
+    PDC.capacite = cap.data || null;
+    renderPdcGrid();
+  } catch(e){
+    zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Erreur : '+((e&&e.message)||e)+'</div>';
+  }
+}
+
+function pdcTotaux(){
+  let planifie=0, realise=0, revise=0;
+  Object.entries(PDC.charge).forEach(([k,v])=>{
+    const etat = k.split('|')[2];
+    if(etat==='planifie') planifie+=v; else if(etat==='realise') realise+=v; else if(etat==='revise') revise+=v;
+  });
+  return { planifie, realise, revise };
+}
+
+function renderPdcGrid(){
+  const zone = document.getElementById('pdcZone');
+  if(!zone) return;
+  const t = pdcTotaux();
+  const cap = PDC.capacite ? PDC.capacite.jours_dispo : null;
+  const tauxR = cap ? Math.round(t.realise/cap*100) : null;
+  const tauxP = cap ? Math.round(t.planifie/cap*100) : null;
+  const mois = PDC.weekStart.toLocaleDateString('fr-FR',{month:'long',year:'numeric'});
+  const clsR = tauxR===null ? 'neutre' : (tauxR>100 ? 'ko' : (tauxR>=70 ? 'ok' : ''));
+
+  const kpi = `<div class="kpis k4">
+    <div class="kpi ${clsR}"><div class="k-label">Taux de charge realise &middot; ${mois}</div><div class="k-val">${tauxR===null?'&mdash;':tauxR+'%'}</div><div class="k-sub">${cap? t.realise+' / '+cap+' j':'capacite non definie'}</div></div>
+    <div class="kpi"><div class="k-label">Planifie &middot; ${mois}</div><div class="k-val">${tauxP===null? t.planifie+' j' : tauxP+'%'}</div><div class="k-sub">${t.planifie} j planifies</div></div>
+    <div class="kpi"><div class="k-label">Realise &middot; ${mois}</div><div class="k-val">${t.realise} <small>j</small></div><div class="k-sub">${PDC.affectations.length} mission(s)</div></div>
+    ${PDC.reviseOn
+      ? `<div class="kpi"><div class="k-label">Revise &middot; ${mois}</div><div class="k-val">${t.revise} <small>j</small></div><div class="k-sub">prevision revisee</div></div>`
+      : `<div class="kpi"><div class="k-label">Capacite du mois</div><div class="k-val">${cap? cap+' j':'&mdash;'}</div><div class="k-sub">${PDC.capacite? PDC.capacite.type_ressource : 'a definir (Audrey/Eric)'}</div></div>`}
+  </div>`;
+
+  const etats = ['planifie','realise'].concat(PDC.reviseOn ? ['revise'] : []);
+  const seg = `<div class="seg">${etats.map(e=>`<button class="${PDC.etat===e?'on':''}" onclick="pdcSetEtat('${e}')">${PDC_ETAT_LABEL[e]}</button>`).join('')}</div>`;
+  const chk = `<label style="font-size:12px;margin-left:12px;"><input type="checkbox" ${PDC.reviseOn?'checked':''} onclick="pdcToggleRevise()"> afficher Revise</label>`;
+  const days = pdcWeek();
+  const nav = `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:12px 0;">
+      <button class="per-btn" onclick="pdcNav(-1)">&larr; semaine</button>
+      <b>Semaine du ${pdcJJ(days[0])} au ${pdcJJ(days[6])}</b>
+      <button class="per-btn" onclick="pdcNav(1)">semaine &rarr;</button>
+      <button class="per-btn" onclick="pdcToday()">aujourd'hui</button>
+      <span style="margin-left:auto;display:flex;align-items:center;">${seg}${chk}</span>
+    </div>`;
+
+  let grid;
+  if(!PDC.affectations.length){
+    grid = `<div class="panel" style="padding:16px;color:var(--muted);font-size:13px;">Aucune mission ne vous est affectee pour le moment. Les affectations sont gerees par Audrey ou Eric. Une fois affecte a une mission, vous pourrez saisir votre charge ici.</div>`;
+  } else {
+    const head = `<th style="min-width:170px;">Mission</th><th style="min-width:120px;">Activite</th>`
+      + days.map((d,i)=>`<th style="text-align:center;${i>=5?'color:var(--muted);':''}">${PDC_JOURS[i]}<br><span style="font-weight:400;">${pdcJJ(d)}</span></th>`).join('')
+      + `<th style="text-align:center;">Tot.</th>`;
+    const rows = PDC.affectations.map(mi=>{
+      const actSel = `<select class="obj-sel" onchange="pdcSetAct('${mi.mission_code}',this.value)"><option value="">&mdash;</option>`
+        + PDC.activites.map(a=>`<option value="${a.code}" ${PDC.rowAct[mi.mission_code]===a.code?'selected':''}>${a.libelle}</option>`).join('')
+        + `</select>`;
+      let rowTot=0;
+      const cells = days.map((d,i)=>{
+        const iso = pdcISO(d);
+        const v = PDC.charge[`${mi.mission_code}|${iso}|${PDC.etat}`] || 0;
+        rowTot += v;
+        const disp = v===0 ? '&middot;' : (v===0.5 ? '&frac12;' : v);
+        const bg = v===0 ? (i>=5?'background:#faf7f2;':'') : (v>=1 ? 'background:var(--steel);color:#fff;' : 'background:#f6ecd4;');
+        return `<td style="text-align:center;cursor:pointer;${bg}" onclick="pdcCycle('${mi.mission_code}','${iso}')" title="cliquer : &mdash; &rarr; 0,5 &rarr; 1">${disp}</td>`;
+      }).join('');
+      return `<tr><td><b>${mi.intitule}</b><br><span class="sub-cell">${mi.mission_code}${mi.client?' &middot; '+mi.client:''}</span></td><td>${actSel}</td>${cells}<td style="text-align:center;font-weight:700;">${rowTot||''}</td></tr>`;
+    }).join('');
+    const foot = `<td></td><td style="text-align:right;font-size:11px;color:var(--muted);">total jour</td>`
+      + days.map(d=>{
+          const iso=pdcISO(d); let s=0; PDC.affectations.forEach(mi=>{ s += PDC.charge[`${mi.mission_code}|${iso}|${PDC.etat}`]||0; });
+          return `<td style="text-align:center;font-weight:700;${s>1?'color:var(--signal);':''}">${s||''}</td>`;
+        }).join('')
+      + `<td></td>`;
+    grid = `<div class="panel" style="padding:8px 12px 12px;overflow-x:auto;">
+      <table><thead><tr>${head}</tr></thead><tbody>${rows}<tr style="border-top:2px solid var(--ink);">${foot}</tr></tbody></table>
+      <div class="edit-hint" style="margin-top:8px;">Etat affiche : <b>${PDC_ETAT_LABEL[PDC.etat]}</b>. Un total jour &gt; 1 (rouge) signale une sur-affectation. L'activite est choisie par mission.</div>
+    </div>`;
+  }
+  zone.innerHTML = kpi + nav + grid;
+}
+
+function pdcSetEtat(e){ PDC.etat = e; renderPdcGrid(); }
+function pdcToggleRevise(){ PDC.reviseOn = !PDC.reviseOn; if(!PDC.reviseOn && PDC.etat==='revise') PDC.etat='realise'; renderPdcGrid(); }
+function pdcNav(n){ PDC.weekStart = pdcAdd(PDC.weekStart, n*7); loadPdc(); }
+function pdcToday(){ PDC.weekStart = pdcMonday(new Date()); loadPdc(); }
+function pdcSetAct(mission, code){ PDC.rowAct[mission] = code; }
+
+async function pdcCycle(mission, iso){
+  if(!SB || !CURRENT_EMAIL){ flashSync('&#9888; session expiree'); return; }
+  const key = `${mission}|${iso}|${PDC.etat}`;
+  const cur = PDC.charge[key] || 0;
+  const next = cur===0 ? 0.5 : (cur===0.5 ? 1 : 0);
+  const activite = PDC.rowAct[mission] || null;
+  try {
+    if(next===0){
+      const { error } = await SB.from('pdc_charge').delete()
+        .eq('email', CURRENT_EMAIL).eq('mission_code', mission).eq('date_jour', iso).eq('etat', PDC.etat);
+      if(error) throw error;
+      delete PDC.charge[key];
+    } else {
+      const { error } = await SB.from('pdc_charge').upsert(
+        { email: CURRENT_EMAIL, mission_code: mission, date_jour: iso, etat: PDC.etat,
+          jours: next, activite, saisi_par: CURRENT_EMAIL, updated_at: new Date().toISOString() },
+        { onConflict: 'email,date_jour,mission_code,etat' });
+      if(error) throw error;
+      PDC.charge[key] = next;
+    }
+    renderPdcGrid();
+    flashSync('&#10003; enregistre');
+  } catch(e){ flashSync('&#9888; ' + ((e&&e.message)||'refus')); }
+}
+
 
 const VIEWS = {
 
