@@ -1765,7 +1765,8 @@ async function loadFinance(){
         reconInfo = ` Rapprochement : ${im.nb_rapprochees}/${im.nb_factures} auto${im.rappro_manuel ? ' + ' + im.rappro_manuel + ' manuel(s)' : ''} via Qonto (${im.nb_credits_utilises}/${im.nb_credits} virements lettrés)${(im.rappro_combo_virements || im.rappro_combo_factures || im.rappro_solde_client || im.rappro_combo_mn) ? ` — dont ${im.rappro_combo_virements || 0} fractionné(s), ${im.rappro_combo_factures || 0} groupé(s), ${im.rappro_solde_client || 0} par solde client, ${im.rappro_combo_mn || 0} croisé(s)` : ''}. ${im.nb_orphelins || 0} virement(s) non rapproché(s).`;
       } catch(_){}
     } else {
-      reconInfo = ' ⚠ Rapprochement indisponible — montant Evoliz brut (surestimé, les paiements Qonto ne sont pas déduits). Déployez impayes.js.';
+      const st = iRes ? iRes.status : 'réseau';
+      reconInfo = ` ⚠ Rapprochement NON actif (/api/impayes → ${st}) : le montant affiché est l'Evoliz brut, surestimé. ${st === 404 ? 'La fonction netlify/functions/impayes.js n\'est pas déployée.' : 'Cliquez 🔍 diagnostic pour le détail.'}`;
     }
 
     const _imp = Array.isArray(fin.impayees_detail) ? fin.impayees_detail : [];
@@ -1796,22 +1797,43 @@ async function loadFinance(){
   }
 }
 
-// ----- Diagnostic : virements reçus non rapprochés (orphelins) -----
-function finDiagImpayes(){
+// ----- Diagnostic : test de santé du rapprochement /api/impayes -----
+async function finDiagImpayes(){
   const d = document.getElementById('finDiag');
   if(!d){ return; }
-  const orph = window.FIN_ORPHELINS || [];
-  if(!orph.length){
-    d.innerHTML = '<div class="panel" style="padding:12px;">Aucun virement reçu non rapproché sur la période — tout est lettré. (Si le rapprochement n\'a pas tourné, vérifiez que impayes.js est déployé.)</div>';
-    return;
+  if(!SB_SESSION){ d.innerHTML = '<div class="panel" style="padding:12px;color:var(--signal)">Session expirée.</div>'; return; }
+  d.innerHTML = '<div class="panel" style="padding:12px;">Test du rapprochement…</div>';
+  try {
+    const headers = { Authorization: 'Bearer ' + SB_SESSION.access_token };
+    const start = periodeStart();
+    const res = await fetch('/api/impayes?start=' + start, { headers });
+    if(!res.ok){
+      let body = '';
+      try { body = (await res.json()).error || ''; } catch(_){}
+      const diag = res.status === 404
+        ? 'La fonction <b>netlify/functions/impayes.js</b> n\'est pas déployée. C\'est la cause : le Dashboard retombe sur l\'Evoliz brut (tout en impayé).'
+        : ('Erreur ' + res.status + (body ? ' : ' + body : '') + ' — souvent un dépassement de délai (>10 s) ou une clé manquante.');
+      d.innerHTML = '<div class="panel" style="padding:12px;color:var(--signal)">/api/impayes → ' + res.status + '.<br>' + diag + '</div>';
+      return;
+    }
+    const j = await res.json();
+    const orph = j.orphelins || [];
+    const orphRows = orph.map(c=>`<tr><td class="sub-cell">${c.date||''}</td><td class="val">${fmtEuro(c.amount)}</td><td>${c.contrepartie||'—'}</td><td class="sub-cell">${(c.libelle||'').slice(0,60)}</td></tr>`).join('');
+    const creditsWarn = (j.nb_credits === 0) ? ' <b style="color:var(--signal)">⚠ 0 virement reçu remonté de Qonto sur la période — élargis la période (Cette année / 12 mois) ou vérifie le compte.</b>' : '';
+    d.innerHTML = `<div class="sec-eyebrow" style="margin-top:14px;">Diagnostic du rapprochement (période chargée)</div>
+      <div class="panel" style="padding:8px 16px 16px;">
+        <div class="edit-hint">Factures : <b>${j.nb_factures}</b> · Virements reçus Qonto : <b>${j.nb_credits}</b> · lettrés : <b>${j.nb_credits_utilises}</b> · non rapprochés : <b>${j.nb_orphelins}</b>${creditsWarn}</div>
+        <div class="edit-hint" style="margin-top:6px;">Rapprochées auto : <b>${j.nb_rapprochees}</b> — single ${j.rappro_single||0}, groupé ${j.rappro_combo_factures||0}, fractionné ${j.rappro_combo_virements||0}, solde client ${j.rappro_solde_client||0}, croisé ${j.rappro_combo_mn||0}${j.rappro_manuel?` · manuel ${j.rappro_manuel}`:''}</div>
+      </div>
+      <div class="sec-eyebrow" style="margin-top:10px;">Virements reçus non rapprochés (${orph.length})</div>
+      <div class="panel" style="padding:8px 16px 16px;"><table>
+        <thead><tr><th>Date</th><th class="val">Montant</th><th>Contrepartie</th><th>Libellé</th></tr></thead>
+        <tbody>${orphRows || '<tr><td colspan="4" style="color:#999">aucun</td></tr>'}</tbody></table>
+        <div class="edit-hint" style="margin-top:8px;">Regarde la colonne <b>Contrepartie</b> : si le nom du client n'y figure pas (ni dans le libellé), l'auto ne peut pas rapprocher sans risque → ✅ payée manuel, ou table d'alias client ↔ contrepartie à créer.</div>
+      </div>`;
+  } catch(err){
+    d.innerHTML = '<div class="panel" style="padding:12px;color:var(--signal)">Test impossible (réseau).</div>';
   }
-  const rows = orph.map(c=>`<tr><td class="sub-cell">${c.date||''}</td><td class="val">${fmtEuro(c.amount)}</td><td>${c.contrepartie||'—'}</td><td class="sub-cell">${(c.libelle||'').slice(0,60)}</td></tr>`).join('');
-  d.innerHTML = `<div class="sec-eyebrow" style="margin-top:14px;">Virements reçus non rapprochés (${orph.length})</div>
-    <div class="panel" style="padding:8px 16px 16px;"><table>
-      <thead><tr><th>Date</th><th class="val">Montant</th><th>Contrepartie</th><th>Libellé</th></tr></thead>
-      <tbody>${rows}</tbody></table>
-      <div class="edit-hint" style="margin-top:8px;">Si tu reconnais ici le paiement d'une facture (ex. deux lignes Vinci à 10 800 €), c'est que le libellé/la contrepartie n'identifie pas le client — l'auto ne peut pas trancher sans risque. Clique <b>✅ payée</b> sur la facture concernée pour la lettrer : le choix est mémorisé et la facture sort des impayés.</div>
-    </div>`;
 }
 
 // ----- Lettrage manuel : marquer une facture payée (mémorisé dans cockpit_state) -----
