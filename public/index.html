@@ -1383,28 +1383,12 @@ function fmtEuro(n){
   return new Intl.NumberFormat('fr-FR', { style:'currency', currency:'EUR', maximumFractionDigits:0 }).format(n);
 }
 
-let PERIODE = 'trim'; // période sélectionnée par défaut
+// Période = année fiscale en cours (1er janvier → 31 décembre)
+function setPeriode(){ /* conservé pour compatibilité, sans effet */ }
 
-function setPeriode(p){
-  PERIODE = p;
-  document.querySelectorAll('#periodeSel .per-btn').forEach(b => b.classList.toggle('on', b.dataset.per === p));
-}
-
-// renvoie la date de début (YYYY-MM-DD) selon la période choisie
+// renvoie la date de début (YYYY-MM-DD) = 1er janvier de l'année en cours
 function periodeStart(){
-  const now = new Date();
-  let d;
-  if(PERIODE === 'mois'){
-    d = new Date(now.getFullYear(), now.getMonth(), 1);
-  } else if(PERIODE === 'trim'){
-    const trimStartMonth = Math.floor(now.getMonth() / 3) * 3;
-    d = new Date(now.getFullYear(), trimStartMonth, 1);
-  } else if(PERIODE === 'annee'){
-    d = new Date(now.getFullYear(), 0, 1);
-  } else { // 12mois
-    d = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
-  }
-  return d.toISOString().slice(0, 10);
+  return new Date().getFullYear() + '-01-01';
 }
 
 async function loadRespCommerce(){
@@ -1771,18 +1755,18 @@ async function loadFinance(){
 
     const _imp = Array.isArray(fin.impayees_detail) ? fin.impayees_detail : [];
     window.FIN_IMPAYES = _imp;
-    const impTable = _imp.length ? `<div class="sec-eyebrow" style="margin-top:14px;">Impayés clients (reste dû) <button class="per-btn" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="finCopyImpayesList()">copier la liste</button> <button class="per-btn" style="font-size:11px;padding:2px 8px;" onclick="finDiagImpayes()">🔍 diagnostic</button> <button class="add-btn" style="font-size:11px;padding:2px 10px;" onclick="finMarkSelectedPaye()">&#10003; marquer sélectionnées payées</button> <button class="per-btn" style="font-size:11px;padding:2px 8px;" onclick="finUndoLastPaye()">&#8617; annuler dernier lettrage</button></div>
+    const canPay = (CURRENT_ROLE === 'eric' || CURRENT_ROLE === 'direction');
+    const payHeaderBtns = canPay ? ` <button class="add-btn" style="font-size:11px;padding:2px 10px;" onclick="finMarkSelectedPaye()">&#10003; marquer sélectionnées payées</button> <button class="per-btn" style="font-size:11px;padding:2px 8px;" onclick="finUndoLastPaye()">&#8617; annuler dernier lettrage</button>` : '';
+    const chkTh = canPay ? '<th><input type="checkbox" onclick="document.querySelectorAll(\'.imp-chk\').forEach(c=>c.checked=this.checked)" title="Tout sélectionner"></th>' : '';
+    const impTable = _imp.length ? `<div class="sec-eyebrow" style="margin-top:14px;">Impayés clients (reste dû) <button class="per-btn" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="finCopyImpayesList()">copier la liste</button> <button class="per-btn" style="font-size:11px;padding:2px 8px;" onclick="finDiagImpayes()">🔍 diagnostic</button>${payHeaderBtns}</div>
       <div class="panel" style="padding:8px 16px 16px;"><table>
-        <thead><tr><th><input type="checkbox" onclick="document.querySelectorAll('.imp-chk').forEach(c=>c.checked=this.checked)" title="Tout sélectionner"></th><th>Client</th><th>N° facture</th><th>Échéance</th><th class="val">Reste dû</th><th>Statut</th><th>Relance</th></tr></thead>
-        <tbody>${_imp.map((r,idx)=>`<tr><td><input type="checkbox" class="imp-chk" value="${r.numero||''}"></td><td>${r.client||'—'}</td><td class="sub-cell">${r.numero||''}</td><td class="sub-cell">${r.echeance||'—'}</td><td class="val">${fmtEuro(r.reste_du)}</td><td><span class="pill ${r.echu?'p-signal':'p-blue'}">${r.echu?'échu — à relancer':'à échoir'}</span>${r.near?` <span class="pill p-amber" title="Virement du même montant le ${r.near_date}">⚠ virement ${fmtEuro(r.near_amount)} détecté le ${r.near_date} — «&nbsp;${r.near_label||'sans nom'}&nbsp;»</span>`:''}</td><td><button class="per-btn" style="font-size:11px;padding:2px 8px;" onclick="finCopyRelance(${idx})">&#9993; copier</button> <button class="per-btn" style="font-size:11px;padding:2px 8px;" onclick="finMarkPaye(${idx})">&#10003; payée</button></td></tr>`).join('')}</tbody>
+        <thead><tr>${chkTh}<th>Client</th><th>N° facture</th><th>Échéance</th><th class="val">Reste dû</th><th>Statut</th><th>Relance</th></tr></thead>
+        <tbody>${_imp.map((r,idx)=>`<tr>${canPay ? `<td><input type="checkbox" class="imp-chk" value="${r.numero||''}"></td>` : ''}<td>${r.client||'—'}</td><td class="sub-cell">${r.numero||''}</td><td class="sub-cell">${r.echeance||'—'}</td><td class="val">${fmtEuro(r.reste_du)}</td><td><span class="pill ${r.echu?'p-signal':'p-blue'}">${r.echu?'échu — à relancer':'à échoir'}</span>${r.near?` <span class="pill p-amber" title="Virement du même montant le ${r.near_date}">⚠ virement ${fmtEuro(r.near_amount)} détecté le ${r.near_date} — «&nbsp;${r.near_label||'sans nom'}&nbsp;»</span>`:''}</td><td><button class="per-btn" style="font-size:11px;padding:2px 8px;" onclick="finCopyRelance(${idx})">&#9993; copier</button>${canPay ? ` <button class="per-btn" style="font-size:11px;padding:2px 8px;" onclick="finMarkPaye(${idx})">&#10003; payée</button>` : ''}</td></tr>`).join('')}</tbody>
       </table></div>` : '';
 
-    const periodeLabels = {mois:'Ce mois', trim:'Ce trimestre', annee:'Cette année', '12mois':'12 mois'};
-    const periodeBar = `<div class="panel" style="padding:12px 16px;margin-bottom:12px;">
-      <span class="field-label" style="display:block;margin-bottom:6px;">Période d'observation — affichée : <b>${periodeLabels[PERIODE]}</b></span>
-      <div class="periode-row" id="periodeSel">
-        ${['mois','trim','annee','12mois'].map(p=>`<button class="per-btn ${p===PERIODE?'on':''}" data-per="${p}" onclick="setPeriode('${p}');loadFinance()">${periodeLabels[p]}</button>`).join('')}
-      </div>
+    const anneeFiscale = new Date().getFullYear();
+    const periodeBar = `<div class="panel" style="padding:10px 16px;margin-bottom:12px;">
+      <span class="field-label" style="display:block;">Période : <b>année fiscale ${anneeFiscale}</b> (1er janvier → 31 décembre)</span>
     </div>`;
     zone.innerHTML = periodeBar + `
       <div class="kpis k4">
@@ -1834,21 +1818,25 @@ async function finDiagImpayes(){
       <div class="panel" style="padding:8px 16px 16px;"><table>
         <thead><tr><th>Date</th><th class="val">Montant</th><th>Contrepartie</th><th>Libellé</th><th>Client suggéré</th></tr></thead>
         <tbody>${orphRows || '<tr><td colspan="5" style="color:#999">aucun</td></tr>'}</tbody></table>
-        <div class="edit-hint" style="margin-top:8px;">Si un virement correspond à un client mais sans son nom dans le libellé, ajoute un <b>alias</b> ci-dessous : le rapprochement l'utilisera à chaque fois.</div>
+        <div class="edit-hint" style="margin-top:8px;">Si un virement correspond à un client mais sans son nom dans le libellé, ${(CURRENT_ROLE==='eric'||CURRENT_ROLE==='direction')?'ajoute un <b>alias</b> ci-dessous':'la direction peut ajouter un <b>alias</b>'} : le rapprochement l'utilisera à chaque fois.</div>
       </div>
-      <div class="sec-eyebrow" style="margin-top:10px;">Table d'alias (motif du libellé bancaire → client)</div>
+      ${(CURRENT_ROLE==='eric'||CURRENT_ROLE==='direction') ? `<div class="sec-eyebrow" style="margin-top:10px;">Table d'alias (motif du libellé bancaire → client)</div>
       <div class="panel" style="padding:12px 16px 16px;">
         <div class="edit-hint" style="margin-bottom:6px;">Une règle par ligne, format : <b>motif =&gt; Nom du client</b>. Ex. <i>TRESO CENTRALE =&gt; SIEMENS Mobility SAS</i>. Le motif est cherché dans le libellé/contrepartie du virement.</div>
         <textarea id="aliasBox" style="width:100%;min-height:90px;font-family:monospace;font-size:12px;padding:8px;border:1px solid #ddd;border-radius:6px;">${aliasText}</textarea>
         <button class="add-btn" style="margin-top:8px;" onclick="finSaveAliases()">Enregistrer les alias &amp; relancer</button>
-      </div>`;
+      </div>` : ''}`;
   } catch(err){
     d.innerHTML = '<div class="panel" style="padding:12px;color:var(--signal)">Test impossible (réseau).</div>';
   }
 }
 
+// Seule la direction peut lettrer/annuler/éditer les alias
+function finCanControl(){ return CURRENT_ROLE === 'eric' || CURRENT_ROLE === 'direction'; }
+
 // Enregistre la table d'alias puis relance le rapprochement
 async function finSaveAliases(){
+  if(!finCanControl()){ flashSync('Action réservée à la direction'); return; }
   const box = document.getElementById('aliasBox');
   if(!box){ return; }
   const arr = box.value.split('\n').map(l=>l.trim()).filter(Boolean).map(l=>{
@@ -1864,6 +1852,7 @@ async function finSaveAliases(){
 
 // Lettrage manuel groupé : marquer toutes les factures cochées, puis mettre à jour une seule fois
 async function finMarkSelectedPaye(){
+  if(!finCanControl()){ flashSync('Action réservée à la direction'); return; }
   const checks = Array.from(document.querySelectorAll('.imp-chk:checked')).map(c=>c.value).filter(Boolean);
   if(!checks.length){ flashSync('Aucune facture sélectionnée'); return; }
   if(!confirm(`Marquer ${checks.length} facture(s) comme payée(s) ?\nElles sortiront des impayés.`)) return;
@@ -1878,6 +1867,7 @@ async function finMarkSelectedPaye(){
 
 // Annuler le dernier lettrage manuel (retire la dernière facture marquée payée)
 async function finUndoLastPaye(){
+  if(!finCanControl()){ flashSync('Action réservée à la direction'); return; }
   let list = await loadShared('impayes_lettrage_manuel');
   if(!Array.isArray(list) || !list.length){ flashSync('Aucun lettrage manuel à annuler'); return; }
   const removed = list.pop();
@@ -1888,6 +1878,7 @@ async function finUndoLastPaye(){
 
 // ----- Lettrage manuel : marquer une facture payée (mémorisé dans cockpit_state) -----
 async function finMarkPaye(i){
+  if(!finCanControl()){ flashSync('Action réservée à la direction'); return; }
   const r = (window.FIN_IMPAYES || [])[i];
   if(!r){ return; }
   if(!confirm(`Marquer la facture ${r.numero} (${r.client}) comme payée ?\nElle sortira des impayés.`)) return;
@@ -3727,16 +3718,10 @@ eric: () => `
   <div id="finZone">
     <div class="panel" style="padding:18px 16px;">
       <div style="margin-bottom:12px;">
-        <span class="field-label" style="display:block;margin-bottom:6px;">Période d'observation</span>
-        <div class="periode-row" id="periodeSel">
-          <button class="per-btn" data-per="mois" onclick="setPeriode('mois')">Ce mois</button>
-          <button class="per-btn on" data-per="trim" onclick="setPeriode('trim')">Ce trimestre</button>
-          <button class="per-btn" data-per="annee" onclick="setPeriode('annee')">Cette année</button>
-          <button class="per-btn" data-per="12mois" onclick="setPeriode('12mois')">12 mois</button>
-        </div>
+        <span class="field-label" style="display:block;">Période : <b>année fiscale en cours</b> (1er janvier → 31 décembre)</span>
       </div>
       <button class="add-btn" onclick="loadFinance()">⟱ Charger les données financières</button>
-      <span class="edit-hint" style="margin-left:10px;">Qonto (trésorerie) et Evoliz (CA, encours), lecture seule. Le solde de trésorerie est toujours le solde actuel ; la période s'applique au CA, au flux et aux transactions.</span>
+      <span class="edit-hint" style="margin-left:10px;">Qonto (trésorerie) et Evoliz (CA, encours), lecture seule. Le solde de trésorerie est toujours le solde actuel ; le CA, le flux et les impayés portent sur l'année en cours.</span>
     </div>
   </div>
 
@@ -3920,27 +3905,13 @@ najoua: () => `
   <div id="finZone">
     <div class="panel" style="padding:18px 16px;">
       <div style="margin-bottom:12px;">
-        <span class="field-label" style="display:block;margin-bottom:6px;">Période d'observation</span>
-        <div class="periode-row">
-          <button class="per-btn" data-per="mois" onclick="setPeriode('mois')">Ce mois</button>
-          <button class="per-btn on" data-per="trim" onclick="setPeriode('trim')">Ce trimestre</button>
-          <button class="per-btn" data-per="annee" onclick="setPeriode('annee')">Cette année</button>
-          <button class="per-btn" data-per="12mois" onclick="setPeriode('12mois')">12 mois</button>
-        </div>
+        <span class="field-label" style="display:block;">Période : <b>année fiscale en cours</b> (1er janvier → 31 décembre)</span>
       </div>
       <button class="add-btn" onclick="loadFinance()">⟱ Charger les données financières</button>
       <span class="edit-hint" style="margin-left:10px;">Trésorerie (Qonto) + CA, encours et impayés (Evoliz), en lecture seule. La liste des impayés s'affiche après chargement.</span>
     </div>
   </div>
-
-  <div class="sec-eyebrow">Flux Humetria</div>
-  <div class="sec-title">Financement de la startup</div>
-  <div class="sec-note">Suivi manuel du flux KW → Humetria (risque sous surveillance, Module 2)</div>
-  <div class="two-col">
-    <div class="kpi"><div class="k-label">Ponction prévue</div><div class="k-val">— <small>k€</small></div><div class="k-trend">à saisir (suivi manuel)</div></div>
-    <div class="kpi"><div class="k-label">Capacité de financement</div><div class="k-val">selon tréso</div><div class="k-trend">voir solde Qonto ci-dessus</div></div>
-  </div>
-  <div class="footer-note"><span class="ic">↳</span><span>Données réelles : Qonto (trésorerie) + Evoliz (CA, encours, impayés). Le flux vers Humetria reste un suivi manuel — risque clé du Module 2.</span></div>
+  <div class="footer-note"><span class="ic">↳</span><span>Données réelles : Qonto (trésorerie) + Evoliz (CA, encours, impayés).</span></div>
 `
 
 };
