@@ -73,15 +73,17 @@ async function getQontoTransactions(entity, startDate) {
   const soldeTotal = comptes.reduce((s, c) => s + c.solde, 0);
   const iban = accounts[0].iban;
 
-  // 2. Transactions (pagination bornée + budget de temps global)
+  // 2. Transactions (pagination élargie + budget de temps global)
   const allTx = [];
   let page = 1;
-  const MAX_PAGES = 5;            // 5 × 100 = 500 transactions max (largement assez pour la synthèse)
+  let tronque = false;
+  const MAX_PAGES = 30;          // 30 × 100 = 3000 transactions (période trimestre/mois largement couverte)
   const deadline = Date.now() + 18000; // budget total 18s, en deçà de la limite Netlify
   while (page <= MAX_PAGES && Date.now() < deadline) {
     const params = new URLSearchParams({
       slug, iban, per_page: '100', page: String(page),
       'status[]': 'completed',
+      sort_by: 'settled_at:desc',
       settled_at_from: `${startDate}T00:00:00.000Z`,
     });
     let res;
@@ -90,7 +92,7 @@ async function getQontoTransactions(entity, startDate) {
     } catch (e) {
       break; // timeout sur une page : on s'arrête avec ce qu'on a
     }
-    if (!res.ok) throw new Error(`Qonto transactions ${res.status}`);
+    if (!res.ok) break; // Qonto renvoie 422 au-delà de la dernière page → on s'arrête proprement
     const data = await res.json();
     const txs = data.transactions || [];
     if (!txs.length) break;
@@ -108,11 +110,13 @@ async function getQontoTransactions(entity, startDate) {
         categorie: t.category || 'Exploitation',
       });
     }
-    if (txs.length < 100) break;
+    const totalPages = (data.meta && data.meta.total_pages) || page;
+    if (page >= totalPages) break;         // dernière page atteinte
+    if (page >= MAX_PAGES) { tronque = true; break; } // sécurité : plus de pages mais on plafonne
     page += 1;
   }
 
-  return { solde: soldeTotal, comptes, transactions: allTx };
+  return { solde: soldeTotal, comptes, transactions: allTx, tronque };
 }
 
 exports.handler = async (event) => {
@@ -149,6 +153,7 @@ exports.handler = async (event) => {
         decaissements,
         flux_net: encaissements + decaissements,
         nb_transactions: result.transactions.length,
+        tronque: !!result.tronque,
         dernieres_transactions: result.transactions.slice(-15).reverse(),
       }),
     };
