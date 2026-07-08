@@ -1761,7 +1761,7 @@ async function loadFinance(){
       try {
         const im = await iRes.json();
         fin = { encours_ttc: im.encours_ttc, echu_ttc: im.echu_ttc, nb_impayees: im.nb_impayees, nb_echues: im.nb_echues, impayees_detail: im.impayees_detail };
-        reconInfo = ` Rapprochement bancaire : ${im.nb_rapprochees}/${im.nb_factures} factures réglées via Qonto (${im.nb_credits_utilises}/${im.nb_credits} virements lettrés).`;
+        reconInfo = ` Rapprochement bancaire : ${im.nb_rapprochees}/${im.nb_factures} factures réglées via Qonto (${im.nb_credits_utilises}/${im.nb_credits} virements lettrés)${(im.rappro_combo_virements || im.rappro_combo_factures) ? ` — dont ${im.rappro_combo_virements || 0} fractionné(s) + ${im.rappro_combo_factures || 0} groupé(s)` : ''}.`;
       } catch(_){}
     } else {
       reconInfo = ' ⚠ Rapprochement indisponible — montant Evoliz brut (surestimé, les paiements Qonto ne sont pas déduits). Déployez impayes.js.';
