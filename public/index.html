@@ -610,22 +610,26 @@ function render(role){
     bpTab.innerHTML = 'Bonnes pratiques';
     tabsEl.appendChild(bpTab);
   }
-  // onglet Dojo : simulations de coaching (ouvre l'app Dojo, session partagée)
+  // onglet Dojo : simulations de coaching (ouvre l'app Dojo, session partagée) — pas pour Najoua
   const oldDojo = tabsEl.querySelector('[data-tab="dojo"]');
   if(oldDojo) oldDojo.remove();
-  const dojoTab = document.createElement('button');
-  dojoTab.className = 'tab'; dojoTab.dataset.tab = 'dojo';
-  dojoTab.setAttribute('onclick', "window.location.href='/dojo/'");
-  dojoTab.innerHTML = 'Dojo ↗';
-  tabsEl.appendChild(dojoTab);
-  // onglet Plan de charge : espace personnel (tous) ; consolide Audrey/Eric a venir
+  if(role !== 'najoua'){
+    const dojoTab = document.createElement('button');
+    dojoTab.className = 'tab'; dojoTab.dataset.tab = 'dojo';
+    dojoTab.setAttribute('onclick', "window.location.href='/dojo/'");
+    dojoTab.innerHTML = 'Dojo ↗';
+    tabsEl.appendChild(dojoTab);
+  }
+  // onglet Plan de charge : espace personnel ; pas pour Najoua
   const oldPdc = tabsEl.querySelector('[data-tab="pdc"]');
   if(oldPdc) oldPdc.remove();
-  const pdcTab = document.createElement('button');
-  pdcTab.className = 'tab'; pdcTab.dataset.tab = 'pdc';
-  pdcTab.setAttribute('onclick', "switchTab('pdc')");
-  pdcTab.innerHTML = 'Plan de charge';
-  tabsEl.appendChild(pdcTab);
+  if(role !== 'najoua'){
+    const pdcTab = document.createElement('button');
+    pdcTab.className = 'tab'; pdcTab.dataset.tab = 'pdc';
+    pdcTab.setAttribute('onclick', "switchTab('pdc')");
+    pdcTab.innerHTML = 'Plan de charge';
+    tabsEl.appendChild(pdcTab);
+  }
   // onglet Deplacements : DESACTIVE (bascule vers TMC externe type Fairjungle).
   // Module conserve dans le code ; reactiver en repassant DEP_TAB_ENABLED a true.
   const DEP_TAB_ENABLED = false;
