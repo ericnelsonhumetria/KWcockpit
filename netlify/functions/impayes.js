@@ -113,20 +113,23 @@ async function getQontoCredits(startDate) {
   for (const acc of accounts) {
     const iban = acc.iban;
     let page = 1;
-    while (page <= 5 && Date.now() < deadline) {
+    while (page <= 20 && Date.now() < deadline) {
       const params = new URLSearchParams({
         slug, iban, per_page: '100', page: String(page),
-        'status[]': 'completed', settled_at_from: `${startDate}T00:00:00.000Z`,
+        'status[]': 'completed',
+        side: 'credit',              // encaissements uniquement → peu nombreux, tous récupérés
+        sort_by: 'settled_at:desc',
+        settled_at_from: `${startDate}T00:00:00.000Z`,
       });
       let res;
       try { res = await fetchWithTimeout(`https://thirdparty.qonto.com/v2/transactions?${params}`, { headers }, 8000); }
       catch (e) { break; }
-      if (!res.ok) break;
+      if (!res.ok) break; // Qonto renvoie 422 au-delà de la dernière page → on s'arrête proprement
       const txs = (await res.json()).transactions || [];
       if (!txs.length) break;
       for (const t of txs) {
         const side = String(t.side || '').toLowerCase();
-        if (side === 'debit') continue; // on ne garde que les encaissements
+        if (side === 'debit') continue; // filet de sécurité si le filtre serveur est ignoré
         credits.push({
           date: (t.settled_at || '').slice(0, 10),
           amount: Math.abs(Number(t.amount || 0)),
