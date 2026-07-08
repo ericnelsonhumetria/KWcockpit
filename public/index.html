@@ -626,14 +626,18 @@ function render(role){
   pdcTab.setAttribute('onclick', "switchTab('pdc')");
   pdcTab.innerHTML = 'Plan de charge';
   tabsEl.appendChild(pdcTab);
-  // onglet Deplacements : aide a la reservation (tous roles)
+  // onglet Deplacements : DESACTIVE (bascule vers TMC externe type Fairjungle).
+  // Module conserve dans le code ; reactiver en repassant DEP_TAB_ENABLED a true.
+  const DEP_TAB_ENABLED = false;
   const oldDep = tabsEl.querySelector('[data-tab="dep"]');
   if(oldDep) oldDep.remove();
-  const depTab = document.createElement('button');
-  depTab.className = 'tab'; depTab.dataset.tab = 'dep';
-  depTab.setAttribute('onclick', "switchTab('dep')");
-  depTab.innerHTML = 'Deplacements';
-  tabsEl.appendChild(depTab);
+  if(DEP_TAB_ENABLED){
+    const depTab = document.createElement('button');
+    depTab.className = 'tab'; depTab.dataset.tab = 'dep';
+    depTab.setAttribute('onclick', "switchTab('dep')");
+    depTab.innerHTML = 'Deplacements';
+    tabsEl.appendChild(depTab);
+  }
   // onglet Charge equipe : vue consolidee, reservee direction (eric) et Audrey
   const oldPdcc = tabsEl.querySelector('[data-tab="pdccons"]');
   if(oldPdcc) oldPdcc.remove();
@@ -3295,25 +3299,51 @@ function depDays(a,b){ return Math.round((new Date(b)-new Date(a))/86400000); }
 /* ---- liens comparateurs (metamoteurs uniquement) ---- */
 function depFr(iso){ if(!iso) return ''; const q=String(iso).split('-'); return q.length===3 ? `${q[2]}/${q[1]}/${q[0]}` : iso; }
 function depSlug(x){ return String(x||'').trim().replace(/\s+/g,'-'); }
-function depG(q){ return `https://www.google.com/search?q=${depEnc(q)}`; }
-function depTrainLinks(o,d,da){
+function depNorm(s){ return String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z ]/g,' ').replace(/\s+/g,' ').trim(); }
+const DEP_IATA = {
+  paris:'PAR', roissy:'CDG', orly:'ORY',
+  lyon:'LYS', marseille:'MRS', toulouse:'TLS', bordeaux:'BOD', nantes:'NTE',
+  nice:'NCE', lille:'LIL', strasbourg:'SXB', montpellier:'MPL', grenoble:'GNB',
+  rennes:'RNS', brest:'BES', pau:'PUF', biarritz:'BIQ', clermont:'CFE', 'clermont ferrand':'CFE',
+  limoges:'LIG', ajaccio:'AJA', bastia:'BIA', figari:'FSC', perpignan:'PGF',
+  beziers:'BZR', carcassonne:'CCF', metz:'ETZ', nancy:'ENC', mulhouse:'MLH', bale:'BSL',
+  dijon:'DIJ', tours:'TUF', angers:'ANE', lorient:'LRT', quimper:'UIP', caen:'CFR',
+  rouen:'URO', avignon:'AVN', nimes:'FNI', chambery:'CMF', annecy:'NCY', toulon:'TLN',
+  'la rochelle':'LRH',
+  londres:'LON', london:'LON', bruxelles:'BRU', brussels:'BRU', geneve:'GVA', geneva:'GVA',
+  amsterdam:'AMS', madrid:'MAD', barcelone:'BCN', barcelona:'BCN', milan:'MIL', milano:'MIL',
+  rome:'ROM', roma:'ROM', francfort:'FRA', frankfurt:'FRA', munich:'MUC', berlin:'BER',
+  lisbonne:'LIS', lisbon:'LIS', porto:'OPO', luxembourg:'LUX', zurich:'ZRH',
+  vienne:'VIE', vienna:'VIE', dublin:'DUB', copenhague:'CPH', stockholm:'STO', oslo:'OSL',
+  helsinki:'HEL', varsovie:'WAW', prague:'PRG', budapest:'BUD', athenes:'ATH', istanbul:'IST',
+  casablanca:'CMN',
+};
+function depIata(city){ return DEP_IATA[depNorm(city)] || null; }
+
+function depTrainLinks(){
   return [
-    { label:'Google (trains)', fill:'pré-rempli', url:depG(`train ${o} ${d} ${depFr(da)}`) },
+    { label:'SNCF Connect', fill:'copier & ouvrir', url:'https://www.sncf-connect.com/', js:'depTrainGo()' },
     { label:'Trainline', fill:'à compléter', url:'https://www.thetrainline.com/' },
     { label:'Omio', fill:'à compléter', url:'https://www.omio.fr/' },
     { label:'Kombo', fill:'à compléter', url:'https://www.kombo.co/' },
   ];
 }
 function depVolLinks(o,d,da,dr){
-  return [
-    { label:'Google Flights', fill:'pré-rempli', url:depG(`vols ${o} vers ${d} le ${depFr(da)}${dr?(' retour '+depFr(dr)):''}`) },
+  const io=depIata(o), id=depIata(d);
+  const base=[
     { label:'Skyscanner', fill:'à compléter', url:'https://www.skyscanner.fr/vols' },
-    { label:'Kayak', fill:'à compléter', url:'https://www.kayak.fr/flights' },
+    { label:'Google Flights', fill:'à compléter', url:'https://www.google.com/travel/flights' },
   ];
+  if(io && id){
+    const url=`https://www.kayak.fr/flights/${io}-${id}/${da}${dr?('/'+dr):''}?sort=bestflight_a`;
+    return [{ label:`Kayak (${io}\u2192${id})`, fill:'pré-rempli', url }, ...base];
+  }
+  return [{ label:'Kayak', fill:'à compléter', url:'https://www.kayak.fr/flights' }, ...base];
 }
 function depHotelLinks(d,ci,co){
+  const city=encodeURIComponent(String(d||'').trim());
   return [
-    { label:'Google Hotels', fill:'pré-rempli', url:depG(`hôtel ${d} du ${depFr(ci)} au ${depFr(co)}`) },
+    { label:'Booking', fill:'pré-rempli', url:`https://www.booking.com/searchresults.html?ss=${city}&checkin=${ci}&checkout=${co}&group_adults=1&no_rooms=1` },
     { label:'Kayak Hotels', fill:'pré-rempli', url:`https://www.kayak.fr/hotels/${encodeURIComponent(depSlug(d))}/${ci}/${co}/1adults` },
     { label:'Trivago', fill:'à compléter', url:'https://www.trivago.fr/' },
   ];
@@ -3326,7 +3356,12 @@ function depVoitureLinks(d,da,dr){
   ];
 }
 function depLinksHtml(title, sub, links, copyKey){
-  const btns = links.map(l=>`<a href="${l.url}" target="_blank" rel="noopener" class="per-btn" style="text-decoration:none;display:inline-block;margin:4px 5px 0 0;">${l.label} <span style="font-size:10px;color:var(--muted);">(${l.fill})</span></a>`).join('');
+  const btns = links.map(l=>{
+    const inner = `${l.label} <span style="font-size:10px;color:var(--muted);">(${l.fill})</span>`;
+    const st = 'text-decoration:none;display:inline-block;margin:4px 5px 0 0;';
+    if(l.js){ return `<a href="#" onclick="${l.js};return false;" class="per-btn" style="${st}">${inner}</a>`; }
+    return `<a href="${l.url}" target="_blank" rel="noopener" class="per-btn" style="${st}">${inner}</a>`;
+  }).join('');
   const cp = copyKey ? ` <button class="per-btn" style="font-size:11px;padding:2px 8px;margin:4px 0 0;" onclick="depCopy('${copyKey}')">copier la recherche</button>` : '';
   return `<div style="margin:12px 0;"><b style="font-size:13px;">${title}</b>${sub?` <span class="sub-cell">${sub}</span>`:''}<br>${btns}${cp}</div>`;
 }
@@ -3334,6 +3369,12 @@ function depCopy(key){
   const t=(DEP._copies||{})[key]||'';
   if(navigator.clipboard && t){ navigator.clipboard.writeText(t).then(()=>flashSync('&#10003; recherche copiee')).catch(()=>flashSync('&#9888; copie impossible')); }
 }
+function depTrainGo(){
+  const t=(DEP._copies||{}).train||'';
+  window.open('https://www.sncf-connect.com/','_blank','noopener');
+  if(navigator.clipboard && t){ navigator.clipboard.writeText(t).then(()=>flashSync('&#10003; recherche copiee — collez (Ctrl+V) dans SNCF Connect')).catch(()=>{}); }
+}
+
 
 /* ---- onglet Deplacements ---- */
 function renderDep(){
@@ -3401,13 +3442,13 @@ function depGenerer(){
   const showTrain=(mode==='Au mieux'||mode==='Train');
   const showVol=(mode==='Au mieux'||mode==='Avion');
   DEP._copies = {
-    train: `${dom||'?'} vers ${dest}, ${depFr(aller)}${retour?(' / retour '+depFr(retour)):''}`,
+    train: `${dom||""} ${dest} le ${depFr(aller)}`.trim(),
     vol: `${dom||'?'} vers ${dest}, ${depFr(aller)}${retour?(' / retour '+depFr(retour)):''}`,
     hotel: `${dest}, ${depFr(aller)} au ${depFr(co)}, ${nights} nuit(s), 1 chambre`,
     voiture: `${dest}, du ${depFr(aller)} au ${depFr(co)}`,
   };
   if(showTrain) sections += depLinksHtml('Train A/R', `${dom||'domicile'} &harr; ${dest}`, depTrainLinks(dom,dest,aller), 'train');
-  if(showVol) sections += depLinksHtml('Avion A/R (comparateurs)', `${dom||'domicile'} &harr; ${dest}`, depVolLinks(dom,dest,aller,retour), 'vol');
+  if(showVol) sections += depLinksHtml('Avion A/R', `${dom||'domicile'} &harr; ${dest}`, depVolLinks(dom,dest,aller,retour), 'vol');
   if(mode==='Au mieux') sections += `<div class="edit-hint" style="margin:-6px 0 6px;">Regle direction : privilegier le train si le trajet est &lt; ${b.trainMaxHeures} h.</div>`;
   if(mode==='Voiture personnelle') sections += `<div style="margin:12px 0;"><b style="font-size:13px;">Voiture personnelle</b> <span class="sub-cell">indemnites kilometriques ${b.kmVoiture} &euro;/km (bareme)</span></div>`;
   if(hotel) sections += depLinksHtml(`Hebergement (${nights} nuit${nights>1?'s':''})`, `${dest}, du ${depFr(aller)} au ${depFr(co)}`, depHotelLinks(dest,aller,co), 'hotel');
@@ -3422,7 +3463,7 @@ function depGenerer(){
       <div style="margin-bottom:6px;">${confHtml}</div>
       <div class="sec-eyebrow" style="margin-top:10px;">Reservations a faire</div>
       ${sections}
-      <div class="edit-hint" style="margin-top:8px;">&laquo; pre-rempli &raquo; = recherche renseignee (Google et Kayak acceptent la ville + les dates). &laquo; a completer &raquo; = certains comparateurs (train, avion) exigent des codes gare / aeroport et ne peuvent pas etre pre-remplis depuis un nom de ville : cliquez &laquo; copier la recherche &raquo; puis collez. Choisissez le meilleur compromis confort / prix / praticite dans le cadre ci-dessus.</div>
+      <div class="edit-hint" style="margin-top:8px;">&laquo; pre-rempli &raquo; ouvre le site avec le formulaire deja rempli : hotel via Booking ou Kayak (ville + dates), voiture via Kayak, avion via Kayak lorsque les aeroports sont identifies. Train : un clic sur &laquo; SNCF Connect &raquo; copie la recherche et ouvre le site, il reste a coller (Ctrl+V) dans la barre — aucun site de train ne permet le pre-remplissage par URL (limite des sites eux-memes), le collage est le maximum possible. Choisissez le meilleur compromis confort / prix / praticite dans le cadre ci-dessus.</div>
     </div>`;
 }
 function depCopier(){
