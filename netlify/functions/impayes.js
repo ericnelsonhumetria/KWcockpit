@@ -159,12 +159,44 @@ function lcsRatio(a, b) {
   return (2 * prev[m]) / (n + m);
 }
 
+function clientWordsOf(name) {
+  return normalize(name).split(' ').filter(w => w.length >= 3);
+}
+function creditMatchesClient(c, words) {
+  if (!words.length) return false;
+  const lib = normalize(`${c.libelle} ${c.contrepartie}`);
+  return words.some(w => lib.includes(w));
+}
+// Cherche un sous-ensemble de `items` (taille minK..maxK) dont la somme ≈ target (±tol).
+// Tous les montants sont positifs → élagage dès que la somme partielle dépasse target+tol.
+function subsetSum(items, target, minK, maxK, tol, amountOf) {
+  const pool = items.slice().sort((a, b) => amountOf(b) - amountOf(a));
+  const kmax = Math.min(maxK, pool.length);
+  function pick(k, start, acc, sum) {
+    if (sum > target + tol) return null;
+    if (k === 0) return Math.abs(sum - target) < tol ? acc.slice() : null;
+    for (let i = start; i <= pool.length - k; i++) {
+      acc.push(pool[i]);
+      const r = pick(k - 1, i + 1, acc, sum + amountOf(pool[i]));
+      acc.pop();
+      if (r) return r;
+    }
+    return null;
+  }
+  for (let k = minK; k <= kmax; k++) {
+    const r = pick(k, 0, [], 0);
+    if (r) return r;
+  }
+  return null;
+}
+
 function reconcile(invoices, credits) {
   invoices.sort((a, b) => (a.dateFact || '').localeCompare(b.dateFact || ''));
-  let auto = 0;
+  const stats = { single: 0, comboFactures: 0, comboVirements: 0 };
+
+  // ---- PHASE 1 : 1 virement ↔ 1 facture (scoring multi-critères) ----
   for (const inv of invoices) {
     const ttc = inv.ttc, ech = inv.echeance || inv.dateFact;
-    // Étape 1 : présélection montant (±1 €) + date (±90 j) + crédit non utilisé
     const candidates = credits.filter(c => !c.used && Math.abs(c.amount - ttc) < 1.0 && daysBetween(c.date, ech) <= 90);
     if (!candidates.length) continue;
     const clientNorm = normalize(inv.client);
@@ -174,11 +206,11 @@ function reconcile(invoices, credits) {
     for (const c of candidates) {
       const lib = normalize(`${c.libelle} ${c.contrepartie}`);
       let score = 0;
-      if (numFact.length >= 3 && lib.includes(numFact)) score = 100;               // n° facture décisif
-      const sim = lcsRatio(clientNorm, lib);                                        // nom client fuzzy
+      if (numFact.length >= 3 && lib.includes(numFact)) score = 100;
+      const sim = lcsRatio(clientNorm, lib);
       if (sim >= 0.55) score = Math.max(score, 65);
       else if (sim >= 0.35) score = Math.max(score, 35);
-      if (clientWords.length) {                                                     // mots du client
+      if (clientWords.length) {
         const matched = clientWords.filter(w => lib.includes(w)).length;
         if (matched > 0) {
           const ratio = matched / clientWords.length;
@@ -186,17 +218,49 @@ function reconcile(invoices, credits) {
           else score = Math.max(score, Math.min(30 + matched * 10, 55));
         }
       }
-      if (Math.abs(c.amount - ttc) < 0.10) score += 15;                            // montant quasi-exact
-      const dd = daysBetween(c.date, ech);                                          // proximité date
+      if (Math.abs(c.amount - ttc) < 0.10) score += 15;
+      const dd = daysBetween(c.date, ech);
       if (dd <= 15) score += 10; else if (dd <= 45) score += 5;
       if (score > best) { best = score; bestC = c; }
     }
-    if (best >= 35 && bestC) { bestC.used = true; inv.paye = true; inv.match = 'auto'; auto++; continue; }
-    // Repli : un seul virement au montant exact → très probablement le bon
+    if (best >= 35 && bestC) { bestC.used = true; inv.paye = true; inv.match = 'single'; stats.single++; continue; }
     const exact = candidates.filter(c => Math.abs(c.amount - ttc) < 0.10);
-    if (exact.length === 1) { exact[0].used = true; inv.paye = true; inv.match = 'exact'; auto++; }
+    if (exact.length === 1) { exact[0].used = true; inv.paye = true; inv.match = 'single'; stats.single++; }
   }
-  return auto;
+
+  const clients = [...new Set(invoices.filter(i => !i.paye).map(i => i.client))];
+
+  // ---- PHASE 2 : 1 virement = combinaison de factures d'un même client ----
+  for (const client of clients) {
+    const words = clientWordsOf(client);
+    if (!words.length) continue;
+    const clientCredits = credits.filter(c => !c.used && creditMatchesClient(c, words));
+    for (const c of clientCredits) {
+      if (c.used) continue;
+      const unpaid = invoices.filter(i => !i.paye && i.client === client);
+      if (unpaid.length < 2) continue;
+      const combo = subsetSum(unpaid, c.amount, 2, 6, 2.0, x => x.ttc);
+      if (combo) { c.used = true; for (const inv of combo) { inv.paye = true; inv.match = 'combo-factures'; } stats.comboFactures += combo.length; }
+    }
+  }
+
+  // ---- PHASE 3 : combinaison de virements = 1 facture (cas Vinci : 21 600 = 2 × 10 800) ----
+  for (const client of clients) {
+    const words = clientWordsOf(client);
+    if (!words.length) continue;
+    const unpaid = invoices.filter(i => !i.paye && i.client === client);
+    for (const inv of unpaid) {
+      if (inv.paye) continue;
+      const ech = inv.echeance || inv.dateFact;
+      const cand = credits.filter(c => !c.used && creditMatchesClient(c, words) && daysBetween(c.date, ech) <= 90);
+      if (cand.length < 2) continue;
+      const combo = subsetSum(cand, inv.ttc, 2, 4, 2.0, x => x.amount);
+      if (combo) { inv.paye = true; inv.match = 'combo-virements'; for (const c of combo) { c.used = true; } stats.comboVirements++; }
+    }
+  }
+
+  stats.total = stats.single + stats.comboFactures + stats.comboVirements;
+  return stats;
 }
 
 exports.handler = async (event) => {
@@ -216,7 +280,7 @@ exports.handler = async (event) => {
     const token = await evolizLogin();
     const [invoices, credits] = await Promise.all([getInvoices(token, startDate), getQontoCredits(startDate)]);
 
-    const rapproches = reconcile(invoices, credits);
+    const stats = reconcile(invoices, credits);
 
     const impayees = invoices.filter(i => !i.paye);
     const echues = impayees.filter(i => i.echeance && i.echeance < TODAY_ISO);
@@ -234,7 +298,10 @@ exports.handler = async (event) => {
         nb_echues: echues.length,
         // transparence du rapprochement
         nb_factures: invoices.length,
-        nb_rapprochees: rapproches,
+        nb_rapprochees: stats.total,
+        rappro_single: stats.single,
+        rappro_combo_factures: stats.comboFactures,   // 1 virement = plusieurs factures
+        rappro_combo_virements: stats.comboVirements, // plusieurs virements = 1 facture (Vinci)
         nb_credits: credits.length,
         nb_credits_utilises: creditsUtilises,
         impayees_detail: impayees
