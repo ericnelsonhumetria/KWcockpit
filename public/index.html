@@ -626,6 +626,14 @@ function render(role){
   pdcTab.setAttribute('onclick', "switchTab('pdc')");
   pdcTab.innerHTML = 'Plan de charge';
   tabsEl.appendChild(pdcTab);
+  // onglet Deplacements : aide a la reservation (tous roles)
+  const oldDep = tabsEl.querySelector('[data-tab="dep"]');
+  if(oldDep) oldDep.remove();
+  const depTab = document.createElement('button');
+  depTab.className = 'tab'; depTab.dataset.tab = 'dep';
+  depTab.setAttribute('onclick', "switchTab('dep')");
+  depTab.innerHTML = 'Deplacements';
+  tabsEl.appendChild(depTab);
   // onglet Charge equipe : vue consolidee, reservee direction (eric) et Audrey
   const oldPdcc = tabsEl.querySelector('[data-tab="pdccons"]');
   if(oldPdcc) oldPdcc.remove();
@@ -679,6 +687,9 @@ function renderTab(){
     document.getElementById('view').innerHTML = renderPdc();
   } else if(CURRENT_TAB==='pdccons'){
     document.getElementById('view').innerHTML = renderPdcCons();
+  } else if(CURRENT_TAB==='dep'){
+    document.getElementById('view').innerHTML = renderDep();
+    depInit();
   } else if(CURRENT_TAB==='capbp'){
     document.getElementById('view').innerHTML = `
       <div class="sec-eyebrow">Capitalisation</div>
@@ -1458,9 +1469,11 @@ function renderAdmin(users){
       <div id="adminMsg"></div>
     </div>
     <div id="salZone"></div>
-    <div id="consAccessZone"></div>`;
+    <div id="consAccessZone"></div>
+    <div id="depBaremeZone"></div>`;
   renderSalaries();
   renderConsultantAccess();
+  renderDepBareme();
 }
 let SALARIES = [];
 let ADMIN_USERS = [];
@@ -3248,6 +3261,206 @@ async function pdccAnalyse(){
   }
 }
 
+
+
+/* ===================================================================
+   DEPLACEMENTS — aide a la reservation (v1, deterministe, sans API)
+   - Onglet "Deplacements" (tous roles) : le consultant saisit son trajet,
+     l'app liste les reservations a faire + liens comparateurs, dans le cadre
+     du bareme direction. Aucun prix live.
+   - Editeur de bareme (onglet Admin, direction) : plafonds & regles editables.
+   - Domicile stocke en local (localStorage) — jamais cote serveur (RGPD).
+   =================================================================== */
+
+let DEP = { bareme:null, _recap:'' };
+let DEPB = null;
+const DEP_BAREME_DEFAUT = {
+  classe: '2de classe',
+  trainMaxHeures: 4,
+  reservationJours: 14,
+  perDiemRepas: 20,
+  kmVoiture: 0.30,
+  hotelPlafonds: [
+    { zone:'Paris / Île-de-France', max:160 },
+    { zone:'Grande métropole', max:130 },
+    { zone:'Autre ville', max:100 },
+  ],
+  note: 'Freelances : frais souvent refacturés au client — vérifiez la convention de mission avant de réserver.',
+};
+
+function depVal(id){ const el=document.getElementById(id); return el ? String(el.value||'').trim() : ''; }
+function depEnc(s){ return encodeURIComponent(String(s||'').trim()); }
+function depDays(a,b){ return Math.round((new Date(b)-new Date(a))/86400000); }
+
+/* ---- liens comparateurs (metamoteurs uniquement) ---- */
+function depTrainLinks(){
+  return [
+    { label:'Trainline', fill:'recherche', url:'https://www.thetrainline.com/' },
+    { label:'Omio', fill:'recherche', url:'https://www.omio.fr/' },
+    { label:'Kombo', fill:'recherche', url:'https://www.kombo.co/' },
+  ];
+}
+function depVolLinks(o,d,da,dr){
+  const q = depEnc(`Vols ${o} vers ${d} le ${da}${dr?(' retour '+dr):''}`);
+  return [
+    { label:'Google Flights', fill:'pré-rempli', url:`https://www.google.com/travel/flights?q=${q}` },
+    { label:'Skyscanner', fill:'recherche', url:'https://www.skyscanner.fr/vols' },
+    { label:'Kayak', fill:'recherche', url:'https://www.kayak.fr/flights' },
+  ];
+}
+function depHotelLinks(d,ci,co){
+  return [
+    { label:'Google Hotels', fill:'pré-rempli', url:`https://www.google.com/travel/search?q=${depEnc('hôtels '+d+' du '+ci+' au '+co)}` },
+    { label:'Kayak Hotels', fill:'pré-rempli', url:`https://www.kayak.fr/hotels/${depEnc(d)}/${ci}/${co}` },
+    { label:'Trivago', fill:'recherche', url:'https://www.trivago.fr/' },
+  ];
+}
+function depVoitureLinks(d,da,dr){
+  return [
+    { label:'Kayak Location', fill:'pré-rempli', url:`https://www.kayak.fr/cars/${depEnc(d)}/${da}/${dr||da}` },
+    { label:'Carigami', fill:'recherche', url:'https://www.carigami.fr/' },
+    { label:'Liligo', fill:'recherche', url:'https://www.liligo.fr/location-voiture/' },
+  ];
+}
+function depLinksHtml(title, sub, links){
+  const btns = links.map(l=>`<a href="${l.url}" target="_blank" rel="noopener" class="per-btn" style="text-decoration:none;display:inline-block;margin:4px 5px 0 0;">${l.label} <span style="font-size:10px;color:var(--muted);">(${l.fill})</span></a>`).join('');
+  return `<div style="margin:12px 0;"><b style="font-size:13px;">${title}</b>${sub?` <span class="sub-cell">${sub}</span>`:''}<br>${btns}</div>`;
+}
+
+/* ---- onglet Deplacements ---- */
+function renderDep(){
+  return `<div class="sec-eyebrow">Deplacements</div>
+    <div class="sec-title">Preparer un deplacement</div>
+    <div class="sec-note">Renseignez votre trajet : l'app liste les reservations a faire et les comparateurs, dans le cadre du bareme direction. Aucun prix en direct — vous choisissez le meilleur compromis sur les comparateurs, puis reglez via Qonto.</div>
+    <div id="depZone"><div class="panel" style="padding:16px;">Chargement&hellip;</div></div>
+    ${footer("Un deplacement correspond au code activite D de votre plan de charge ; son cout pese sur la marge de la mission.")}`;
+}
+async function depInit(){
+  if(!DEP.bareme){ try{ DEP.bareme = (await loadShared('deplacement_bareme')) || DEP_BAREME_DEFAUT; }catch(e){ DEP.bareme = DEP_BAREME_DEFAUT; } }
+  renderDepForm();
+}
+function renderDepForm(){
+  const z=document.getElementById('depZone'); if(!z) return;
+  const b = DEP.bareme || DEP_BAREME_DEFAUT;
+  const dom = (localStorage.getItem('kw_domicile')||'').replace(/"/g,'&quot;');
+  const zones = (b.hotelPlafonds||[]).map(h=>`<option>${h.zone}</option>`).join('');
+  const lab = 'display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted);';
+  const inp = 'padding:7px 9px;border:1px solid var(--line);border-radius:6px;font-size:13px;';
+  z.innerHTML = `<div class="panel" style="padding:16px;">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <label style="${lab}">Domicile (depart)<input id="depDom" value="${dom}" placeholder="Ville de depart" style="${inp}"></label>
+      <label style="${lab}">Destination (site mission)<input id="depDest" placeholder="Ville d'arrivee" style="${inp}"></label>
+      <label style="${lab}">Etapes eventuelles<input id="depEtapes" placeholder="ex. Lyon, Grenoble (optionnel)" style="${inp}"></label>
+      <label style="${lab}">Mode principal<select id="depMode" style="${inp}"><option>Au mieux</option><option>Train</option><option>Avion</option><option>Voiture personnelle</option></select></label>
+      <label style="${lab}">Date aller<input id="depAller" type="date" style="${inp}"></label>
+      <label style="${lab}">Date retour<input id="depRetour" type="date" style="${inp}"></label>
+      <label style="${lab}">Zone (hebergement)<select id="depZoneSel" style="${inp}">${zones}</select></label>
+      <div style="display:flex;align-items:center;gap:18px;padding-top:22px;">
+        <label style="font-size:13px;"><input type="checkbox" id="depHotel"> Hebergement</label>
+        <label style="font-size:13px;"><input type="checkbox" id="depVoiture"> Voiture sur place</label>
+      </div>
+    </div>
+    <div class="edit-bar" style="margin-top:12px;"><button class="add-btn" onclick="depGenerer()">Generer les reservations a faire</button><span class="edit-hint">Le domicile est memorise sur cet appareil uniquement (jamais envoye au serveur).</span></div>
+  </div>
+  <div id="depOut"></div>`;
+}
+function depGenerer(){
+  const dom=depVal('depDom'), dest=depVal('depDest'), etapes=depVal('depEtapes');
+  const aller=depVal('depAller'), retour=depVal('depRetour');
+  const hotel=document.getElementById('depHotel').checked;
+  const voiture=document.getElementById('depVoiture').checked;
+  const zone=depVal('depZoneSel'), mode=depVal('depMode');
+  if(!dest || !aller){ flashSync('&#9888; destination et date aller requises'); return; }
+  if(dom) localStorage.setItem('kw_domicile', dom);
+  const b = DEP.bareme || DEP_BAREME_DEFAUT;
+  const today = new Date().toISOString().slice(0,10);
+  const lead = depDays(today, aller);
+  const co = retour || aller;
+  const nights = hotel ? Math.max(1, depDays(aller, co)) : 0;
+
+  const flags=[];
+  if(lead < b.reservationJours) flags.push({ko:true, txt:`Reservation tardive : J-${lead} (bareme : &ge; J-${b.reservationJours})`});
+  else flags.push({ko:false, txt:`Anticipation OK (J-${lead})`});
+  flags.push({ko:false, txt:`Train : ${b.classe}`});
+  if(hotel){
+    const pl=(b.hotelPlafonds||[]).find(h=>h.zone===zone);
+    flags.push({ko:false, txt: pl?`Hotel ${zone} : plafond ${pl.max} &euro;/nuit (${nights} nuit${nights>1?'s':''})`:'Hotel : zone non precisee'});
+  }
+  flags.push({ko:false, txt:`Repas : per diem ${b.perDiemRepas} &euro;/j`});
+  const confHtml = flags.map(f=>`<span class="pill ${f.ko?'p-signal':'p-green'}" style="margin:2px 4px 2px 0;display:inline-block;">${f.txt}</span>`).join('');
+
+  let sections='';
+  const showTrain=(mode==='Au mieux'||mode==='Train');
+  const showVol=(mode==='Au mieux'||mode==='Avion');
+  if(showTrain) sections += depLinksHtml('Train A/R', `${dom||'domicile'} &harr; ${dest}`, depTrainLinks());
+  if(showVol) sections += depLinksHtml('Avion A/R (comparateurs)', `${dom||'domicile'} &harr; ${dest}`, depVolLinks(dom,dest,aller,retour));
+  if(mode==='Au mieux') sections += `<div class="edit-hint" style="margin:-6px 0 6px;">Regle direction : privilegier le train si le trajet est &lt; ${b.trainMaxHeures} h.</div>`;
+  if(mode==='Voiture personnelle') sections += `<div style="margin:12px 0;"><b style="font-size:13px;">Voiture personnelle</b> <span class="sub-cell">indemnites kilometriques ${b.kmVoiture} &euro;/km (bareme)</span></div>`;
+  if(hotel) sections += depLinksHtml(`Hebergement (${nights} nuit${nights>1?'s':''})`, `${dest}, du ${aller} au ${co}`, depHotelLinks(dest,aller,co));
+  if(voiture) sections += depLinksHtml('Location voiture sur place', dest, depVoitureLinks(dest,aller,co));
+  sections += `<div style="margin:12px 0;"><b style="font-size:13px;">Repas</b> <span class="sub-cell">per diem ${b.perDiemRepas} &euro;/jour — pas de reservation</span></div>`;
+
+  DEP._recap = `Deplacement — ${dom||'?'} vers ${dest}${etapes?(' (etapes : '+etapes+')'):''}, aller ${aller}${retour?(', retour '+retour):''}${hotel?(', '+nights+' nuit(s)'):''}.`;
+  document.getElementById('depOut').innerHTML = `<div class="panel" style="padding:14px 16px;margin-top:14px;">
+      <div class="sec-eyebrow">Recapitulatif</div>
+      <div style="font-size:14px;margin-bottom:8px;">${DEP._recap} <button class="per-btn" style="font-size:11px;padding:2px 8px;" onclick="depCopier()">copier</button></div>
+      <div class="sec-eyebrow" style="margin-top:6px;">Conformite au bareme</div>
+      <div style="margin-bottom:6px;">${confHtml}</div>
+      <div class="sec-eyebrow" style="margin-top:10px;">Reservations a faire</div>
+      ${sections}
+      <div class="edit-hint" style="margin-top:8px;">&laquo; pre-rempli &raquo; ouvre une recherche renseignee ; &laquo; recherche &raquo; ouvre le comparateur a completer (bouton &laquo; copier &raquo; pour coller le trajet). Choisissez le meilleur compromis confort / prix / praticite dans le cadre ci-dessus.</div>
+    </div>`;
+}
+function depCopier(){
+  if(navigator.clipboard && DEP._recap){ navigator.clipboard.writeText(DEP._recap).then(()=>flashSync('&#10003; copie')).catch(()=>flashSync('&#9888; copie impossible')); }
+}
+
+/* ---- editeur de bareme (Admin, direction) ---- */
+async function renderDepBareme(){
+  const z=document.getElementById('depBaremeZone'); if(!z) return;
+  if(!DEPB){ try{ DEPB = (await loadShared('deplacement_bareme')) || JSON.parse(JSON.stringify(DEP_BAREME_DEFAUT)); }catch(e){ DEPB = JSON.parse(JSON.stringify(DEP_BAREME_DEFAUT)); } }
+  const lab='display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted);';
+  const inp='padding:7px 9px;border:1px solid var(--line);border-radius:6px;font-size:13px;';
+  const zonesRows=(DEPB.hotelPlafonds||[]).map((h,i)=>`<tr>
+      <td><input value="${String(h.zone).replace(/"/g,'&quot;')}" onchange="DEPB.hotelPlafonds[${i}].zone=this.value" style="${inp}width:220px;"></td>
+      <td><input type="number" value="${h.max}" onchange="DEPB.hotelPlafonds[${i}].max=parseFloat(this.value)||0" style="${inp}width:80px;"> &euro;/nuit</td>
+      <td><a onclick="depBaremeDelZone(${i})" style="cursor:pointer;color:var(--signal);font-size:15px;" title="supprimer">&#128465;</a></td>
+    </tr>`).join('');
+  z.innerHTML = `<div class="panel" style="padding:12px 16px 16px;margin-top:16px;">
+    <div class="sec-eyebrow">Deplacements</div>
+    <div class="sec-title" style="font-size:16px;">Bareme deplacements</div>
+    <div class="sec-note">Plafonds et regles appliques a tous (salaries et freelances) dans l'onglet Deplacements. Modifiable a tout moment.</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:660px;">
+      <label style="${lab}">Classe train<input id="db_classe" value="${String(DEPB.classe||'').replace(/"/g,'&quot;')}" style="${inp}"></label>
+      <label style="${lab}">Privilegier le train si trajet &lt; (heures)<input id="db_heures" type="number" value="${DEPB.trainMaxHeures}" style="${inp}"></label>
+      <label style="${lab}">Reserver au moins J-<input id="db_jours" type="number" value="${DEPB.reservationJours}" style="${inp}"></label>
+      <label style="${lab}">Per diem repas (&euro;/jour)<input id="db_repas" type="number" value="${DEPB.perDiemRepas}" style="${inp}"></label>
+      <label style="${lab}">Indemnite kilometrique (&euro;/km)<input id="db_km" type="number" step="0.01" value="${DEPB.kmVoiture}" style="${inp}"></label>
+    </div>
+    <div style="margin-top:14px;"><b style="font-size:13px;">Plafonds hebergement par zone</b>
+      <table style="margin-top:6px;"><tbody>${zonesRows}</tbody></table>
+      <button class="per-btn" style="margin-top:8px;" onclick="depBaremeAddZone()">+ zone</button>
+    </div>
+    <label style="display:block;margin-top:14px;font-size:12px;color:var(--muted);">Note affichee aux consultants<textarea id="db_note" style="width:100%;min-height:52px;${inp}">${DEPB.note||''}</textarea></label>
+    <div class="edit-bar" style="margin-top:12px;"><button class="add-btn" onclick="depBaremeSave()">Enregistrer le bareme</button></div>
+  </div>`;
+}
+function depBaremeSync(){
+  if(!DEPB) return;
+  DEPB.classe=depVal('db_classe')||DEPB.classe;
+  DEPB.trainMaxHeures=parseFloat(depVal('db_heures'))||DEPB.trainMaxHeures;
+  DEPB.reservationJours=parseInt(depVal('db_jours'),10)||DEPB.reservationJours;
+  DEPB.perDiemRepas=parseFloat(depVal('db_repas'))||DEPB.perDiemRepas;
+  DEPB.kmVoiture=parseFloat(depVal('db_km'))||DEPB.kmVoiture;
+  const nt=document.getElementById('db_note'); if(nt) DEPB.note=nt.value;
+}
+function depBaremeAddZone(){ depBaremeSync(); (DEPB.hotelPlafonds=DEPB.hotelPlafonds||[]).push({zone:'Nouvelle zone', max:100}); renderDepBareme(); }
+function depBaremeDelZone(i){ depBaremeSync(); DEPB.hotelPlafonds.splice(i,1); renderDepBareme(); }
+async function depBaremeSave(){
+  depBaremeSync();
+  try{ await saveShared('deplacement_bareme', DEPB); DEP.bareme=null; flashSync('&#10003; bareme enregistre'); }
+  catch(e){ flashSync('&#9888; ' + ((e&&e.message)||'refus')); }
+}
 
 
 const VIEWS = {
