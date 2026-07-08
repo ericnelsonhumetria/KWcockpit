@@ -1513,7 +1513,7 @@ function renderConsultantAccess(){
 async function pdcCreateConsultants(){
   const ta = document.getElementById('consList'); if(!ta) return;
   const res = document.getElementById('consResults');
-  const existing = new Set((ADMIN_USERS||[]).map(u=>(u.email||'').toLowerCase()));
+  const byEmail = {}; (ADMIN_USERS||[]).forEach(u=>{ byEmail[(u.email||'').toLowerCase()] = u; });
   const emails = [];
   ta.value.split('\n').map(l=>l.trim()).filter(Boolean).forEach(l=>{
     const m = l.match(/[^\s;,<>]+@[^\s;,<>]+/);
@@ -1523,30 +1523,56 @@ async function pdcCreateConsultants(){
   if(res) res.innerHTML = '<div class="edit-hint" style="margin-top:10px;">Creation en cours&hellip;</div>';
   const out = [];
   for(const email of emails){
-    if(existing.has(email)){ out.push({ email, statut:'deja', mdp:'' }); continue; }
+    const u = byEmail[email];
+    if(u){ out.push({ email, statut:'deja', id:u.id||'' }); continue; }
     try {
       const { ok, data } = await adminCall({ action:'create', email, role:'consultant', is_admin:false });
       if(ok && data && data.motDePasseInitial){
         out.push({ email, statut:'cree', mdp:data.motDePasseInitial });
-        existing.add(email);
         ADMIN_USERS.push({ email, role:'consultant', is_admin:false, confirme:true });
       } else {
-        out.push({ email, statut:'erreur', mdp:'', err:(data && data.error) || '' });
+        out.push({ email, statut:'erreur', err:(data && data.error) || 'reponse inattendue' });
       }
-    } catch(e){ out.push({ email, statut:'erreur', mdp:'', err:(e&&e.message)||String(e) }); }
+    } catch(e){ out.push({ email, statut:'erreur', err:(e&&e.message)||String(e) }); }
   }
+  const safe = e => e.replace(/[^a-z0-9]/gi,'_');
   const rows = out.map(o=>{
-    const badge = o.statut==='cree' ? '<span class="pill p-green">cree</span>'
-                : o.statut==='deja' ? '<span class="pill p-grey">deja cree</span>'
-                : `<span class="pill p-signal">erreur</span>${o.err?` <span class="sub-cell">${o.err}</span>`:''}`;
-    return `<tr><td><b>${o.email}</b></td><td>${badge}</td><td>${o.mdp?`<code style="background:#fff;padding:2px 8px;border-radius:4px;">${o.mdp}</code>`:'&mdash;'}</td></tr>`;
+    let badge, mdpCell;
+    if(o.statut==='cree'){
+      badge = '<span class="pill p-green">cree</span>';
+      mdpCell = `<code style="background:#fff;padding:2px 8px;border-radius:4px;">${o.mdp}</code>`;
+    } else if(o.statut==='deja'){
+      badge = '<span class="pill p-grey">deja cree</span>';
+      mdpCell = o.id
+        ? `<span id="rmdp_${safe(o.email)}"><button class="per-btn" style="font-size:11px;padding:2px 8px;" onclick="pdcResetOne('${o.id}','${o.email}','rmdp_${safe(o.email)}')">&#8635; generer un mot de passe</button></span>`
+        : '<span class="sub-cell">compte existant (id introuvable, actualiser la liste)</span>';
+    } else {
+      badge = '<span class="pill p-signal">erreur</span>';
+      mdpCell = o.err ? `<span class="sub-cell">${o.err}</span>` : '&mdash;';
+    }
+    return `<tr><td><b>${o.email}</b></td><td>${badge}</td><td>${mdpCell}</td></tr>`;
   }).join('');
   const nbCree = out.filter(o=>o.statut==='cree').length;
   if(res) res.innerHTML = `<div class="panel" style="padding:8px 12px 12px;margin-top:12px;background:#fff;">
-      <div class="edit-hint" style="margin-bottom:6px;">${nbCree} compte(s) cree(s). Transmets chaque mot de passe a la personne &mdash; il ne sera plus reaffiche. Actualise la liste des utilisateurs pour les y voir.</div>
-      <table><thead><tr><th>Email</th><th>Statut</th><th>Mot de passe initial</th></tr></thead><tbody>${rows}</tbody></table>
+      <div class="edit-hint" style="margin-bottom:6px;">${nbCree} compte(s) cree(s). <b>Aucun email n'est envoye</b> : transmets toi-meme chaque mot de passe (affiche une seule fois). Pour un compte deja existant, &laquo; generer un mot de passe &raquo; en produit un nouveau (l'ancien cesse alors de fonctionner).</div>
+      <table><thead><tr><th>Email</th><th>Statut</th><th>Mot de passe</th></tr></thead><tbody>${rows}</tbody></table>
     </div>`;
 }
+
+async function pdcResetOne(id, email, spanId){
+  if(!confirm('Reinitialiser le mot de passe de ' + email + ' ?\nL\'ancien ne fonctionnera plus.')) return;
+  try {
+    const { ok, data } = await adminCall({ action:'reset_password', id });
+    const sp = document.getElementById(spanId);
+    if(ok && data && data.nouveauMotDePasse){
+      if(sp) sp.innerHTML = `<code style="background:#fff;padding:2px 8px;border-radius:4px;">${data.nouveauMotDePasse}</code>`;
+      flashSync('&#10003; mot de passe regenere');
+    } else {
+      if(sp) sp.innerHTML = '<span class="sub-cell">echec' + (data && data.error ? ' : ' + data.error : '') + '</span>';
+    }
+  } catch(e){ flashSync('&#9888; ' + ((e&&e.message)||'refus')); }
+}
+
 
 function adminMsg(html){ const m=document.getElementById('adminMsg'); if(m) m.innerHTML = '<div class="save-ok" style="margin-top:10px;display:block;">'+html+'</div>'; }
 async function adminCall(payload){
