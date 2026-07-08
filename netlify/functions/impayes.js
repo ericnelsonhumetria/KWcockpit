@@ -35,6 +35,18 @@ async function fetchWithTimeout(url, options, ms) {
   finally { clearTimeout(t); }
 }
 
+// Factures marquées "payée" à la main (lettrage manuel) — stockées dans cockpit_state (cle/valeur)
+const MANUAL_KEY = 'impayes_lettrage_manuel';
+async function loadManualPaid() {
+  try {
+    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
+    const { data } = await supabase.from('cockpit_state').select('valeur').eq('cle', MANUAL_KEY).maybeSingle();
+    let v = data ? data.valeur : null;
+    if (typeof v === 'string') { try { v = JSON.parse(v); } catch (_) { v = []; } }
+    return Array.isArray(v) ? v.map(String) : [];
+  } catch (_) { return []; }
+}
+
 // ---------- Evoliz : factures actives (hors annulées) ----------
 async function evolizLogin() {
   const pub = process.env.EVOLIZ_PUBLIC_KEY, sec = process.env.EVOLIZ_SECRET_KEY;
@@ -190,12 +202,23 @@ function subsetSum(items, target, minK, maxK, tol, amountOf) {
   return null;
 }
 
+// Toutes les combinaisons de taille k d'un tableau (k petit : 2-3)
+function combos(arr, k) {
+  const out = [];
+  (function rec(start, acc) {
+    if (acc.length === k) { out.push(acc.slice()); return; }
+    for (let i = start; i <= arr.length - (k - acc.length); i++) { acc.push(arr[i]); rec(i + 1, acc); acc.pop(); }
+  })(0, []);
+  return out;
+}
+
 function reconcile(invoices, credits) {
   invoices.sort((a, b) => (a.dateFact || '').localeCompare(b.dateFact || ''));
-  const stats = { single: 0, comboFactures: 0, comboVirements: 0 };
+  const stats = { single: 0, comboFactures: 0, comboVirements: 0, soldeClient: 0, comboMN: 0 };
 
   // ---- PHASE 1 : 1 virement ↔ 1 facture (scoring multi-critères) ----
   for (const inv of invoices) {
+    if (inv.paye) continue; // déjà lettré (manuel)
     const ttc = inv.ttc, ech = inv.echeance || inv.dateFact;
     const candidates = credits.filter(c => !c.used && Math.abs(c.amount - ttc) < 1.0 && daysBetween(c.date, ech) <= 90);
     if (!candidates.length) continue;
@@ -259,7 +282,53 @@ function reconcile(invoices, credits) {
     }
   }
 
-  stats.total = stats.single + stats.comboFactures + stats.comboVirements;
+  // ---- PHASE 4 : SOLDE CLIENT — un sous-ensemble de virements = total des factures restantes du client ----
+  // (ex. Siemens : plusieurs virements couvrant l'ensemble des factures, sans correspondance 1↔1)
+  for (const client of clients) {
+    const words = clientWordsOf(client);
+    if (!words.length) continue;
+    const unpaid = invoices.filter(i => !i.paye && i.client === client);
+    if (!unpaid.length) continue;
+    const clientCredits = credits.filter(c => !c.used && creditMatchesClient(c, words));
+    if (!clientCredits.length) continue;
+    const target = unpaid.reduce((s, i) => s + i.ttc, 0);
+    const tol = Math.max(2, unpaid.length); // ~1 € d'arrondi toléré par facture
+    const combo = subsetSum(clientCredits, target, 1, 8, tol, x => x.amount);
+    if (combo) {
+      for (const c of combo) c.used = true;
+      for (const inv of unpaid) { inv.paye = true; inv.match = 'solde-client'; }
+      stats.soldeClient += unpaid.length;
+    }
+  }
+
+  // ---- PHASE 5 : CROISÉ M↔N — combinaison de virements = combinaison de factures (même client) ----
+  const deadline = Date.now() + 9000; // garde-fou temps
+  for (const client of clients) {
+    const words = clientWordsOf(client);
+    if (!words.length) continue;
+    let matched = true;
+    while (matched && Date.now() < deadline) {
+      matched = false;
+      const unpaid = invoices.filter(i => !i.paye && i.client === client);
+      const cc = credits.filter(c => !c.used && creditMatchesClient(c, words));
+      if (unpaid.length < 2 || cc.length < 2) break;
+      for (let nb = 2; nb <= Math.min(3, cc.length) && !matched; nb++) {
+        for (const bankCombo of combos(cc, nb)) {
+          const bankSum = bankCombo.reduce((s, c) => s + c.amount, 0);
+          const invCombo = subsetSum(unpaid, bankSum, 2, 6, 5.0, x => x.ttc);
+          if (invCombo) {
+            for (const c of bankCombo) c.used = true;
+            for (const inv of invCombo) { inv.paye = true; inv.match = 'combo-mn'; }
+            stats.comboMN += invCombo.length;
+            matched = true;
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  stats.total = stats.single + stats.comboFactures + stats.comboVirements + stats.soldeClient + stats.comboMN;
   return stats;
 }
 
@@ -278,7 +347,16 @@ exports.handler = async (event) => {
     const startDate = (params.start || '2024-01-01').slice(0, 10);
 
     const token = await evolizLogin();
-    const [invoices, credits] = await Promise.all([getInvoices(token, startDate), getQontoCredits(startDate)]);
+    const [invoices, credits, manualList] = await Promise.all([
+      getInvoices(token, startDate), getQontoCredits(startDate), loadManualPaid(),
+    ]);
+
+    // Lettrage manuel prioritaire (factures confirmées payées à la main)
+    const manualSet = new Set(manualList.map(String));
+    let manuel = 0;
+    for (const inv of invoices) {
+      if (manualSet.has(String(inv.numero))) { inv.paye = true; inv.match = 'manuel'; manuel++; }
+    }
 
     const stats = reconcile(invoices, credits);
 
@@ -287,6 +365,22 @@ exports.handler = async (event) => {
     const encours = impayees.reduce((s, i) => s + i.ttc, 0);
     const echu = echues.reduce((s, i) => s + i.ttc, 0);
     const creditsUtilises = credits.filter(c => c.used).length;
+
+    // Pour chaque impayé : un virement du MÊME MONTANT existe-t-il, non attribué ? (aide au lettrage)
+    for (const i of impayees) {
+      const ech = i.echeance || i.dateFact;
+      const nearC = credits.find(c => !c.used && Math.abs(c.amount - i.ttc) < 1 && daysBetween(c.date, ech) <= 90);
+      i.near = !!nearC;
+      i.near_date = nearC ? nearC.date : '';
+      i.near_amount = nearC ? nearC.amount : 0;
+      i.near_label = nearC ? (nearC.contrepartie || nearC.libelle || '').slice(0, 48) : '';
+    }
+
+    // Virements reçus non rapprochés (orphelins) — à examiner
+    const orphelins = credits.filter(c => !c.used)
+      .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+      .slice(0, 60)
+      .map(c => ({ date: c.date, amount: c.amount, libelle: c.libelle, contrepartie: c.contrepartie }));
 
     return {
       statusCode: 200,
@@ -302,11 +396,20 @@ exports.handler = async (event) => {
         rappro_single: stats.single,
         rappro_combo_factures: stats.comboFactures,   // 1 virement = plusieurs factures
         rappro_combo_virements: stats.comboVirements, // plusieurs virements = 1 facture (Vinci)
+        rappro_solde_client: stats.soldeClient,       // virements = total des factures du client (Siemens)
+        rappro_combo_mn: stats.comboMN,               // combinaison de virements = combinaison de factures
+        rappro_manuel: manuel,                        // lettrées à la main
         nb_credits: credits.length,
         nb_credits_utilises: creditsUtilises,
+        nb_orphelins: credits.filter(c => !c.used).length,
+        orphelins,
         impayees_detail: impayees
           .sort((a, b) => (a.echeance || '').localeCompare(b.echeance || ''))
-          .map(i => ({ numero: i.numero, client: i.client, echeance: i.echeance, reste_du: i.ttc, echu: !!(i.echeance && i.echeance < TODAY_ISO) })),
+          .map(i => ({
+            numero: i.numero, client: i.client, echeance: i.echeance, reste_du: i.ttc,
+            echu: !!(i.echeance && i.echeance < TODAY_ISO),
+            near: i.near, near_date: i.near_date, near_amount: i.near_amount, near_label: i.near_label,
+          })),
       }),
     };
   } catch (e) {
