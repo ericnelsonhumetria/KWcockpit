@@ -1729,16 +1729,17 @@ async function loadFinance(){
   const zone = document.getElementById('finZone');
   if(!zone) return;
   if(!SB_SESSION){ zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Session expirée — reconnectez-vous.</div>'; return; }
-  zone.innerHTML = '<div class="panel" style="padding:18px 16px;">Chargement Qonto + Evoliz…</div>';
+  zone.innerHTML = '<div class="panel" style="padding:18px 16px;">Chargement Qonto + Evoliz + rapprochement bancaire…</div>';
 
   const token = SB_SESSION.access_token;
   const headers = { Authorization: 'Bearer ' + token };
 
   try {
     const start = periodeStart();
-    const [qRes, eRes] = await Promise.all([
+    const [qRes, eRes, iRes] = await Promise.all([
       fetch('/api/qonto?entite=Kaizen%20Way&start=' + start, { headers }),
       fetch('/api/evoliz?start=' + start, { headers }),
+      fetch('/api/impayes?start=' + start, { headers }).catch(() => null),
     ]);
 
     if(qRes.status === 403 || eRes.status === 403){
@@ -1754,11 +1755,24 @@ async function loadFinance(){
     const q = await qRes.json();
     const e = await eRes.json();
 
-    const _imp = Array.isArray(e.impayees_detail) ? e.impayees_detail : [];
-    const impTable = _imp.length ? `<div class="sec-eyebrow" style="margin-top:14px;">Impayés clients (reste dû)</div>
+    // Impayés RÉELS via rapprochement bancaire (Evoliz × Qonto). Repli sur Evoliz brut si indispo.
+    let fin = e, reconInfo = '';
+    if(iRes && iRes.ok){
+      try {
+        const im = await iRes.json();
+        fin = { encours_ttc: im.encours_ttc, echu_ttc: im.echu_ttc, nb_impayees: im.nb_impayees, nb_echues: im.nb_echues, impayees_detail: im.impayees_detail };
+        reconInfo = ` Rapprochement bancaire : ${im.nb_rapprochees}/${im.nb_factures} factures réglées via Qonto (${im.nb_credits_utilises}/${im.nb_credits} virements lettrés).`;
+      } catch(_){}
+    } else {
+      reconInfo = ' ⚠ Rapprochement indisponible — montant Evoliz brut (surestimé, les paiements Qonto ne sont pas déduits). Déployez impayes.js.';
+    }
+
+    const _imp = Array.isArray(fin.impayees_detail) ? fin.impayees_detail : [];
+    window.FIN_IMPAYES = _imp;
+    const impTable = _imp.length ? `<div class="sec-eyebrow" style="margin-top:14px;">Impayés clients (reste dû) <button class="per-btn" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="finCopyImpayesList()">copier la liste</button></div>
       <div class="panel" style="padding:8px 16px 16px;"><table>
-        <thead><tr><th>Client</th><th>N° facture</th><th>Échéance</th><th class="val">Reste dû</th><th>Statut</th></tr></thead>
-        <tbody>${_imp.map(r=>`<tr><td>${r.client||'—'}</td><td class="sub-cell">${r.numero||''}</td><td class="sub-cell">${r.echeance||'—'}</td><td class="val">${fmtEuro(r.reste_du)}</td><td><span class="pill ${r.echu?'p-signal':'p-blue'}">${r.echu?'échu — à relancer':'à échoir'}</span></td></tr>`).join('')}</tbody>
+        <thead><tr><th>Client</th><th>N° facture</th><th>Échéance</th><th class="val">Reste dû</th><th>Statut</th><th>Relance</th></tr></thead>
+        <tbody>${_imp.map((r,idx)=>`<tr><td>${r.client||'—'}</td><td class="sub-cell">${r.numero||''}</td><td class="sub-cell">${r.echeance||'—'}</td><td class="val">${fmtEuro(r.reste_du)}</td><td><span class="pill ${r.echu?'p-signal':'p-blue'}">${r.echu?'échu — à relancer':'à échoir'}</span></td><td><button class="per-btn" style="font-size:11px;padding:2px 8px;" onclick="finCopyRelance(${idx})">&#9993; copier</button></td></tr>`).join('')}</tbody>
       </table></div>` : '';
 
     const periodeLabels = {mois:'Ce mois', trim:'Ce trimestre', annee:'Cette année', '12mois':'12 mois'};
@@ -1772,12 +1786,99 @@ async function loadFinance(){
       <div class="kpis k4">
         <div class="kpi accent"><div class="k-label">CA HT (Evoliz)</div><div class="k-val">${fmtEuro(e.ca_ht)}</div><div class="k-trend">payé : ${fmtEuro(e.ca_paye_ht)}</div></div>
         <div class="kpi good"><div class="k-label">Trésorerie actuelle (Qonto)</div><div class="k-val">${fmtEuro(q.solde)}</div><div class="k-trend">${q.comptes ? q.comptes.length : 0} compte(s)</div></div>
-        <div class="kpi ${e.encours_ttc > 0 ? 'warn' : ''}"><div class="k-label">Encours clients (reste dû)</div><div class="k-val">${fmtEuro(e.encours_ttc)}</div><div class="k-trend">${e.nb_impayees || 0} impayée(s)${(e.echu_ttc != null && e.echu_ttc > 0) ? ' · ' + fmtEuro(e.echu_ttc) + ' échu (' + (e.nb_echues || 0) + ')' : ''}</div></div>
+        <div class="kpi ${fin.encours_ttc > 0 ? 'warn' : ''}"><div class="k-label">Encours clients (reste dû)</div><div class="k-val">${fmtEuro(fin.encours_ttc)}</div><div class="k-trend">${fin.nb_impayees || 0} impayée(s)${(fin.echu_ttc != null && fin.echu_ttc > 0) ? ' · ' + fmtEuro(fin.echu_ttc) + ' échu (' + (fin.nb_echues || 0) + ')' : ''}</div></div>
         <div class="kpi"><div class="k-label">Flux net (période)</div><div class="k-val">${fmtEuro(q.flux_net)}</div><div class="k-trend">${q.nb_transactions || 0} opérations</div></div>
       </div>
-      <div class="edit-hint" style="margin-top:10px;">Lecture seule. La trésorerie est le solde actuel des comptes ; le CA et le flux portent sur la période choisie. Le détail complet reste piloté par Najoua.</div>` + impTable;
+      <div class="edit-hint" style="margin-top:10px;">Lecture seule. La trésorerie est le solde actuel des comptes ; le CA et le flux portent sur la période choisie.${reconInfo} <button class="per-btn" style="font-size:11px;padding:2px 8px;" onclick="finDiagImpayes()">🔍 diagnostic impayés</button></div>` + impTable + '<div id="finDiag"></div>';
   } catch(err){
     zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Connexion impossible aux fonctions financières. En local, utilisez « netlify dev ».</div>';
+  }
+}
+
+// ----- Diagnostic impayés : montre ce qu'Evoliz renvoie réellement -----
+async function finDiagImpayes(){
+  const d = document.getElementById('finDiag');
+  if(!d){ return; }
+  if(!SB_SESSION){ d.innerHTML = '<div class="panel" style="padding:12px;color:var(--signal)">Session expirée.</div>'; return; }
+  d.innerHTML = '<div class="panel" style="padding:12px;">Analyse des données Evoliz…</div>';
+  try {
+    const headers = { Authorization: 'Bearer ' + SB_SESSION.access_token };
+    const start = periodeStart();
+    const res = await fetch('/api/evoliz?debug=1&start=' + start, { headers });
+    if(!res.ok){ d.innerHTML = '<div class="panel" style="padding:12px;color:var(--signal)">Diagnostic indisponible (' + res.status + ')</div>'; return; }
+    const j = await res.json();
+    const codeRows = Object.entries(j.byCode || {}).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<tr><td>status_code = <b>${k}</b></td><td class="val">${v}</td></tr>`).join('');
+    const txtRows = Object.entries(j.byTxt || {}).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<tr><td>${k}</td><td class="val">${v}</td></tr>`).join('');
+    const sample = (j.echantillon || []).map(r=>`<tr><td class="sub-cell">${r.numero||''}</td><td>${r.client||'—'}</td><td class="sub-cell">${r.date||''}</td><td class="sub-cell">${r.statut||''}</td><td class="val">${r.status_code_raw}</td><td class="val">${fmtEuro(r.ttc)}</td><td class="val">${fmtEuro(r.reste_raw)}</td><td><span class="pill ${r.annule?'p-grey':(r.paye?'p-green':'p-signal')}">${r.annule?'annulée':(r.paye?'payé':'impayé')}</span></td></tr>`).join('');
+    d.innerHTML = `<div class="sec-eyebrow" style="margin-top:14px;">Diagnostic — ce qu'Evoliz renvoie réellement</div>
+      <div class="two-col">
+        <div class="panel" style="padding:8px 16px 16px;"><div class="field-label" style="margin-bottom:6px;">Répartition par <b>status_code</b></div><table>${codeRows}</table><div class="edit-hint" style="margin-top:8px;">Factures dont le reste à payer = 0 : <b>${j.resteNul}</b> · annulées : <b>${j.cancelledN}</b> · total : <b>${j.total}</b></div></div>
+        <div class="panel" style="padding:8px 16px 16px;"><div class="field-label" style="margin-bottom:6px;">Répartition par <b>statut (texte)</b></div><table>${txtRows}</table></div>
+      </div>
+      <div class="panel" style="padding:8px 16px 16px;"><div class="field-label" style="margin-bottom:6px;">Échantillon (40 premières factures)</div><table>
+        <thead><tr><th>N°</th><th>Client</th><th>Date</th><th>Statut</th><th class="val">code</th><th class="val">TTC</th><th class="val">Reste</th><th>Classé</th></tr></thead>
+        <tbody>${sample}</tbody></table></div>
+      <div class="edit-hint" style="margin-top:8px;">Si presque toutes les factures ont <b>reste = TTC</b> et un même status_code, c'est qu'Evoliz ne connaît pas les paiements (rapprochés côté banque). On décidera alors comment marquer « payé ».</div>`;
+  } catch(err){
+    d.innerHTML = '<div class="panel" style="padding:12px;color:var(--signal)">Connexion impossible au diagnostic.</div>';
+  }
+}
+
+// ----- Relances impayés (copie presse-papier) -----
+function finCopyRelance(i){
+  const r = (window.FIN_IMPAYES || [])[i];
+  if(!r){ flashSync('&#9888; facture introuvable'); return; }
+  const montant = fmtEuro(r.reste_du);
+  const ech = r.echeance || 'la date convenue';
+  let msg;
+  if(r.echu){
+    msg = `Objet : Relance – facture ${r.numero} échue
+
+Bonjour,
+
+Sauf erreur de notre part ou règlement intervenu entre-temps, la facture ${r.numero} d'un montant de ${montant}, arrivée à échéance le ${ech}, demeure impayée à ce jour.
+
+Nous vous remercions de bien vouloir procéder à son règlement dans les meilleurs délais. Si le paiement a déjà été effectué, merci de ne pas tenir compte de ce message.
+
+Nous restons à votre disposition pour toute question relative à cette facture.
+
+Bien cordialement,
+Najoua Amlal — Kaizen Way`;
+  } else {
+    msg = `Objet : Rappel – facture ${r.numero} à échéance le ${ech}
+
+Bonjour,
+
+Nous nous permettons de vous rappeler que la facture ${r.numero}, d'un montant de ${montant}, arrive à échéance le ${ech}.
+
+Nous vous remercions par avance de votre règlement dans les délais convenus. Si celui-ci est déjà planifié ou effectué, merci de ne pas tenir compte de ce message.
+
+Bien cordialement,
+Najoua Amlal — Kaizen Way`;
+  }
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(msg)
+      .then(()=>flashSync('&#10003; relance copiée — collez-la dans votre mail à ' + (r.client || 'ce client')))
+      .catch(()=>flashSync('&#9888; copie impossible'));
+  } else {
+    flashSync('&#9888; presse-papier indisponible');
+  }
+}
+
+function finCopyImpayesList(){
+  const arr = window.FIN_IMPAYES || [];
+  if(!arr.length){ flashSync('Aucun impayé à copier'); return; }
+  const total = arr.reduce((s,r)=> s + (Number(r.reste_du) || 0), 0);
+  const lignes = arr.map(r=> `${r.client || '—'} — facture ${r.numero || ''} — échéance ${r.echeance || '—'} — reste dû ${fmtEuro(r.reste_du)}${r.echu ? ' (échu)' : ''}`);
+  const txt = `Impayés clients (${arr.length}) — total reste dû ${fmtEuro(total)}
+
+${lignes.join('\n')}`;
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(txt)
+      .then(()=>flashSync('&#10003; liste des impayés copiée'))
+      .catch(()=>flashSync('&#9888; copie impossible'));
+  } else {
+    flashSync('&#9888; presse-papier indisponible');
   }
 }
 
