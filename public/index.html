@@ -69,7 +69,7 @@
   .logout:hover { border-color: var(--ink); color: var(--ink); }
 
   /* tabs */
-  .tabs { max-width: 1100px; margin: 0 auto; padding: 0 20px; display: flex; gap: 4px; }
+  .tabs { max-width: 1100px; margin: 0 auto; padding: 0 20px; display: flex; gap: 4px; flex-wrap: wrap; }
   .tab { background: none; border: none; border-bottom: 2px solid transparent; padding: 10px 14px; font-size: 13px; font-weight: 600; color: var(--muted); cursor: pointer; font-family: inherit; margin-bottom: -2px; display: flex; align-items: center; gap: 7px; }
   .tab:hover { color: var(--ink); }
   .tab.active { color: var(--ink); border-bottom-color: var(--signal); }
@@ -3293,38 +3293,46 @@ function depEnc(s){ return encodeURIComponent(String(s||'').trim()); }
 function depDays(a,b){ return Math.round((new Date(b)-new Date(a))/86400000); }
 
 /* ---- liens comparateurs (metamoteurs uniquement) ---- */
-function depTrainLinks(){
+function depFr(iso){ if(!iso) return ''; const q=String(iso).split('-'); return q.length===3 ? `${q[2]}/${q[1]}/${q[0]}` : iso; }
+function depSlug(x){ return String(x||'').trim().replace(/\s+/g,'-'); }
+function depG(q){ return `https://www.google.com/search?q=${depEnc(q)}`; }
+function depTrainLinks(o,d,da){
   return [
-    { label:'Trainline', fill:'recherche', url:'https://www.thetrainline.com/' },
-    { label:'Omio', fill:'recherche', url:'https://www.omio.fr/' },
-    { label:'Kombo', fill:'recherche', url:'https://www.kombo.co/' },
+    { label:'Google (trains)', fill:'pré-rempli', url:depG(`train ${o} ${d} ${depFr(da)}`) },
+    { label:'Trainline', fill:'à compléter', url:'https://www.thetrainline.com/' },
+    { label:'Omio', fill:'à compléter', url:'https://www.omio.fr/' },
+    { label:'Kombo', fill:'à compléter', url:'https://www.kombo.co/' },
   ];
 }
 function depVolLinks(o,d,da,dr){
-  const q = depEnc(`Vols ${o} vers ${d} le ${da}${dr?(' retour '+dr):''}`);
   return [
-    { label:'Google Flights', fill:'pré-rempli', url:`https://www.google.com/travel/flights?q=${q}` },
-    { label:'Skyscanner', fill:'recherche', url:'https://www.skyscanner.fr/vols' },
-    { label:'Kayak', fill:'recherche', url:'https://www.kayak.fr/flights' },
+    { label:'Google Flights', fill:'pré-rempli', url:depG(`vols ${o} vers ${d} le ${depFr(da)}${dr?(' retour '+depFr(dr)):''}`) },
+    { label:'Skyscanner', fill:'à compléter', url:'https://www.skyscanner.fr/vols' },
+    { label:'Kayak', fill:'à compléter', url:'https://www.kayak.fr/flights' },
   ];
 }
 function depHotelLinks(d,ci,co){
   return [
-    { label:'Google Hotels', fill:'pré-rempli', url:`https://www.google.com/travel/search?q=${depEnc('hôtels '+d+' du '+ci+' au '+co)}` },
-    { label:'Kayak Hotels', fill:'pré-rempli', url:`https://www.kayak.fr/hotels/${depEnc(d)}/${ci}/${co}` },
-    { label:'Trivago', fill:'recherche', url:'https://www.trivago.fr/' },
+    { label:'Google Hotels', fill:'pré-rempli', url:depG(`hôtel ${d} du ${depFr(ci)} au ${depFr(co)}`) },
+    { label:'Kayak Hotels', fill:'pré-rempli', url:`https://www.kayak.fr/hotels/${encodeURIComponent(depSlug(d))}/${ci}/${co}/1adults` },
+    { label:'Trivago', fill:'à compléter', url:'https://www.trivago.fr/' },
   ];
 }
 function depVoitureLinks(d,da,dr){
   return [
-    { label:'Kayak Location', fill:'pré-rempli', url:`https://www.kayak.fr/cars/${depEnc(d)}/${da}/${dr||da}` },
-    { label:'Carigami', fill:'recherche', url:'https://www.carigami.fr/' },
-    { label:'Liligo', fill:'recherche', url:'https://www.liligo.fr/location-voiture/' },
+    { label:'Kayak Location', fill:'pré-rempli', url:`https://www.kayak.fr/cars/${encodeURIComponent(depSlug(d))}/${da}/${dr||da}` },
+    { label:'Carigami', fill:'à compléter', url:'https://www.carigami.fr/' },
+    { label:'Liligo', fill:'à compléter', url:'https://www.liligo.fr/location-voiture/' },
   ];
 }
-function depLinksHtml(title, sub, links){
+function depLinksHtml(title, sub, links, copyKey){
   const btns = links.map(l=>`<a href="${l.url}" target="_blank" rel="noopener" class="per-btn" style="text-decoration:none;display:inline-block;margin:4px 5px 0 0;">${l.label} <span style="font-size:10px;color:var(--muted);">(${l.fill})</span></a>`).join('');
-  return `<div style="margin:12px 0;"><b style="font-size:13px;">${title}</b>${sub?` <span class="sub-cell">${sub}</span>`:''}<br>${btns}</div>`;
+  const cp = copyKey ? ` <button class="per-btn" style="font-size:11px;padding:2px 8px;margin:4px 0 0;" onclick="depCopy('${copyKey}')">copier la recherche</button>` : '';
+  return `<div style="margin:12px 0;"><b style="font-size:13px;">${title}</b>${sub?` <span class="sub-cell">${sub}</span>`:''}<br>${btns}${cp}</div>`;
+}
+function depCopy(key){
+  const t=(DEP._copies||{})[key]||'';
+  if(navigator.clipboard && t){ navigator.clipboard.writeText(t).then(()=>flashSync('&#10003; recherche copiee')).catch(()=>flashSync('&#9888; copie impossible')); }
 }
 
 /* ---- onglet Deplacements ---- */
@@ -3392,12 +3400,18 @@ function depGenerer(){
   let sections='';
   const showTrain=(mode==='Au mieux'||mode==='Train');
   const showVol=(mode==='Au mieux'||mode==='Avion');
-  if(showTrain) sections += depLinksHtml('Train A/R', `${dom||'domicile'} &harr; ${dest}`, depTrainLinks());
-  if(showVol) sections += depLinksHtml('Avion A/R (comparateurs)', `${dom||'domicile'} &harr; ${dest}`, depVolLinks(dom,dest,aller,retour));
+  DEP._copies = {
+    train: `${dom||'?'} vers ${dest}, ${depFr(aller)}${retour?(' / retour '+depFr(retour)):''}`,
+    vol: `${dom||'?'} vers ${dest}, ${depFr(aller)}${retour?(' / retour '+depFr(retour)):''}`,
+    hotel: `${dest}, ${depFr(aller)} au ${depFr(co)}, ${nights} nuit(s), 1 chambre`,
+    voiture: `${dest}, du ${depFr(aller)} au ${depFr(co)}`,
+  };
+  if(showTrain) sections += depLinksHtml('Train A/R', `${dom||'domicile'} &harr; ${dest}`, depTrainLinks(dom,dest,aller), 'train');
+  if(showVol) sections += depLinksHtml('Avion A/R (comparateurs)', `${dom||'domicile'} &harr; ${dest}`, depVolLinks(dom,dest,aller,retour), 'vol');
   if(mode==='Au mieux') sections += `<div class="edit-hint" style="margin:-6px 0 6px;">Regle direction : privilegier le train si le trajet est &lt; ${b.trainMaxHeures} h.</div>`;
   if(mode==='Voiture personnelle') sections += `<div style="margin:12px 0;"><b style="font-size:13px;">Voiture personnelle</b> <span class="sub-cell">indemnites kilometriques ${b.kmVoiture} &euro;/km (bareme)</span></div>`;
-  if(hotel) sections += depLinksHtml(`Hebergement (${nights} nuit${nights>1?'s':''})`, `${dest}, du ${aller} au ${co}`, depHotelLinks(dest,aller,co));
-  if(voiture) sections += depLinksHtml('Location voiture sur place', dest, depVoitureLinks(dest,aller,co));
+  if(hotel) sections += depLinksHtml(`Hebergement (${nights} nuit${nights>1?'s':''})`, `${dest}, du ${depFr(aller)} au ${depFr(co)}`, depHotelLinks(dest,aller,co), 'hotel');
+  if(voiture) sections += depLinksHtml('Location voiture sur place', dest, depVoitureLinks(dest,aller,co), 'voiture');
   sections += `<div style="margin:12px 0;"><b style="font-size:13px;">Repas</b> <span class="sub-cell">per diem ${b.perDiemRepas} &euro;/jour — pas de reservation</span></div>`;
 
   DEP._recap = `Deplacement — ${dom||'?'} vers ${dest}${etapes?(' (etapes : '+etapes+')'):''}, aller ${aller}${retour?(', retour '+retour):''}${hotel?(', '+nights+' nuit(s)'):''}.`;
@@ -3408,7 +3422,7 @@ function depGenerer(){
       <div style="margin-bottom:6px;">${confHtml}</div>
       <div class="sec-eyebrow" style="margin-top:10px;">Reservations a faire</div>
       ${sections}
-      <div class="edit-hint" style="margin-top:8px;">&laquo; pre-rempli &raquo; ouvre une recherche renseignee ; &laquo; recherche &raquo; ouvre le comparateur a completer (bouton &laquo; copier &raquo; pour coller le trajet). Choisissez le meilleur compromis confort / prix / praticite dans le cadre ci-dessus.</div>
+      <div class="edit-hint" style="margin-top:8px;">&laquo; pre-rempli &raquo; = recherche renseignee (Google et Kayak acceptent la ville + les dates). &laquo; a completer &raquo; = certains comparateurs (train, avion) exigent des codes gare / aeroport et ne peuvent pas etre pre-remplis depuis un nom de ville : cliquez &laquo; copier la recherche &raquo; puis collez. Choisissez le meilleur compromis confort / prix / praticite dans le cadre ci-dessus.</div>
     </div>`;
 }
 function depCopier(){
