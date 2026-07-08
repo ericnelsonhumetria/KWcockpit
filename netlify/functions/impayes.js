@@ -395,6 +395,12 @@ exports.handler = async (event) => {
     const encours = impayees.reduce((s, i) => s + i.ttc, 0);
     const echu = echues.reduce((s, i) => s + i.ttc, 0);
     const creditsUtilises = credits.filter(c => c.used).length;
+    // CA & payé cohérents avec le rapprochement (même jeu de factures)
+    const caHt = invoices.reduce((s, i) => s + i.ht, 0);
+    const encoursHt = impayees.reduce((s, i) => s + i.ht, 0);
+    const caPayeHt = caHt - encoursHt;                                   // auto + manuel
+    const caPayeManuelHt = invoices.filter(i => i.paye && i.match === 'manuel').reduce((s, i) => s + i.ht, 0);
+    const caPayeAutoHt = caPayeHt - caPayeManuelHt;
 
     // Pour chaque impayé : un virement du MÊME MONTANT existe-t-il, non attribué ? (aide au lettrage)
     for (const i of impayees) {
@@ -431,7 +437,12 @@ exports.handler = async (event) => {
       headers: { ...cors, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         encours_ttc: encours,
+        encours_ht: encoursHt,
         echu_ttc: echu,
+        ca_ht: caHt,
+        ca_paye_ht: caPayeHt,
+        ca_paye_auto_ht: caPayeAutoHt,
+        ca_paye_manuel_ht: caPayeManuelHt,
         nb_impayees: impayees.length,
         nb_echues: echues.length,
         // transparence du rapprochement
