@@ -1,13 +1,13 @@
 // netlify/functions/qonto.js
 // Récupère soldes + transactions Qonto côté SERVEUR.
 // Les clés ne quittent jamais ce fichier serverless — jamais exposées au navigateur.
-// Accès réservé au rôle "direction" (vérifié via le token Supabase).
+// Accès réservé à la direction et au rôle finance "najoua" (vérifié via le token Supabase).
 //
 // Transposé de services/qonto_service.py (Nelson Management).
 
 const { createClient } = require('@supabase/supabase-js');
 
-// --- Garde d'accès : seul un utilisateur direction authentifié passe ---
+// --- Garde d'accès : seul un utilisateur direction/finance authentifié passe ---
 async function requireDirection(authHeader) {
   if (!authHeader) return { ok: false, code: 401, msg: 'Non authentifié' };
   const token = authHeader.replace('Bearer ', '').trim();
@@ -30,8 +30,9 @@ async function requireDirection(authHeader) {
     .eq('email', email)
     .single();
 
-  const isDirection = access && (access.is_admin === true || access.role === 'direction' || access.role === 'eric');
-  if (!isDirection) return { ok: false, code: 403, msg: 'Accès réservé à la direction' };
+  // Finance : direction + Najoua (propriétaire du processus finance/trésorerie)
+  const isDirection = access && (access.is_admin === true || access.role === 'direction' || access.role === 'eric' || access.role === 'najoua');
+  if (!isDirection) return { ok: false, code: 403, msg: 'Accès réservé à la direction / finance' };
 
   return { ok: true, email };
 }
