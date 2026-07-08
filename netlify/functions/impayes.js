@@ -47,6 +47,19 @@ async function loadManualPaid() {
   } catch (_) { return []; }
 }
 
+// Table d'alias : motif de libellé/contrepartie bancaire → nom de client Evoliz
+// Stockée dans cockpit_state (cle = 'impayes_alias'), format [{ motif, client }]
+const ALIAS_KEY = 'impayes_alias';
+async function loadAliases() {
+  try {
+    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
+    const { data } = await supabase.from('cockpit_state').select('valeur').eq('cle', ALIAS_KEY).maybeSingle();
+    let v = data ? data.valeur : null;
+    if (typeof v === 'string') { try { v = JSON.parse(v); } catch (_) { v = []; } }
+    return Array.isArray(v) ? v.filter(a => a && a.motif && a.client) : [];
+  } catch (_) { return []; }
+}
+
 // ---------- Evoliz : factures actives (hors annulées) ----------
 async function evolizLogin() {
   const pub = process.env.EVOLIZ_PUBLIC_KEY, sec = process.env.EVOLIZ_SECRET_KEY;
@@ -109,6 +122,8 @@ async function getQontoCredits(startDate) {
   if (!accRes.ok) throw new Error(`Qonto bank_accounts ${accRes.status}`);
   const accounts = (await accRes.json()).bank_accounts || [];
   const credits = [];
+  // Virements internes / intra-groupe : ce ne sont PAS des règlements clients.
+  const INTERNES = ['kaizen way', 'nelson management', 'humetria', 'humetrix'];
   const deadline = Date.now() + 16000;
   for (const acc of accounts) {
     const iban = acc.iban;
@@ -130,6 +145,8 @@ async function getQontoCredits(startDate) {
       for (const t of txs) {
         const side = String(t.side || '').toLowerCase();
         if (side === 'debit') continue; // filet de sécurité si le filtre serveur est ignoré
+        const blob = `${t.label || ''} ${t.counterparty_name || ''}`.toLowerCase();
+        if (INTERNES.some(x => blob.includes(x))) continue; // virement interne → ignoré
         credits.push({
           date: (t.settled_at || '').slice(0, 10),
           amount: Math.abs(Number(t.amount || 0)),
@@ -177,10 +194,18 @@ function lcsRatio(a, b) {
 function clientWordsOf(name) {
   return normalize(name).split(' ').filter(w => w.length >= 3);
 }
-function creditMatchesClient(c, words) {
-  if (!words.length) return false;
+// Un virement est-il attribuable à ce client ? Par mots du nom OU par alias (motif → client).
+function creditMatchesClient(c, words, clientName, aliases) {
   const lib = normalize(`${c.libelle} ${c.contrepartie}`);
-  return words.some(w => lib.includes(w));
+  if (words && words.length && words.some(w => lib.includes(w))) return true;
+  if (aliases && aliases.length && clientName) {
+    const cn = normalize(clientName);
+    for (const a of aliases) {
+      const ac = normalize(a.client), am = normalize(a.motif);
+      if (ac && am && (cn.includes(ac) || ac.includes(cn)) && lib.includes(am)) return true;
+    }
+  }
+  return false;
 }
 // Cherche un sous-ensemble de `items` (taille minK..maxK) dont la somme ≈ target (±tol).
 // Tous les montants sont positifs → élagage dès que la somme partielle dépasse target+tol.
@@ -215,7 +240,8 @@ function combos(arr, k) {
   return out;
 }
 
-function reconcile(invoices, credits) {
+function reconcile(invoices, credits, aliases) {
+  aliases = aliases || [];
   invoices.sort((a, b) => (a.dateFact || '').localeCompare(b.dateFact || ''));
   const stats = { single: 0, comboFactures: 0, comboVirements: 0, soldeClient: 0, comboMN: 0 };
 
@@ -247,6 +273,7 @@ function reconcile(invoices, credits) {
       if (Math.abs(c.amount - ttc) < 0.10) score += 15;
       const dd = daysBetween(c.date, ech);
       if (dd <= 15) score += 10; else if (dd <= 45) score += 5;
+      if (aliases.length && creditMatchesClient(c, [], inv.client, aliases)) score = Math.max(score, 65); // alias
       if (score > best) { best = score; bestC = c; }
     }
     if (best >= 35 && bestC) { bestC.used = true; inv.paye = true; inv.match = 'single'; stats.single++; continue; }
@@ -260,12 +287,12 @@ function reconcile(invoices, credits) {
   for (const client of clients) {
     const words = clientWordsOf(client);
     if (!words.length) continue;
-    const clientCredits = credits.filter(c => !c.used && creditMatchesClient(c, words));
+    const clientCredits = credits.filter(c => !c.used && creditMatchesClient(c, words, client, aliases));
     for (const c of clientCredits) {
       if (c.used) continue;
       const unpaid = invoices.filter(i => !i.paye && i.client === client);
       if (unpaid.length < 2) continue;
-      const combo = subsetSum(unpaid, c.amount, 2, 6, 2.0, x => x.ttc);
+      const combo = subsetSum(unpaid, c.amount, 2, 10, 2.0, x => x.ttc);
       if (combo) { c.used = true; for (const inv of combo) { inv.paye = true; inv.match = 'combo-factures'; } stats.comboFactures += combo.length; }
     }
   }
@@ -278,7 +305,7 @@ function reconcile(invoices, credits) {
     for (const inv of unpaid) {
       if (inv.paye) continue;
       const ech = inv.echeance || inv.dateFact;
-      const cand = credits.filter(c => !c.used && creditMatchesClient(c, words) && daysBetween(c.date, ech) <= 90);
+      const cand = credits.filter(c => !c.used && creditMatchesClient(c, words, client, aliases) && daysBetween(c.date, ech) <= 90);
       if (cand.length < 2) continue;
       const combo = subsetSum(cand, inv.ttc, 2, 4, 2.0, x => x.amount);
       if (combo) { inv.paye = true; inv.match = 'combo-virements'; for (const c of combo) { c.used = true; } stats.comboVirements++; }
@@ -292,11 +319,11 @@ function reconcile(invoices, credits) {
     if (!words.length) continue;
     const unpaid = invoices.filter(i => !i.paye && i.client === client);
     if (!unpaid.length) continue;
-    const clientCredits = credits.filter(c => !c.used && creditMatchesClient(c, words));
+    const clientCredits = credits.filter(c => !c.used && creditMatchesClient(c, words, client, aliases));
     if (!clientCredits.length) continue;
     const target = unpaid.reduce((s, i) => s + i.ttc, 0);
     const tol = Math.max(2, unpaid.length); // ~1 € d'arrondi toléré par facture
-    const combo = subsetSum(clientCredits, target, 1, 8, tol, x => x.amount);
+    const combo = subsetSum(clientCredits, target, 1, 10, tol, x => x.amount);
     if (combo) {
       for (const c of combo) c.used = true;
       for (const inv of unpaid) { inv.paye = true; inv.match = 'solde-client'; }
@@ -313,12 +340,12 @@ function reconcile(invoices, credits) {
     while (matched && Date.now() < deadline) {
       matched = false;
       const unpaid = invoices.filter(i => !i.paye && i.client === client);
-      const cc = credits.filter(c => !c.used && creditMatchesClient(c, words));
+      const cc = credits.filter(c => !c.used && creditMatchesClient(c, words, client, aliases));
       if (unpaid.length < 2 || cc.length < 2) break;
-      for (let nb = 2; nb <= Math.min(3, cc.length) && !matched; nb++) {
+      for (let nb = 2; nb <= Math.min(4, cc.length) && !matched; nb++) {
         for (const bankCombo of combos(cc, nb)) {
           const bankSum = bankCombo.reduce((s, c) => s + c.amount, 0);
-          const invCombo = subsetSum(unpaid, bankSum, 2, 6, 5.0, x => x.ttc);
+          const invCombo = subsetSum(unpaid, bankSum, 2, 8, 5.0, x => x.ttc);
           if (invCombo) {
             for (const c of bankCombo) c.used = true;
             for (const inv of invCombo) { inv.paye = true; inv.match = 'combo-mn'; }
@@ -350,8 +377,8 @@ exports.handler = async (event) => {
     const startDate = (params.start || '2024-01-01').slice(0, 10);
 
     const token = await evolizLogin();
-    const [invoices, credits, manualList] = await Promise.all([
-      getInvoices(token, startDate), getQontoCredits(startDate), loadManualPaid(),
+    const [invoices, credits, manualList, aliases] = await Promise.all([
+      getInvoices(token, startDate), getQontoCredits(startDate), loadManualPaid(), loadAliases(),
     ]);
 
     // Lettrage manuel prioritaire (factures confirmées payées à la main)
@@ -361,7 +388,7 @@ exports.handler = async (event) => {
       if (manualSet.has(String(inv.numero))) { inv.paye = true; inv.match = 'manuel'; manuel++; }
     }
 
-    const stats = reconcile(invoices, credits);
+    const stats = reconcile(invoices, credits, aliases);
 
     const impayees = invoices.filter(i => !i.paye);
     const echues = impayees.filter(i => i.echeance && i.echeance < TODAY_ISO);
@@ -379,11 +406,25 @@ exports.handler = async (event) => {
       i.near_label = nearC ? (nearC.contrepartie || nearC.libelle || '').slice(0, 48) : '';
     }
 
+    // Clients ayant encore des impayés — pour suggérer une attribution aux virements orphelins
+    const clientsImpayes = [...new Set(impayees.map(i => i.client))];
+    function suggestClient(c) {
+      const lib = normalize(`${c.libelle} ${c.contrepartie}`);
+      let best = '', bestScore = 0;
+      for (const cl of clientsImpayes) {
+        const words = clientWordsOf(cl);
+        const m = words.filter(w => lib.includes(w)).length;
+        const sc = m + lcsRatio(normalize(cl), lib);
+        if (sc > bestScore) { bestScore = sc; best = cl; }
+      }
+      return bestScore >= 1 ? best : '';
+    }
+
     // Virements reçus non rapprochés (orphelins) — à examiner
     const orphelins = credits.filter(c => !c.used)
       .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
       .slice(0, 60)
-      .map(c => ({ date: c.date, amount: c.amount, libelle: c.libelle, contrepartie: c.contrepartie }));
+      .map(c => ({ date: c.date, amount: c.amount, libelle: c.libelle, contrepartie: c.contrepartie, suggere: suggestClient(c) }));
 
     return {
       statusCode: 200,
