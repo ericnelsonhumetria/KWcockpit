@@ -1761,7 +1761,8 @@ async function loadFinance(){
       try {
         const im = await iRes.json();
         fin = { encours_ttc: im.encours_ttc, echu_ttc: im.echu_ttc, nb_impayees: im.nb_impayees, nb_echues: im.nb_echues, impayees_detail: im.impayees_detail };
-        reconInfo = ` Rapprochement bancaire : ${im.nb_rapprochees}/${im.nb_factures} factures réglées via Qonto (${im.nb_credits_utilises}/${im.nb_credits} virements lettrés)${(im.rappro_combo_virements || im.rappro_combo_factures) ? ` — dont ${im.rappro_combo_virements || 0} fractionné(s) + ${im.rappro_combo_factures || 0} groupé(s)` : ''}.`;
+        window.FIN_ORPHELINS = im.orphelins || [];
+        reconInfo = ` Rapprochement : ${im.nb_rapprochees}/${im.nb_factures} auto${im.rappro_manuel ? ' + ' + im.rappro_manuel + ' manuel(s)' : ''} via Qonto (${im.nb_credits_utilises}/${im.nb_credits} virements lettrés)${(im.rappro_combo_virements || im.rappro_combo_factures || im.rappro_solde_client || im.rappro_combo_mn) ? ` — dont ${im.rappro_combo_virements || 0} fractionné(s), ${im.rappro_combo_factures || 0} groupé(s), ${im.rappro_solde_client || 0} par solde client, ${im.rappro_combo_mn || 0} croisé(s)` : ''}. ${im.nb_orphelins || 0} virement(s) non rapproché(s).`;
       } catch(_){}
     } else {
       reconInfo = ' ⚠ Rapprochement indisponible — montant Evoliz brut (surestimé, les paiements Qonto ne sont pas déduits). Déployez impayes.js.';
@@ -1772,7 +1773,7 @@ async function loadFinance(){
     const impTable = _imp.length ? `<div class="sec-eyebrow" style="margin-top:14px;">Impayés clients (reste dû) <button class="per-btn" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="finCopyImpayesList()">copier la liste</button></div>
       <div class="panel" style="padding:8px 16px 16px;"><table>
         <thead><tr><th>Client</th><th>N° facture</th><th>Échéance</th><th class="val">Reste dû</th><th>Statut</th><th>Relance</th></tr></thead>
-        <tbody>${_imp.map((r,idx)=>`<tr><td>${r.client||'—'}</td><td class="sub-cell">${r.numero||''}</td><td class="sub-cell">${r.echeance||'—'}</td><td class="val">${fmtEuro(r.reste_du)}</td><td><span class="pill ${r.echu?'p-signal':'p-blue'}">${r.echu?'échu — à relancer':'à échoir'}</span></td><td><button class="per-btn" style="font-size:11px;padding:2px 8px;" onclick="finCopyRelance(${idx})">&#9993; copier</button></td></tr>`).join('')}</tbody>
+        <tbody>${_imp.map((r,idx)=>`<tr><td>${r.client||'—'}</td><td class="sub-cell">${r.numero||''}</td><td class="sub-cell">${r.echeance||'—'}</td><td class="val">${fmtEuro(r.reste_du)}</td><td><span class="pill ${r.echu?'p-signal':'p-blue'}">${r.echu?'échu — à relancer':'à échoir'}</span>${r.near?` <span class="pill p-amber" title="Virement du même montant le ${r.near_date} — ${r.near_label}">⚠ virement détecté</span>`:''}</td><td><button class="per-btn" style="font-size:11px;padding:2px 8px;" onclick="finCopyRelance(${idx})">&#9993; copier</button> <button class="per-btn" style="font-size:11px;padding:2px 8px;" onclick="finMarkPaye(${idx})">&#10003; payée</button></td></tr>`).join('')}</tbody>
       </table></div>` : '';
 
     const periodeLabels = {mois:'Ce mois', trim:'Ce trimestre', annee:'Cette année', '12mois':'12 mois'};
@@ -1795,33 +1796,33 @@ async function loadFinance(){
   }
 }
 
-// ----- Diagnostic impayés : montre ce qu'Evoliz renvoie réellement -----
-async function finDiagImpayes(){
+// ----- Diagnostic : virements reçus non rapprochés (orphelins) -----
+function finDiagImpayes(){
   const d = document.getElementById('finDiag');
   if(!d){ return; }
-  if(!SB_SESSION){ d.innerHTML = '<div class="panel" style="padding:12px;color:var(--signal)">Session expirée.</div>'; return; }
-  d.innerHTML = '<div class="panel" style="padding:12px;">Analyse des données Evoliz…</div>';
-  try {
-    const headers = { Authorization: 'Bearer ' + SB_SESSION.access_token };
-    const start = periodeStart();
-    const res = await fetch('/api/evoliz?debug=1&start=' + start, { headers });
-    if(!res.ok){ d.innerHTML = '<div class="panel" style="padding:12px;color:var(--signal)">Diagnostic indisponible (' + res.status + ')</div>'; return; }
-    const j = await res.json();
-    const codeRows = Object.entries(j.byCode || {}).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<tr><td>status_code = <b>${k}</b></td><td class="val">${v}</td></tr>`).join('');
-    const txtRows = Object.entries(j.byTxt || {}).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<tr><td>${k}</td><td class="val">${v}</td></tr>`).join('');
-    const sample = (j.echantillon || []).map(r=>`<tr><td class="sub-cell">${r.numero||''}</td><td>${r.client||'—'}</td><td class="sub-cell">${r.date||''}</td><td class="sub-cell">${r.statut||''}</td><td class="val">${r.status_code_raw}</td><td class="val">${fmtEuro(r.ttc)}</td><td class="val">${fmtEuro(r.reste_raw)}</td><td><span class="pill ${r.annule?'p-grey':(r.paye?'p-green':'p-signal')}">${r.annule?'annulée':(r.paye?'payé':'impayé')}</span></td></tr>`).join('');
-    d.innerHTML = `<div class="sec-eyebrow" style="margin-top:14px;">Diagnostic — ce qu'Evoliz renvoie réellement</div>
-      <div class="two-col">
-        <div class="panel" style="padding:8px 16px 16px;"><div class="field-label" style="margin-bottom:6px;">Répartition par <b>status_code</b></div><table>${codeRows}</table><div class="edit-hint" style="margin-top:8px;">Factures dont le reste à payer = 0 : <b>${j.resteNul}</b> · annulées : <b>${j.cancelledN}</b> · total : <b>${j.total}</b></div></div>
-        <div class="panel" style="padding:8px 16px 16px;"><div class="field-label" style="margin-bottom:6px;">Répartition par <b>statut (texte)</b></div><table>${txtRows}</table></div>
-      </div>
-      <div class="panel" style="padding:8px 16px 16px;"><div class="field-label" style="margin-bottom:6px;">Échantillon (40 premières factures)</div><table>
-        <thead><tr><th>N°</th><th>Client</th><th>Date</th><th>Statut</th><th class="val">code</th><th class="val">TTC</th><th class="val">Reste</th><th>Classé</th></tr></thead>
-        <tbody>${sample}</tbody></table></div>
-      <div class="edit-hint" style="margin-top:8px;">Si presque toutes les factures ont <b>reste = TTC</b> et un même status_code, c'est qu'Evoliz ne connaît pas les paiements (rapprochés côté banque). On décidera alors comment marquer « payé ».</div>`;
-  } catch(err){
-    d.innerHTML = '<div class="panel" style="padding:12px;color:var(--signal)">Connexion impossible au diagnostic.</div>';
+  const orph = window.FIN_ORPHELINS || [];
+  if(!orph.length){
+    d.innerHTML = '<div class="panel" style="padding:12px;">Aucun virement reçu non rapproché sur la période — tout est lettré. (Si le rapprochement n\'a pas tourné, vérifiez que impayes.js est déployé.)</div>';
+    return;
   }
+  const rows = orph.map(c=>`<tr><td class="sub-cell">${c.date||''}</td><td class="val">${fmtEuro(c.amount)}</td><td>${c.contrepartie||'—'}</td><td class="sub-cell">${(c.libelle||'').slice(0,60)}</td></tr>`).join('');
+  d.innerHTML = `<div class="sec-eyebrow" style="margin-top:14px;">Virements reçus non rapprochés (${orph.length})</div>
+    <div class="panel" style="padding:8px 16px 16px;"><table>
+      <thead><tr><th>Date</th><th class="val">Montant</th><th>Contrepartie</th><th>Libellé</th></tr></thead>
+      <tbody>${rows}</tbody></table>
+      <div class="edit-hint" style="margin-top:8px;">Si tu reconnais ici le paiement d'une facture (ex. deux lignes Vinci à 10 800 €), c'est que le libellé/la contrepartie n'identifie pas le client — l'auto ne peut pas trancher sans risque. Clique <b>✅ payée</b> sur la facture concernée pour la lettrer : le choix est mémorisé et la facture sort des impayés.</div>
+    </div>`;
+}
+
+// ----- Lettrage manuel : marquer une facture payée (mémorisé dans cockpit_state) -----
+async function finMarkPaye(i){
+  const r = (window.FIN_IMPAYES || [])[i];
+  if(!r){ return; }
+  if(!confirm(`Marquer la facture ${r.numero} (${r.client}) comme payée ?\nElle sortira des impayés.`)) return;
+  let list = await loadShared('impayes_lettrage_manuel');
+  if(!Array.isArray(list)) list = [];
+  if(!list.includes(r.numero)){ list.push(r.numero); await saveShared('impayes_lettrage_manuel', list); }
+  loadFinance();
 }
 
 // ----- Relances impayés (copie presse-papier) -----
