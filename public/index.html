@@ -1760,7 +1760,7 @@ async function loadFinance(){
     if(iRes && iRes.ok){
       try {
         const im = await iRes.json();
-        fin = { encours_ttc: im.encours_ttc, echu_ttc: im.echu_ttc, nb_impayees: im.nb_impayees, nb_echues: im.nb_echues, impayees_detail: im.impayees_detail };
+        fin = { encours_ttc: im.encours_ttc, echu_ttc: im.echu_ttc, nb_impayees: im.nb_impayees, nb_echues: im.nb_echues, impayees_detail: im.impayees_detail, ca_ht: im.ca_ht, ca_paye_ht: im.ca_paye_ht, ca_paye_auto_ht: im.ca_paye_auto_ht, ca_paye_manuel_ht: im.ca_paye_manuel_ht };
         window.FIN_ORPHELINS = im.orphelins || [];
         reconInfo = ` Rapprochement : ${im.nb_rapprochees}/${im.nb_factures} auto${im.rappro_manuel ? ' + ' + im.rappro_manuel + ' manuel(s)' : ''} via Qonto (${im.nb_credits_utilises}/${im.nb_credits} virements lettrés)${(im.rappro_combo_virements || im.rappro_combo_factures || im.rappro_solde_client || im.rappro_combo_mn) ? ` — dont ${im.rappro_combo_virements || 0} fractionné(s), ${im.rappro_combo_factures || 0} groupé(s), ${im.rappro_solde_client || 0} par solde client, ${im.rappro_combo_mn || 0} croisé(s)` : ''}. ${im.nb_orphelins || 0} virement(s) non rapproché(s).`;
       } catch(_){}
@@ -1771,10 +1771,10 @@ async function loadFinance(){
 
     const _imp = Array.isArray(fin.impayees_detail) ? fin.impayees_detail : [];
     window.FIN_IMPAYES = _imp;
-    const impTable = _imp.length ? `<div class="sec-eyebrow" style="margin-top:14px;">Impayés clients (reste dû) <button class="per-btn" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="finCopyImpayesList()">copier la liste</button> <button class="per-btn" style="font-size:11px;padding:2px 8px;" onclick="finDiagImpayes()">🔍 diagnostic</button></div>
+    const impTable = _imp.length ? `<div class="sec-eyebrow" style="margin-top:14px;">Impayés clients (reste dû) <button class="per-btn" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="finCopyImpayesList()">copier la liste</button> <button class="per-btn" style="font-size:11px;padding:2px 8px;" onclick="finDiagImpayes()">🔍 diagnostic</button> <button class="add-btn" style="font-size:11px;padding:2px 10px;" onclick="finMarkSelectedPaye()">&#10003; marquer sélectionnées payées</button> <button class="per-btn" style="font-size:11px;padding:2px 8px;" onclick="finUndoLastPaye()">&#8617; annuler dernier lettrage</button></div>
       <div class="panel" style="padding:8px 16px 16px;"><table>
-        <thead><tr><th>Client</th><th>N° facture</th><th>Échéance</th><th class="val">Reste dû</th><th>Statut</th><th>Relance</th></tr></thead>
-        <tbody>${_imp.map((r,idx)=>`<tr><td>${r.client||'—'}</td><td class="sub-cell">${r.numero||''}</td><td class="sub-cell">${r.echeance||'—'}</td><td class="val">${fmtEuro(r.reste_du)}</td><td><span class="pill ${r.echu?'p-signal':'p-blue'}">${r.echu?'échu — à relancer':'à échoir'}</span>${r.near?` <span class="pill p-amber" title="Virement du même montant le ${r.near_date}">⚠ virement ${fmtEuro(r.near_amount)} détecté le ${r.near_date} — «&nbsp;${r.near_label||'sans nom'}&nbsp;»</span>`:''}</td><td><button class="per-btn" style="font-size:11px;padding:2px 8px;" onclick="finCopyRelance(${idx})">&#9993; copier</button> <button class="per-btn" style="font-size:11px;padding:2px 8px;" onclick="finMarkPaye(${idx})">&#10003; payée</button></td></tr>`).join('')}</tbody>
+        <thead><tr><th><input type="checkbox" onclick="document.querySelectorAll('.imp-chk').forEach(c=>c.checked=this.checked)" title="Tout sélectionner"></th><th>Client</th><th>N° facture</th><th>Échéance</th><th class="val">Reste dû</th><th>Statut</th><th>Relance</th></tr></thead>
+        <tbody>${_imp.map((r,idx)=>`<tr><td><input type="checkbox" class="imp-chk" value="${r.numero||''}"></td><td>${r.client||'—'}</td><td class="sub-cell">${r.numero||''}</td><td class="sub-cell">${r.echeance||'—'}</td><td class="val">${fmtEuro(r.reste_du)}</td><td><span class="pill ${r.echu?'p-signal':'p-blue'}">${r.echu?'échu — à relancer':'à échoir'}</span>${r.near?` <span class="pill p-amber" title="Virement du même montant le ${r.near_date}">⚠ virement ${fmtEuro(r.near_amount)} détecté le ${r.near_date} — «&nbsp;${r.near_label||'sans nom'}&nbsp;»</span>`:''}</td><td><button class="per-btn" style="font-size:11px;padding:2px 8px;" onclick="finCopyRelance(${idx})">&#9993; copier</button> <button class="per-btn" style="font-size:11px;padding:2px 8px;" onclick="finMarkPaye(${idx})">&#10003; payée</button></td></tr>`).join('')}</tbody>
       </table></div>` : '';
 
     const periodeLabels = {mois:'Ce mois', trim:'Ce trimestre', annee:'Cette année', '12mois':'12 mois'};
@@ -1786,10 +1786,10 @@ async function loadFinance(){
     </div>`;
     zone.innerHTML = periodeBar + `
       <div class="kpis k4">
-        <div class="kpi accent"><div class="k-label">CA HT (Evoliz)</div><div class="k-val">${fmtEuro(e.ca_ht)}</div><div class="k-trend">payé : ${fmtEuro(e.ca_paye_ht)}</div></div>
+        <div class="kpi accent"><div class="k-label">CA HT (Evoliz)</div><div class="k-val">${fmtEuro(fin.ca_ht != null ? fin.ca_ht : e.ca_ht)}</div><div class="k-trend">payé : ${fmtEuro(fin.ca_paye_ht != null ? fin.ca_paye_ht : e.ca_paye_ht)}${(fin.ca_paye_manuel_ht != null && fin.ca_paye_manuel_ht > 0) ? ` (auto ${fmtEuro(fin.ca_paye_auto_ht)} + manuel ${fmtEuro(fin.ca_paye_manuel_ht)})` : ''}</div></div>
         <div class="kpi good"><div class="k-label">Trésorerie actuelle (Qonto)</div><div class="k-val">${fmtEuro(q.solde)}</div><div class="k-trend">${q.comptes ? q.comptes.length : 0} compte(s)</div></div>
         <div class="kpi ${fin.encours_ttc > 0 ? 'warn' : ''}"><div class="k-label">Encours clients (reste dû)</div><div class="k-val">${fmtEuro(fin.encours_ttc)}</div><div class="k-trend">${fin.nb_impayees || 0} impayée(s)${(fin.echu_ttc != null && fin.echu_ttc > 0) ? ' · ' + fmtEuro(fin.echu_ttc) + ' échu (' + (fin.nb_echues || 0) + ')' : ''}</div></div>
-        <div class="kpi"><div class="k-label">Flux net (période)</div><div class="k-val">${fmtEuro(q.flux_net)}</div><div class="k-trend">${q.nb_transactions || 0} opérations</div></div>
+        <div class="kpi"><div class="k-label">Flux net (période)</div><div class="k-val">${fmtEuro(q.flux_net)}</div><div class="k-trend">${q.nb_transactions || 0} opérations${q.tronque ? '+ (tronqué)' : ''}</div></div>
       </div>
       <div class="edit-hint" style="margin-top:10px;">Lecture seule. La trésorerie est le solde actuel des comptes ; le CA et le flux portent sur la période choisie.${reconInfo} <button class="per-btn" style="font-size:11px;padding:2px 8px;" onclick="finDiagImpayes()">🔍 diagnostic impayés</button></div>` + impTable + '<div id="finDiag"></div>';
   } catch(err){
@@ -1818,8 +1818,12 @@ async function finDiagImpayes(){
     }
     const j = await res.json();
     const orph = j.orphelins || [];
-    const orphRows = orph.map(c=>`<tr><td class="sub-cell">${c.date||''}</td><td class="val">${fmtEuro(c.amount)}</td><td>${c.contrepartie||'—'}</td><td class="sub-cell">${(c.libelle||'').slice(0,60)}</td></tr>`).join('');
+    const orphRows = orph.map(c=>`<tr><td class="sub-cell">${c.date||''}</td><td class="val">${fmtEuro(c.amount)}</td><td>${c.contrepartie||'—'}</td><td class="sub-cell">${(c.libelle||'').slice(0,60)}</td><td>${c.suggere?`<span class="pill p-amber">${c.suggere}</span>`:'—'}</td></tr>`).join('');
     const creditsWarn = (j.nb_credits === 0) ? ' <b style="color:var(--signal)">⚠ 0 virement reçu remonté de Qonto sur la période — élargis la période (Cette année / 12 mois) ou vérifie le compte.</b>' : '';
+    // alias existants (cockpit_state) → texte éditable "motif => Client"
+    let aliasArr = await loadShared('impayes_alias');
+    if(!Array.isArray(aliasArr)) aliasArr = [];
+    const aliasText = aliasArr.map(a=>`${a.motif} => ${a.client}`).join('\n');
     d.innerHTML = `<div class="sec-eyebrow" style="margin-top:14px;">Diagnostic du rapprochement (période chargée)</div>
       <div class="panel" style="padding:8px 16px 16px;">
         <div class="edit-hint">Factures : <b>${j.nb_factures}</b> · Virements reçus Qonto : <b>${j.nb_credits}</b> · lettrés : <b>${j.nb_credits_utilises}</b> · non rapprochés : <b>${j.nb_orphelins}</b>${creditsWarn}</div>
@@ -1827,13 +1831,58 @@ async function finDiagImpayes(){
       </div>
       <div class="sec-eyebrow" style="margin-top:10px;">Virements reçus non rapprochés (${orph.length})</div>
       <div class="panel" style="padding:8px 16px 16px;"><table>
-        <thead><tr><th>Date</th><th class="val">Montant</th><th>Contrepartie</th><th>Libellé</th></tr></thead>
-        <tbody>${orphRows || '<tr><td colspan="4" style="color:#999">aucun</td></tr>'}</tbody></table>
-        <div class="edit-hint" style="margin-top:8px;">Regarde la colonne <b>Contrepartie</b> : si le nom du client n'y figure pas (ni dans le libellé), l'auto ne peut pas rapprocher sans risque → ✅ payée manuel, ou table d'alias client ↔ contrepartie à créer.</div>
+        <thead><tr><th>Date</th><th class="val">Montant</th><th>Contrepartie</th><th>Libellé</th><th>Client suggéré</th></tr></thead>
+        <tbody>${orphRows || '<tr><td colspan="5" style="color:#999">aucun</td></tr>'}</tbody></table>
+        <div class="edit-hint" style="margin-top:8px;">Si un virement correspond à un client mais sans son nom dans le libellé, ajoute un <b>alias</b> ci-dessous : le rapprochement l'utilisera à chaque fois.</div>
+      </div>
+      <div class="sec-eyebrow" style="margin-top:10px;">Table d'alias (motif du libellé bancaire → client)</div>
+      <div class="panel" style="padding:12px 16px 16px;">
+        <div class="edit-hint" style="margin-bottom:6px;">Une règle par ligne, format : <b>motif =&gt; Nom du client</b>. Ex. <i>TRESO CENTRALE =&gt; SIEMENS Mobility SAS</i>. Le motif est cherché dans le libellé/contrepartie du virement.</div>
+        <textarea id="aliasBox" style="width:100%;min-height:90px;font-family:monospace;font-size:12px;padding:8px;border:1px solid #ddd;border-radius:6px;">${aliasText}</textarea>
+        <button class="add-btn" style="margin-top:8px;" onclick="finSaveAliases()">Enregistrer les alias &amp; relancer</button>
       </div>`;
   } catch(err){
     d.innerHTML = '<div class="panel" style="padding:12px;color:var(--signal)">Test impossible (réseau).</div>';
   }
+}
+
+// Enregistre la table d'alias puis relance le rapprochement
+async function finSaveAliases(){
+  const box = document.getElementById('aliasBox');
+  if(!box){ return; }
+  const arr = box.value.split('\n').map(l=>l.trim()).filter(Boolean).map(l=>{
+    const idx = l.indexOf('=>');
+    if(idx < 0) return null;
+    const motif = l.slice(0, idx).trim();
+    const client = l.slice(idx + 2).trim();
+    return (motif && client) ? { motif, client } : null;
+  }).filter(Boolean);
+  await saveShared('impayes_alias', arr);
+  loadFinance();
+}
+
+// Lettrage manuel groupé : marquer toutes les factures cochées, puis mettre à jour une seule fois
+async function finMarkSelectedPaye(){
+  const checks = Array.from(document.querySelectorAll('.imp-chk:checked')).map(c=>c.value).filter(Boolean);
+  if(!checks.length){ flashSync('Aucune facture sélectionnée'); return; }
+  if(!confirm(`Marquer ${checks.length} facture(s) comme payée(s) ?\nElles sortiront des impayés.`)) return;
+  let list = await loadShared('impayes_lettrage_manuel');
+  if(!Array.isArray(list)) list = [];
+  let added = 0;
+  for(const n of checks){ if(!list.includes(n)){ list.push(n); added++; } }
+  await saveShared('impayes_lettrage_manuel', list);
+  flashSync('&#10003; ' + added + ' facture(s) lettrée(s)');
+  loadFinance();
+}
+
+// Annuler le dernier lettrage manuel (retire la dernière facture marquée payée)
+async function finUndoLastPaye(){
+  let list = await loadShared('impayes_lettrage_manuel');
+  if(!Array.isArray(list) || !list.length){ flashSync('Aucun lettrage manuel à annuler'); return; }
+  const removed = list.pop();
+  await saveShared('impayes_lettrage_manuel', list);
+  flashSync('&#8617; lettrage annulé : ' + removed);
+  loadFinance();
 }
 
 // ----- Lettrage manuel : marquer une facture payée (mémorisé dans cockpit_state) -----
