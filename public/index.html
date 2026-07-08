@@ -1754,6 +1754,13 @@ async function loadFinance(){
     const q = await qRes.json();
     const e = await eRes.json();
 
+    const _imp = Array.isArray(e.impayees_detail) ? e.impayees_detail : [];
+    const impTable = _imp.length ? `<div class="sec-eyebrow" style="margin-top:14px;">Impayés clients (reste dû)</div>
+      <div class="panel" style="padding:8px 16px 16px;"><table>
+        <thead><tr><th>Client</th><th>N° facture</th><th>Échéance</th><th class="val">Reste dû</th><th>Statut</th></tr></thead>
+        <tbody>${_imp.map(r=>`<tr><td>${r.client||'—'}</td><td class="sub-cell">${r.numero||''}</td><td class="sub-cell">${r.echeance||'—'}</td><td class="val">${fmtEuro(r.reste_du)}</td><td><span class="pill ${r.echu?'p-signal':'p-blue'}">${r.echu?'échu — à relancer':'à échoir'}</span></td></tr>`).join('')}</tbody>
+      </table></div>` : '';
+
     const periodeLabels = {mois:'Ce mois', trim:'Ce trimestre', annee:'Cette année', '12mois':'12 mois'};
     const periodeBar = `<div class="panel" style="padding:12px 16px;margin-bottom:12px;">
       <span class="field-label" style="display:block;margin-bottom:6px;">Période d'observation — affichée : <b>${periodeLabels[PERIODE]}</b></span>
@@ -1765,10 +1772,10 @@ async function loadFinance(){
       <div class="kpis k4">
         <div class="kpi accent"><div class="k-label">CA HT (Evoliz)</div><div class="k-val">${fmtEuro(e.ca_ht)}</div><div class="k-trend">payé : ${fmtEuro(e.ca_paye_ht)}</div></div>
         <div class="kpi good"><div class="k-label">Trésorerie actuelle (Qonto)</div><div class="k-val">${fmtEuro(q.solde)}</div><div class="k-trend">${q.comptes ? q.comptes.length : 0} compte(s)</div></div>
-        <div class="kpi ${e.encours_ttc > 0 ? 'warn' : ''}"><div class="k-label">Encours clients TTC</div><div class="k-val">${fmtEuro(e.encours_ttc)}</div><div class="k-trend">${e.nb_impayees || 0} facture(s) impayée(s)</div></div>
+        <div class="kpi ${e.encours_ttc > 0 ? 'warn' : ''}"><div class="k-label">Encours clients (reste dû)</div><div class="k-val">${fmtEuro(e.encours_ttc)}</div><div class="k-trend">${e.nb_impayees || 0} impayée(s)${(e.echu_ttc != null && e.echu_ttc > 0) ? ' · ' + fmtEuro(e.echu_ttc) + ' échu (' + (e.nb_echues || 0) + ')' : ''}</div></div>
         <div class="kpi"><div class="k-label">Flux net (période)</div><div class="k-val">${fmtEuro(q.flux_net)}</div><div class="k-trend">${q.nb_transactions || 0} opérations</div></div>
       </div>
-      <div class="edit-hint" style="margin-top:10px;">Lecture seule. La trésorerie est le solde actuel des comptes ; le CA et le flux portent sur la période choisie. Le détail complet reste piloté par Najoua.</div>`;
+      <div class="edit-hint" style="margin-top:10px;">Lecture seule. La trésorerie est le solde actuel des comptes ; le CA et le flux portent sur la période choisie. Le détail complet reste piloté par Najoua.</div>` + impTable;
   } catch(err){
     zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Connexion impossible aux fonctions financières. En local, utilisez « netlify dev ».</div>';
   }
@@ -3735,37 +3742,31 @@ sabrine: () => `
 najoua: () => `
   <div class="sec-eyebrow">Finance & admin</div>
   <div class="sec-title">Trésorerie & facturation</div>
-  <div class="sec-note">Maillon stratégique : cette trésorerie finance Humetria · <span class="src fin"><span class="sdot"></span>source Qonto</span></div>
-  <div class="kpis k4">
-    <div class="kpi good"><div class="k-label">Trésorerie</div><div class="k-val">2,3 <small>mois</small></div><div class="k-trend up">▲ confortable</div></div>
-    <div class="kpi accent"><div class="k-label">À facturer</div><div class="k-val">186 <small>k€</small></div><div class="k-trend">ce mois</div></div>
-    <div class="kpi warn"><div class="k-label">Impayés &gt; 30 j</div><div class="k-val">42 <small>k€</small></div><div class="k-trend down">▲ relancer</div></div>
-    <div class="kpi"><div class="k-label">CA facturé YTD</div><div class="k-val">0,74 <small>M€</small></div><div class="k-trend up">▲ vs 2025</div></div>
+  <div class="sec-note">Maillon stratégique : cette trésorerie finance Humetria · <span class="src fin"><span class="sdot"></span>Qonto + Evoliz (données réelles)</span></div>
+  <div id="finZone">
+    <div class="panel" style="padding:18px 16px;">
+      <div style="margin-bottom:12px;">
+        <span class="field-label" style="display:block;margin-bottom:6px;">Période d'observation</span>
+        <div class="periode-row">
+          <button class="per-btn" data-per="mois" onclick="setPeriode('mois')">Ce mois</button>
+          <button class="per-btn on" data-per="trim" onclick="setPeriode('trim')">Ce trimestre</button>
+          <button class="per-btn" data-per="annee" onclick="setPeriode('annee')">Cette année</button>
+          <button class="per-btn" data-per="12mois" onclick="setPeriode('12mois')">12 mois</button>
+        </div>
+      </div>
+      <button class="add-btn" onclick="loadFinance()">⟱ Charger les données financières</button>
+      <span class="edit-hint" style="margin-left:10px;">Trésorerie (Qonto) + CA, encours et impayés (Evoliz), en lecture seule. La liste des impayés s'affiche après chargement.</span>
+    </div>
   </div>
 
   <div class="sec-eyebrow">Flux Humetria</div>
   <div class="sec-title">Financement de la startup</div>
-  <div class="sec-note">Suivi du flux KW → Humetria (risque sous surveillance, Module 2)</div>
+  <div class="sec-note">Suivi manuel du flux KW → Humetria (risque sous surveillance, Module 2)</div>
   <div class="two-col">
-    <div class="kpi good"><div class="k-label">Capacité de financement</div><div class="k-val">OK <small>· T3</small></div><div class="k-trend up">▲ tréso suffisante</div></div>
-    <div class="kpi"><div class="k-label">Ponction prévue T3</div><div class="k-val">120 <small>k€</small></div><div class="k-trend">planifié</div></div>
+    <div class="kpi"><div class="k-label">Ponction prévue</div><div class="k-val">— <small>k€</small></div><div class="k-trend">à saisir (suivi manuel)</div></div>
+    <div class="kpi"><div class="k-label">Capacité de financement</div><div class="k-val">selon tréso</div><div class="k-trend">voir solde Qonto ci-dessus</div></div>
   </div>
-
-  <div class="sec-eyebrow">Facturation</div>
-  <div class="sec-title">Encours clients</div>
-  <div class="sec-note">Conditions : paiement à 25 j fin de mois le 5</div>
-  <div class="panel" style="padding:8px 16px 16px;">
-    <table>
-      <thead><tr><th>Client</th><th>Montant</th><th>Échéance</th><th>Statut</th></tr></thead>
-      <tbody>
-        <tr><td>Groupe Andros</td><td class="val">68 k€</td><td>5 juil.</td><td><span class="pill p-green">à échoir</span></td></tr>
-        <tr><td>Kriter</td><td class="val">24 k€</td><td>5 juil.</td><td><span class="pill p-green">à échoir</span></td></tr>
-        <tr><td>Lactalis</td><td class="val">42 k€</td><td>échu</td><td><span class="pill p-signal">à relancer</span></td></tr>
-        <tr><td>Havea</td><td class="val">52 k€</td><td>5 août</td><td><span class="pill p-blue">en cours</span></td></tr>
-      </tbody>
-    </table>
-  </div>
-  ${footer("Finance alimentée par Qonto (banque &amp; trésorerie, à connecter). Backup Eric. Le flux vers Humetria est suivi de près — c'est un risque clé du Module 2.")}
+  <div class="footer-note"><span class="ic">↳</span><span>Données réelles : Qonto (trésorerie) + Evoliz (CA, encours, impayés). Le flux vers Humetria reste un suivi manuel — risque clé du Module 2.</span></div>
 `
 
 };
