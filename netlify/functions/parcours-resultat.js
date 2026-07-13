@@ -2,7 +2,7 @@
 // Enregistre le résultat d'une épreuve pour un candidat, APRÈS validation du jeton.
 // Le candidat_id est déduit du jeton côté serveur : le client ne peut pas écrire ailleurs.
 // Corps attendu : { token, epreuve, statut?, score?, detail? }
-//   epreuve ∈ dojo|brasserie|qpm   statut ∈ a_faire|en_cours|termine (défaut termine)
+//   epreuve ∈ dojo|brasserie|qpm|lean   statut ∈ a_faire|en_cours|termine (défaut termine)
 // Env : SUPABASE_SERVICE_ROLE_KEY (et éventuellement SUPABASE_URL).
 
 const { createClient } = require('@supabase/supabase-js');
@@ -10,7 +10,7 @@ const { createClient } = require('@supabase/supabase-js');
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://omftqlvkmjlxoinruayr.supabase.co';
 const SERVICE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const UUID_RE  = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const EPREUVES = ['dojo', 'brasserie', 'qpm', 'lean'];
+const EPREUVES = ['dojo', 'brasserie', 'qpm', 'lean'];   // valeurs acceptées en écriture
 const STATUTS  = ['a_faire', 'en_cours', 'termine'];
 
 function json(code, obj){
@@ -51,9 +51,9 @@ exports.handler = async (event) => {
 
   const sb = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession:false } });
 
-  // valider le jeton -> candidat
+  // valider le jeton -> candidat (+ config des épreuves)
   const { data: cand, error: e1 } = await sb
-    .from('parcours_candidats').select('id, statut, expires_at').eq('token', token).maybeSingle();
+    .from('parcours_candidats').select('id, statut, expires_at, epreuves_config').eq('token', token).maybeSingle();
   if (e1) return json(500, { ok:false, error:'erreur' });
   if (!cand) return json(404, { ok:false, error:'introuvable' });
   if (cand.statut === 'archive') return json(403, { ok:false, error:'archivé' });
@@ -82,12 +82,20 @@ exports.handler = async (event) => {
     .upsert(row, { onConflict: 'candidat_id,epreuve' });
   if (e2) return json(500, { ok:false, error:'écriture impossible' });
 
-  // si les 3 épreuves sont terminées -> candidat "terminé" (best effort)
+  // Candidat "terminé" quand toutes les épreuves ACTIVES sont finies (best effort).
+  // Fallback (config absente) = les 4 épreuves, comme avant.
   try {
+    let actives = Array.isArray(cand.epreuves_config)
+      ? cand.epreuves_config
+          .filter(function(x){ return x && x.active !== false && EPREUVES.indexOf(x.epreuve) >= 0; })
+          .map(function(x){ return x.epreuve; })
+      : EPREUVES.slice();
+    if (!actives.length) actives = EPREUVES.slice();
+
     const { data: all } = await sb
       .from('parcours_resultats').select('epreuve, statut').eq('candidat_id', cand.id);
     const done = (all || []).filter(function(r){ return r.statut === 'termine'; }).map(function(r){ return r.epreuve; });
-    const toutFini = EPREUVES.every(function(e){ return done.indexOf(e) >= 0; });
+    const toutFini = actives.every(function(e){ return done.indexOf(e) >= 0; });
     if (toutFini && cand.statut !== 'termine' && cand.statut !== 'archive') {
       await sb.from('parcours_candidats').update({ statut:'termine' }).eq('id', cand.id);
     }
