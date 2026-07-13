@@ -90,10 +90,11 @@
       var ep = eps[e.key];
       var done = ep && ep.statut === 'termine';
       var btn;
-      if(e.key === 'brasserie'){
+      if(e.key === 'brasserie' || e.key === 'dojo'){
+        var base = (e.key === 'dojo') ? '/parcours/dojo/?c=' : '/parcours/brasserie/?c=';
         btn = done
           ? '<button class="btn soon" disabled>Terminé</button>'
-          : '<button class="btn" onclick="ouvrir(\'/parcours/brasserie/?c=\')">Commencer</button>';
+          : '<button class="btn" onclick="ouvrir(\'' + base + '\')">Commencer</button>';
       } else {
         btn = '<button class="btn soon" onclick="bientot()">Commencer</button>';
       }
