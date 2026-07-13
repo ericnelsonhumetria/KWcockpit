@@ -1,15 +1,21 @@
-// netlify/functions/cerebro-claude.js
-// Proxy IA pour CEREBRO (onglet Cockpit). Authentifié par la SESSION Supabase
-// du Cockpit (JWT Bearer) — PAS par jeton candidat comme parcours-claude.
-// Autorise Sonnet + l'outil web_search. La clé Anthropic ne quitte jamais le serveur.
-// Env : SUPABASE_SERVICE_ROLE_KEY, ANTHROPIC_API_KEY (et éventuellement SUPABASE_URL).
+// netlify/functions/cerebro-claude.js  (v2)
+// Proxy IA pour CEREBRO (onglet Cockpit). Authentifié par la SESSION Supabase du
+// Cockpit (JWT Bearer). Clé Anthropic gardée côté serveur.
+//
+// Réglages par variables d'env (Netlify, scope All) — AUCUNE obligatoire :
+//   CEREBRO_MODEL       (défaut "claude-sonnet-5")
+//   CEREBRO_WEB_SEARCH  ("on" pour autoriser l'outil web_search ; sinon il est retiré)
+//     -> laissé sur OFF par défaut : garantit une réponse texte. À passer "on"
+//        une fois que tu as confirmé que web_search est activé sur ta clé Anthropic.
+// Après toute modif de variable : redéploiement Netlify nécessaire.
 
 const { createClient } = require('@supabase/supabase-js');
 
-const SUPABASE_URL = process.env.SUPABASE_URL || 'https://omftqlvkmjlxoinruayr.supabase.co';
-const SERVICE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SUPABASE_URL  = process.env.SUPABASE_URL || 'https://omftqlvkmjlxoinruayr.supabase.co';
+const SERVICE_KEY   = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
-const MODEL = 'claude-sonnet-5';          // forcé serveur (neutralise le modèle envoyé par le front)
+const MODEL         = process.env.CEREBRO_MODEL || 'claude-sonnet-5';
+const WEB_SEARCH_ON = (process.env.CEREBRO_WEB_SEARCH || '').toLowerCase() === 'on';
 const ANTHROPIC_VERSION = '2023-06-01';
 
 function json(code, obj){
@@ -23,12 +29,12 @@ function json(code, obj){
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return json(200, {});
   if (event.httpMethod !== 'POST')   return json(405, { error: 'Method Not Allowed' });
-  if (!SERVICE_KEY || !ANTHROPIC_KEY) return json(500, { error: 'config' });
+  if (!SERVICE_KEY || !ANTHROPIC_KEY) return json(500, { error: 'config serveur incomplète' });
 
-  // 1) Auth : vérifier le JWT de session Supabase du Cockpit
+  // 1) Auth : JWT de session Supabase du Cockpit
   var auth = (event.headers && (event.headers.authorization || event.headers.Authorization)) || '';
   var token = String(auth).replace(/^Bearer\s+/i, '').trim();
-  if (!token) return json(401, { error: 'non authentifié' });
+  if (!token) return json(401, { error: 'non authentifié (session Cockpit requise)' });
   try {
     var sb = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
     var u = await sb.auth.getUser(token);
@@ -38,7 +44,8 @@ exports.handler = async (event) => {
   // 2) Corps
   var body;
   try { body = JSON.parse(event.body || '{}'); } catch (e) { return json(400, { error: 'corps invalide' }); }
-  var max_tokens = Math.max(1, Math.min(4096, Number(body.max_tokens) || 1000));
+
+  var max_tokens = Math.max(256, Math.min(8192, Number(body.max_tokens) || 2048));
   var payload = {
     model: MODEL,
     max_tokens: max_tokens,
@@ -46,11 +53,13 @@ exports.handler = async (event) => {
   };
   if (body.system) payload.system = body.system;
   if (body.temperature != null) payload.temperature = body.temperature;
-  if (Array.isArray(body.tools)) payload.tools = body.tools;   // laisse passer web_search
+  // web_search : uniquement si explicitement activé côté serveur
+  if (WEB_SEARCH_ON && Array.isArray(body.tools) && body.tools.length) payload.tools = body.tools;
 
-  // 3) Appel Anthropic (clé serveur uniquement) — réponse renvoyée telle quelle
+  // 3) Appel Anthropic
+  var r, txt;
   try {
-    var r = await fetch('https://api.anthropic.com/v1/messages', {
+    r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -59,11 +68,22 @@ exports.handler = async (event) => {
       },
       body: JSON.stringify(payload)
     });
-    var txt = await r.text();
-    return {
-      statusCode: r.status,
-      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
-      body: txt
-    };
-  } catch (e) { return json(502, { error: 'appel IA impossible' }); }
+    txt = await r.text();
+  } catch (e) {
+    return json(502, { error: 'appel IA impossible : ' + (e && e.message ? e.message : 'réseau') });
+  }
+
+  // Erreur Anthropic : remonter le message réel (fini le "réponse vide" opaque)
+  if (!r.ok) {
+    var msg = 'Erreur API ' + r.status;
+    try { var j = JSON.parse(txt); if (j && j.error && j.error.message) msg = 'API ' + r.status + ' : ' + j.error.message; } catch (e) {}
+    return json(r.status, { error: msg, model: MODEL });
+  }
+
+  // Succès : renvoyer la réponse Anthropic telle quelle (forme data.content attendue par le front)
+  return {
+    statusCode: 200,
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+    body: txt
+  };
 };
