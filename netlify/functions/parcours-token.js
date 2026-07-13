@@ -10,6 +10,16 @@ const SERVICE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// Ordre + activation par défaut (si le candidat n'a pas de config explicite).
+// NB : nouvel ordre demandé -> QPM, Brasserie, Lean, Dojo.
+const EPREUVES_VALIDES = ['dojo', 'brasserie', 'qpm', 'lean'];
+const DEFAUT_CONFIG = [
+  { epreuve: 'qpm',       ordre: 1, active: true },
+  { epreuve: 'brasserie', ordre: 2, active: true },
+  { epreuve: 'lean',      ordre: 3, active: true },
+  { epreuve: 'dojo',      ordre: 4, active: true }
+];
+
 function json(statusCode, obj){
   return {
     statusCode: statusCode,
@@ -32,7 +42,7 @@ exports.handler = async (event) => {
 
     const { data: cand, error } = await sb
       .from('parcours_candidats')
-      .select('id, nom, poste, qpm_lien, statut, expires_at')
+      .select('id, nom, poste, qpm_lien, statut, expires_at, epreuves_config')
       .eq('token', token)
       .maybeSingle();
 
@@ -50,7 +60,7 @@ exports.handler = async (event) => {
       await sb.from('parcours_candidats').update({ statut:'en_cours' }).eq('id', cand.id);
     }
 
-    // Statut des 3 épreuves
+    // Statut des épreuves déjà passées
     const { data: res } = await sb
       .from('parcours_resultats')
       .select('epreuve, statut, score')
@@ -58,11 +68,26 @@ exports.handler = async (event) => {
     const epreuves = { dojo:null, brasserie:null, qpm:null, lean:null };
     (res || []).forEach(function(r){ epreuves[r.epreuve] = { statut:r.statut, score:r.score }; });
 
+    // Config du parcours : ordre + activation (fallback = 4 actives, nouvel ordre)
+    let cfg = Array.isArray(cand.epreuves_config) ? cand.epreuves_config : DEFAUT_CONFIG;
+    const parcours = cfg
+      .filter(function(x){ return x && x.active !== false && EPREUVES_VALIDES.indexOf(x.epreuve) >= 0; })
+      .sort(function(a,b){ return (a.ordre || 0) - (b.ordre || 0); })
+      .map(function(x){
+        return {
+          epreuve: x.epreuve,
+          ordre:   x.ordre,
+          statut:  (epreuves[x.epreuve] && epreuves[x.epreuve].statut) || 'a_faire'
+        };
+      });
+
     // On n'expose QUE le strict nécessaire (pas d'email, d'id, de created_by…)
+    // "epreuves" conservé pour compat ; "parcours" = liste ordonnée des actives (Brique 2).
     return json(200, {
       valid: true,
       candidat: { nom: cand.nom, poste: cand.poste, qpm_lien: cand.qpm_lien },
       epreuves: epreuves,
+      parcours: parcours,
     });
   } catch(e){
     return json(500, { valid:false, reason:'erreur' });
