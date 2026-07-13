@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Épreuve Lean · Kaizen Way</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Crimson+Pro:ital,wght@0,400;0,600;1,400&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&display=swap" rel="stylesheet"/>
+<style>
+  :root{
+    --burg:#560a0f; --burg-soft:#8a4a4f; --gold:#efb810; --gold-deep:#9c7400;
+    --bg:#f7f4f0; --card:#ffffff; --line:#e0d6cf; --ink:#1a1416; --dim:#5a4030; --faint:#8a7868;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html,body{max-width:100%;overflow-x:hidden;}
+  body{background:var(--bg);font-family:'DM Sans',sans-serif;color:var(--ink);line-height:1.55;}
+  .mono{font-family:'IBM Plex Mono',monospace;}
+  .wrap{max-width:720px;margin:0 auto;padding:28px 18px 70px;}
+  .center{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;}
+  .logo{height:46px;width:auto;}
+  .eyebrow{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:2.5px;text-transform:uppercase;color:var(--gold-deep);}
+  h1{font-size:25px;font-weight:600;letter-spacing:-0.01em;margin:6px 0 4px;}
+  .sub{font-family:'Crimson Pro',serif;font-size:17px;font-style:italic;color:var(--dim);}
+  .intro{font-family:'Crimson Pro',serif;font-size:16px;line-height:1.8;color:var(--dim);margin:16px 0;}
+  .note{background:#fbf3d6;border-left:3px solid var(--gold);border-radius:4px;padding:12px 14px;font-size:13px;color:var(--dim);margin:16px 0;}
+  .card{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--burg-soft);border-radius:6px;padding:18px;margin-bottom:16px;}
+  .snum{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--gold-deep);}
+  .stitre{font-size:18px;font-weight:600;margin:2px 0 2px;}
+  .stemps{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--faint);}
+  .sctx{font-size:14.5px;margin-top:10px;}
+  .sdata{background:var(--bg);border-radius:4px;padding:10px 12px;font-size:13.5px;margin-top:8px;font-family:'IBM Plex Mono',monospace;line-height:1.6;}
+  .squestion{font-family:'Crimson Pro',serif;font-size:16px;font-style:italic;color:var(--burg);margin-top:12px;}
+  textarea{width:100%;max-width:100%;margin-top:10px;min-height:130px;padding:12px;border:1px solid var(--line);border-radius:4px;font-family:'DM Sans',sans-serif;font-size:14px;line-height:1.6;resize:vertical;background:#fff;color:var(--ink);}
+  textarea:focus{outline:none;border-color:var(--burg-soft);}
+  .btn{background:var(--burg);color:#fff;border:none;padding:13px 26px;border-radius:4px;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;letter-spacing:1px;cursor:pointer;text-transform:uppercase;}
+  .btn:disabled{background:#c9bfb6;cursor:default;}
+  .foot-note{margin-top:20px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--faint);letter-spacing:0.4px;line-height:1.7;border-top:1px solid var(--line);padding-top:14px;}
+  .load{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:2px;color:var(--burg);}
+  .err-card{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:30px 26px;max-width:420px;text-align:center;}
+  .err-card h2{font-size:20px;font-weight:600;margin:14px 0 8px;}
+  .err-card p{font-family:'Crimson Pro',serif;font-size:16px;color:var(--dim);line-height:1.7;}
+  .msg{font-size:13px;color:var(--burg);margin-top:10px;min-height:18px;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+  var params = new URLSearchParams(location.search);
+  var token = (params.get('c') || '').trim();
+  var root = document.getElementById('root');
+  var CAND = 'candidat';
+
+  var SITUATIONS = [
+    { num:'Situation 1 / 4', temps:'~ 10 min', titre:'Flux & goulot',
+      ctx:"Une ligne d'assemblage de 5 postes en série. Un poste est ouvert 7,5 h utiles par jour.",
+      data:"Demande client : 480 pièces/jour.\nTemps de cycle par poste : P1 45 s · P2 52 s · P3 60 s · P4 48 s · P5 40 s.",
+      q:"La ligne tient-elle la demande ? Où se situe le problème, et que proposez-vous ? Appuyez votre réponse sur des chiffres." },
+    { num:'Situation 2 / 4', temps:'~ 10 min', titre:'OEE : SMED ou nouvelle presse ?',
+      ctx:"La direction veut investir dans une 2ᵉ presse pour augmenter la capacité.",
+      data:"Presse actuelle — Disponibilité 70 % · Performance 90 % · Qualité 87 %.\nChangement de série : 90 min, 6 fois par jour.",
+      q:"L'achat est-il justifié ? Que regardez-vous en priorité, que proposez-vous, et quel potentiel chiffrez-vous ?" },
+    { num:'Situation 3 / 4', temps:'~ 12 min', titre:'Le « chantier 5S » qu\'on vous impose',
+      ctx:"Le taux de service client (livraisons à l'heure, OTD) se dégrade depuis 3 mois. Le responsable de site vous demande de « lancer un chantier 5S ».",
+      data:"",
+      q:"Comment réagissez-vous à cette demande, et comment structurez-vous votre démarche ?" },
+    { num:'Situation 4 / 4', temps:'~ 8 min', titre:'Des gains qui s\'évaporent',
+      ctx:"Un chantier d'amélioration antérieur avait produit de vrais gains. Six mois après le départ du Black Belt qui l'avait mené, tout est revenu comme avant.",
+      data:"",
+      q:"Selon vous, pourquoi ? Qu'auriez-vous fait autrement pour que les gains tiennent ?" }
+  ];
+
+  function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function nl2br(s){ return esc(s).replace(/\n/g,'<br>'); }
+
+  function screenLoading(txt){
+    root.innerHTML = '<div class="center"><div style="text-align:center;">'
+      + '<img class="logo" src="/icon-192.png" style="margin:0 auto 16px;display:block;" onerror="this.style.display=\'none\'"/>'
+      + '<div class="load">'+esc(txt||'VÉRIFICATION DU LIEN…')+'</div></div></div>';
+  }
+  function screenError(titre, m){
+    root.innerHTML = '<div class="center"><div class="err-card">'
+      + '<img class="logo" src="/icon-192.png" style="margin:0 auto;display:block;" onerror="this.style.display=\'none\'"/>'
+      + '<h2>'+esc(titre)+'</h2><p>'+esc(m)+'</p></div></div>';
+  }
+
+  function screenIntro(){
+    var prenom = String(CAND).split(' ')[0] || CAND;
+    root.innerHTML = '<div class="wrap">'
+      + '<div class="eyebrow">Parcours candidat · Kaizen Way</div>'
+      + '<h1>Épreuve Lean</h1>'
+      + '<div class="sub">Bonjour '+esc(prenom)+'</div>'
+      + '<p class="intro">Cette épreuve comporte <b>4 mises en situation</b> industrielles. Pour chacune, expliquez votre raisonnement, l\'outil que vous mobiliseriez et pourquoi, et appuyez-vous sur des chiffres autant que possible. Il n\'y a pas de piège : on cherche votre façon de raisonner en situation réelle.</p>'
+      + '<div class="note"><b>Durée indicative : 45 minutes.</b> Un repère de temps est donné pour chaque situation. Rédigez vos réponses puis validez en bas de page — vous ne pourrez le faire qu\'une fois.</div>'
+      + '<div style="margin-top:20px;"><button class="btn" onclick="screenTest()">Commencer l\'épreuve</button></div>'
+      + '<div class="foot-note">Vos réponses sont transmises à l\'équipe de recrutement Kaizen Way et ne servent qu\'à cette évaluation.</div>'
+      + '</div>';
+  }
+
+  window.screenTest = function(){
+    var cards = SITUATIONS.map(function(s, i){
+      return '<div class="card">'
+        + '<div class="snum">'+esc(s.num)+' &nbsp;·&nbsp; <span class="stemps">'+esc(s.temps)+'</span></div>'
+        + '<div class="stitre">'+esc(s.titre)+'</div>'
+        + '<div class="sctx">'+esc(s.ctx)+'</div>'
+        + (s.data ? '<div class="sdata">'+nl2br(s.data)+'</div>' : '')
+        + '<div class="squestion">'+esc(s.q)+'</div>'
+        + '<textarea id="rep-'+i+'" placeholder="Votre réponse…"></textarea>'
+        + '</div>';
+    }).join('');
+    root.innerHTML = '<div class="wrap">'
+      + '<div class="eyebrow">Épreuve Lean · Kaizen Way</div>'
+      + '<h1>4 mises en situation</h1>'
+      + '<p class="intro">Répondez à chaque situation. Pensez à quantifier (takt, taux, écarts, gains…).</p>'
+      + cards
+      + '<div class="msg" id="msg"></div>'
+      + '<div style="margin-top:6px;"><button class="btn" id="submitBtn" onclick="soumettre()">Valider mes réponses</button></div>'
+      + '<div class="foot-note">Une fois validées, vos réponses sont transmises pour évaluation. Cette action est définitive.</div>'
+      + '</div>';
+    window.scrollTo(0,0);
+  };
+
+  function buildEvalPrompt(reponses){
+    var repereText = [
+      "S1 Flux & goulot — Takt = 27000/480 = 56,25 s. P3 (60 s) > takt = goulot ; sortie plafonnée ~450 < 480. Attendu : rééquilibrage (Yamazumi) avant capacité ; parler WIP/lead time. Chiffres exigés.",
+      "S2 OEE — OEE = 0,70*0,90*0,87 ≈ 55 %. Gisement = disponibilité (6*90 = 540 min/j de changements). Attendu : SMED avant capex, gain de capacité chiffré, oser challenger l'investissement.",
+      "S3 Le 5S imposé — Piège : le 5S n'est pas l'outil d'un problème de délai. Attendu : refuser la solution imposée, cadrer (A3), quantifier l'OTD vs cible, Pareto, aller au Gemba, cause racine (5 pourquoi) avant d'agir.",
+      "S4 Gains évaporés — Cause : gains portés par une personne, pas le système. Attendu : standard de travail, rituels (AIC/SCQDP), management visuel, coaching/ICM, développement des personnes. Lean = développer les gens, pas des outils ponctuels."
+    ].join("\n");
+
+    var reponsesText = SITUATIONS.map(function(s,i){
+      return "=== "+s.num+" — "+s.titre+" ===\nQuestion : "+s.q+"\nRéponse du candidat :\n"+(reponses[i]||'(vide)');
+    }).join("\n\n");
+
+    var system = "Tu es un évaluateur Lean senior, exigeant, pour le cabinet Kaizen Way. "
+      + "Tu évalues un candidat au poste de consultant Lean Black Belt (LBB) orienté terrain et flux (PAS Lean Six Sigma : ne pénalise pas l'absence de SPC/statistiques avancées). "
+      + "Tu notes SÉVÈREMENT et factuellement, sur la base des repères de correction fournis. Un Black Belt confirmé choisit le bon outil au bon moment, refuse le mauvais outil imposé, et quantifie systématiquement.\n\n"
+      + "REPÈRES DE CORRECTION (usage interne) :\n" + repereText + "\n\n"
+      + "Note chaque critère de 0 à 5 (5=expert, 3=partiel, 0=absent) :\n"
+      + "- outil : choix de l'outil adapté à la situation (refuse le sur-outillage / l'outil imposé à tort)\n"
+      + "- chiffre : ancrage factuel et chiffré (calculs justes, ordres de grandeur, écarts)\n"
+      + "- methodo : rigueur méthodologique (A3/PDCA, ne saute pas à la solution)\n"
+      + "- causeracine : diagnostic et cause racine (5 pourquoi, aller au réel)\n"
+      + "- flux : maîtrise du flux (takt, équilibrage, goulot, WIP, lead time, pull)\n"
+      + "- gemba : pragmatisme terrain et pérennisation (standard, rituels, management, humain)\n\n"
+      + "Réponds UNIQUEMENT avec un objet JSON valide, sans texte autour, sans balises Markdown, de la forme :\n"
+      + '{"criteres":{"outil":{"score":0,"commentaire":""},"chiffre":{"score":0,"commentaire":""},"methodo":{"score":0,"commentaire":""},"causeracine":{"score":0,"commentaire":""},"flux":{"score":0,"commentaire":""},"gemba":{"score":0,"commentaire":""}},"appreciation":"synthèse en 2-3 phrases","pointsForts":["..."],"lacunes":["..."],"avis":"avis d\'embauche en 1-2 phrases"}';
+
+    return { system: system, user: "Voici les réponses du candidat à évaluer :\n\n" + reponsesText };
+  }
+
+  function parseJSON(txt){
+    if(!txt) return null;
+    var t = String(txt).replace(/```json/gi,'').replace(/```/g,'').trim();
+    var a = t.indexOf('{'), b = t.lastIndexOf('}');
+    if(a<0 || b<0) return null;
+    try { return JSON.parse(t.slice(a, b+1)); } catch(e){ return null; }
+  }
+
+  function calcPct(crit){
+    var w = { outil:2, chiffre:2, methodo:1, causeracine:1, flux:1, gemba:1 };
+    var sum = 0;
+    Object.keys(w).forEach(function(k){ var s = (crit[k]&&crit[k].score!=null)?Number(crit[k].score):0; sum += s * w[k]; });
+    var pct = Math.round(sum / 40 * 100);
+    var chiffreScore = (crit.chiffre && crit.chiffre.score!=null) ? Number(crit.chiffre.score) : 0;
+    if(chiffreScore <= 1) pct = Math.min(pct, 50); // plafond : pas de chiffres
+    if(pct<0) pct=0; if(pct>100) pct=100;
+    return pct;
+  }
+  function profilFromPct(pct){
+    if(pct>=80) return 'Black Belt confirmé';
+    if(pct>=60) return 'Black Belt émergent';
+    if(pct>=40) return 'Green Belt confirmé';
+    return 'En-deçà Green Belt';
+  }
+
+  window.soumettre = function(){
+    var reponses = SITUATIONS.map(function(s,i){ var el=document.getElementById('rep-'+i); return el?el.value.trim():''; });
+    var remplies = reponses.filter(function(r){ return r.length>0; }).length;
+    var msg = document.getElementById('msg');
+    if(remplies < SITUATIONS.length){
+      if(!confirm('Il reste '+(SITUATIONS.length-remplies)+' situation(s) sans réponse. Valider quand même ?')) return;
+    }
+    var btn = document.getElementById('submitBtn');
+    if(btn){ btn.disabled = true; }
+    if(msg){ msg.textContent = 'Analyse de vos réponses en cours…'; }
+    screenLoading('ANALYSE EN COURS…');
+
+    var pr = buildEvalPrompt(reponses);
+    fetch('/.netlify/functions/parcours-claude', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ token: token, max_tokens: 2000, system: pr.system, messages:[{ role:'user', content: pr.user }] })
+    })
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if(d && d.error) throw new Error(d.error);
+      var txt = '';
+      if(d && d.content){ txt = d.content.map(function(b){ return b.text||''; }).join('\n'); }
+      var ev = parseJSON(txt);
+      if(!ev || !ev.criteres){ throw new Error('Réponse illisible'); }
+      var pct = calcPct(ev.criteres);
+      var profil = profilFromPct(pct);
+      var detail = {
+        evaluation: { criteres: ev.criteres, appreciation: ev.appreciation||'', pointsForts: ev.pointsForts||[], lacunes: ev.lacunes||[], avis: ev.avis||'', pct: pct, profil: profil },
+        reponses: SITUATIONS.map(function(s,i){ return { situation: s.titre, question: s.q, reponse: reponses[i]||'' }; }),
+        date: new Date().toISOString()
+      };
+      return fetch('/.netlify/functions/parcours-resultat', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ token: token, epreuve:'lean', statut:'termine', score: pct, detail: detail })
+      });
+    })
+    .then(function(r){ return r ? r.json() : null; })
+    .then(function(){ screenDone(); })
+    .catch(function(e){
+      screenError('Un souci est survenu', "Votre évaluation n'a pas pu être finalisée ("+(e.message||'erreur')+"). Rouvrez ce lien et réessayez.");
+    });
+  };
+
+  function screenDone(){
+    root.innerHTML = '<div class="center"><div style="text-align:center;max-width:380px;padding:24px;">'
+      + '<img class="logo" src="/icon-192.png" style="margin:0 auto 16px;display:block;" onerror="this.style.display=\'none\'"/>'
+      + '<div style="font-size:44px;margin:14px 0;color:var(--gold-deep);">✓</div>'
+      + '<h1 style="font-size:22px;">Épreuve terminée</h1>'
+      + '<p class="intro">Merci pour votre participation. Vos réponses ont été transmises à l\'équipe Kaizen Way.</p>'
+      + '</div></div>';
+  }
+
+  function init(){
+    if(!token){ screenError('Lien incomplet', "Ce lien ne contient pas de code d'accès."); return; }
+    screenLoading();
+    fetch('/.netlify/functions/parcours-token?c=' + encodeURIComponent(token))
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if(!d || !d.valid){
+          var R = { 'lien invalide':"Ce lien n'est pas valide.", 'introuvable':"Ce lien ne correspond à aucun parcours.", 'expiré':"Ce lien a expiré.", 'archivé':"Ce parcours a été clôturé.", 'config':"Service momentanément indisponible.", 'erreur':"Une erreur est survenue." };
+          screenError('Accès impossible', (d && R[d.reason]) || "Ce lien n'est pas accessible.");
+          return;
+        }
+        CAND = (d.candidat && d.candidat.nom) || 'candidat';
+        screenIntro();
+      })
+      .catch(function(){ screenError('Connexion impossible', 'Réessayez dans un instant.'); });
+  }
+  init();
+</script>
+</body>
+</html>
