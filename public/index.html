@@ -4067,7 +4067,7 @@ async function loadCandidats(){
     var ids = cands.map(function(c){ return c.id; });
     var resParCand = {};
     if(ids.length){
-      var r = await SB.from('parcours_resultats').select('candidat_id, epreuve, statut, score').in('candidat_id', ids);
+      var r = await SB.from('parcours_resultats').select('candidat_id, epreuve, statut, score, detail').in('candidat_id', ids);
       (r.data || []).forEach(function(x){ (resParCand[x.candidat_id] = resParCand[x.candidat_id] || {})[x.epreuve] = x; });
     }
     renderCandidats(cands, resParCand);
@@ -4082,6 +4082,41 @@ function epreuvePill(res){
   var s = map[res.statut] || map.a_faire;
   var sc = (res.score!=null) ? ' · '+Math.round(res.score)+'%' : '';
   return '<span class="pill '+s.c+'">'+s.t+sc+'</span>';
+}
+
+/* ===== Classement & synthèses (Brique 4) ===== */
+var PC_EP_KEYS = ['qpm', 'brasserie', 'lean', 'dojo'];
+// Moyenne sur les épreuves ACTIVES qui ont un score numérique. n = notées, total = actives.
+function pcMoyenne(r, act){
+  var scores = [];
+  PC_EP_KEYS.forEach(function(k){
+    if(act[k] && r[k] && r[k].score != null && !isNaN(Number(r[k].score))) scores.push(Number(r[k].score));
+  });
+  var total = PC_EP_KEYS.filter(function(k){ return act[k]; }).length;
+  if(!scores.length) return { avg:null, n:0, total:total };
+  var avg = scores.reduce(function(a, b){ return a + b; }, 0) / scores.length;
+  return { avg:avg, n:scores.length, total:total };
+}
+// Agrège points forts / points de vigilance des épreuves actives notées
+function pcSynthese(r, act){
+  var forts = [], vig = [];
+  function push(arr, dest){ (arr||[]).forEach(function(s){ if(s) dest.push(String(s)); }); }
+  if(act.brasserie && r.brasserie && r.brasserie.detail && r.brasserie.detail.evaluation){
+    push(r.brasserie.detail.evaluation.pointsForts, forts);
+    push(r.brasserie.detail.evaluation.pointsVigilance, vig);
+  }
+  if(act.lean && r.lean && r.lean.detail && r.lean.detail.evaluation){
+    push(r.lean.detail.evaluation.pointsForts, forts);
+    push(r.lean.detail.evaluation.lacunes, vig);
+  }
+  // Dojo : pas de listes structurées fiables (appréciation en texte libre) -> non agrégé
+  return { forts:forts, vig:vig };
+}
+function pcSynLine(items, prefix, color){
+  if(!items.length) return '';
+  var head = items.slice(0, 3).map(escP).join(' · ');
+  var more = items.length > 3 ? (' <span class="sub-cell">+'+(items.length-3)+'</span>') : '';
+  return '<div style="font-size:12px;color:'+color+';margin-top:3px;line-height:1.4;">'+prefix+' '+head+more+'</div>';
 }
 
 function renderCandidats(cands, resParCand){
@@ -4104,15 +4139,33 @@ function renderCandidats(cands, resParCand){
       '</div>'+
       '<div id="pc-msg"></div>'+
     '</div>';
-  var rows = cands.map(function(c){
+  // Enrichir (moyenne + synthèse) puis trier du mieux noté au moins bien noté.
+  // Candidats sans aucune épreuve notée -> en bas, ordre de création conservé.
+  var enriched = cands.map(function(c){
     var r = resParCand[c.id] || {};
     var act = pcActives(c);
+    return { c:c, r:r, act:act, moy:pcMoyenne(r, act) };
+  });
+  enriched.sort(function(a, b){
+    var av = (a.moy.avg == null) ? -1 : a.moy.avg;
+    var bv = (b.moy.avg == null) ? -1 : b.moy.avg;
+    return bv - av;
+  });
+  var rows = enriched.map(function(it, idx){
+    var c = it.c, r = it.r, act = it.act, moy = it.moy;
     var link = PARCOURS_BASE + c.token;
     var st = PARC_STATUT[c.statut] || PARC_STATUT.invite;
     var exp = c.expires_at ? new Date(c.expires_at).toLocaleDateString('fr-FR') : '—';
+    var syn = pcSynthese(r, act);
+    var moyTxt = (moy.avg == null)
+      ? '<span class="sub-cell">—</span>'
+      : '<b style="font-size:16px;color:#efb810;">'+Math.round(moy.avg)+'%</b><br><span class="sub-cell">'+moy.n+'/'+moy.total+' épr.</span>';
+    var synHtml = pcSynLine(syn.forts, '+', '#3f6b4f') + pcSynLine(syn.vig, '!', 'var(--signal)');
     return ''+
       '<tr>'+
-      '<td><b>'+(c.nom||'—')+'</b><br><span class="sub-cell">'+(c.poste||'')+(c.email?(' · '+c.email):'')+'</span></td>'+
+      '<td><b>'+(c.nom||'—')+'</b> <span class="sub-cell">#'+(idx+1)+'</span>'+
+        '<br><span class="sub-cell">'+(c.poste||'')+(c.email?(' · '+c.email):'')+'</span>'+synHtml+'</td>'+
+      '<td style="white-space:nowrap;text-align:center;">'+moyTxt+'</td>'+
       '<td>'+epreuveCell(r.qpm, act.qpm)+'</td>'+
       '<td>'+epreuveCell(r.brasserie, act.brasserie)+'</td>'+
       '<td>'+epreuveCell(r.lean, act.lean)+'</td>'+
@@ -4126,7 +4179,7 @@ function renderCandidats(cands, resParCand){
       '</tr>';
   }).join('');
   var table = cands.length
-    ? '<div class="panel" style="padding:8px 16px 16px;overflow-x:auto;"><table><thead><tr><th>Candidat</th><th>QPM</th><th>Brasserie</th><th>Lean</th><th>Dojo</th><th>Statut</th><th>Actions</th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+    ? '<div class="panel" style="padding:8px 16px 16px;overflow-x:auto;"><table><thead><tr><th>Candidat</th><th>Moyenne</th><th>QPM</th><th>Brasserie</th><th>Lean</th><th>Dojo</th><th>Statut</th><th>Actions</th></tr></thead><tbody>'+rows+'</tbody></table></div>'
     : '<div class="panel" style="padding:16px;color:var(--muted);font-size:13px;">Aucun candidat pour le moment.</div>';
   zone.innerHTML = form + table;
   pcFormReset(); renderPcEpreuves();
