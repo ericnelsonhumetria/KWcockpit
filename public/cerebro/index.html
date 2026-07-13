@@ -591,7 +591,7 @@ Réponds UNIQUEMENT avec un tableau JSON valide, sans texte ni Markdown autour :
     if (scanning) return;
     setScanning(true); setCerebroErr("");
     try {
-      const exclude = [...new Set([...known, ...accounts.map(a => a.company)])];
+      const exclude = [...new Set([...known, ...accounts.map(a => a.company), ...candidates.map(c => c.company)])];
       const userMsg = focus.trim() ? `Focus : ${focus.trim()}` : "Balaye large sur les groupes industriels FR/francophones fittant l'ICP.";
       const text = await callClaude(cerebroSystemPrompt(exclude), userMsg, true);
       const arr = parseObjects(text);
@@ -600,8 +600,13 @@ Réponds UNIQUEMENT avec un tableau JSON valide, sans texte ni Markdown autour :
         .filter(c => c && c.company && !seen.has(String(c.company).toLowerCase()))
         .map(c => { const score = clamp(c.score); return { ...c, score, verdict: verdictFor(score) }; })
         .sort((a, b) => b.score - a.score).slice(0, 10);
-      persistCandidates(ranked);
-      if (ranked.length === 0) setCerebroErr("Aucune cible retenue — élargis le focus ou allège le portefeuille exclu.");
+      // Accumulation : on FUSIONNE avec les détections déjà présentes (dédoublonnage par nom),
+      // au lieu d'écraser. Chaque recherche complète la liste.
+      const cbMap = new Map(candidates.map(c => [String(c.company).toLowerCase(), c]));
+      let cbAdded = 0;
+      for (const c of ranked) { const k = String(c.company).toLowerCase(); if (!cbMap.has(k)) { cbMap.set(k, c); cbAdded++; } }
+      persistCandidates([...cbMap.values()].sort((a, b) => b.score - a.score));
+      if (cbAdded === 0) setCerebroErr(candidates.length ? "Aucun nouveau compte — les détections précédentes sont conservées ; élargis le focus ou change de secteur/région." : "Aucune cible retenue — élargis le focus ou allège le portefeuille exclu.");
       else if (searchDegraded) setCerebroErr("⚠ Actualité web indisponible à l'instant — résultats basés sur la connaissance (pas de signaux temps réel). Réessaie plus tard.");
     } catch (e) { setCerebroErr("Détection impossible — " + (e?.message || "erreur inconnue")); }
     finally { setScanning(false); }
@@ -635,8 +640,12 @@ Réponds UNIQUEMENT avec un tableau JSON valide (trié par score décroissant), 
         .filter(e => e && e.name)
         .map(e => ({ ...e, score: clamp(e.score) }))
         .sort((a, b) => b.score - a.score).slice(0, 8);
-      persistEvents(ranked);
-      if (ranked.length === 0) setEventErr("Aucun événement retenu — élargis le focus.");
+      // Accumulation : fusion avec les événements déjà trouvés (les vérifiés/enrichis sont préservés).
+      const evMap = new Map(events.map(e => [String(e.name).toLowerCase(), e]));
+      let evAdded = 0;
+      for (const e of ranked) { const k = String(e.name).toLowerCase(); if (!evMap.has(k)) { evMap.set(k, e); evAdded++; } }
+      persistEvents([...evMap.values()].sort((a, b) => b.score - a.score));
+      if (evAdded === 0) setEventErr(events.length ? "Aucun nouvel événement — la liste précédente est conservée ; élargis le focus." : "Aucun événement retenu — élargis le focus.");
       else if (searchDegraded) setEventErr("⚠ Actualité web indisponible à l'instant — résultats basés sur la connaissance (dates non actualisées). Réessaie plus tard.");
     } catch (e) { setEventErr("Chasse impossible — " + (e?.message || "erreur")); }
     finally { setEventScanning(false); }
