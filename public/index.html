@@ -4267,6 +4267,7 @@ async function saveQPMScore(candId){
     if(typeof flashSync==='function') flashSync('✓ score QPM enregistré');
     voirCandidat(candId);
   }catch(e){ if(typeof flashSync==='function') flashSync('⚠ '+(e.message||'échec')); }
+  }
 </script>
 </body>
 </html>
