@@ -3929,6 +3929,7 @@ document.getElementById('pw').addEventListener('keydown', e => { if(e.key==='Ent
 applyLogo();
 </script>
 <script>
+<script>
 /* ============================================================
    COCKPIT KW - BRIQUE 2 : Parcours candidats (bloc autonome)
    ------------------------------------------------------------
@@ -4042,6 +4043,7 @@ function renderCandidats(cands, resParCand){
       '<td>'+epreuvePill(r.qpm)+'</td>'+
       '<td><span class="pill '+st.c+'">'+st.t+'</span><br><span class="sub-cell">exp. '+exp+'</span></td>'+
       '<td>'+
+        '<button class="add-btn sm" onclick="voirCandidat(\''+c.id+'\')">Voir</button> '+
         '<button class="add-btn sm" onclick="copyLien(\''+link+'\')">Lien</button> '+
         '<button class="add-btn sm ghost" onclick="archiveCandidat(\''+c.id+'\')">Archiver</button>'+
       '</td>'+
@@ -4090,6 +4092,137 @@ async function archiveCandidat(id){
     if(upd.error) throw upd.error;
     loadCandidats();
   } catch(e){ if(typeof flashSync==='function') flashSync('⚠ '+(e.message||'échec')); }
+}
+
+/* ===== Dossier candidat détaillé (tranche brique 6) ===== */
+var MISSIONS_ICM = {
+  M1:'Fixer les objectifs et donner le cap',
+  M2:'Organiser et structurer le travail',
+  M3:'Animer et développer les compétences',
+  M4:'Gérer les écarts et les risques performance',
+  M5:'Communiquer et donner du sens',
+  M6:'Mobiliser et engager'
+};
+function escP(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+async function voirCandidat(id){
+  var zone = document.getElementById('parcoursZone');
+  if(!zone) return;
+  zone.innerHTML = '<div class="panel" style="padding:18px 16px;">Chargement du dossier…</div>';
+  try{
+    var c = await SB.from('parcours_candidats').select('*').eq('id', id).single();
+    if(c.error) throw c.error;
+    var r = await SB.from('parcours_resultats').select('*').eq('candidat_id', id);
+    var byEp = {};
+    (r.data||[]).forEach(function(x){ byEp[x.epreuve]=x; });
+    renderDetailCandidat(c.data, byEp);
+  }catch(e){
+    zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Erreur : '+escP(e.message||'')+'</div>';
+  }
+}
+
+function renderDetailCandidat(cand, byEp){
+  var zone = document.getElementById('parcoursZone');
+  var html = '<div class="panel" style="padding:16px;">'
+    + '<button class="add-btn sm ghost" onclick="loadCandidats()">← Retour à la liste</button>'
+    + '<div style="margin-top:12px;"><span class="field-label">'+escP(cand.nom||'—')+'</span>'
+    + '<div class="sub-cell">'+escP(cand.poste||'')+(cand.email?(' · '+escP(cand.email)):'')+'</div></div>'
+    + '</div>';
+  html += detailBrasserie(byEp.brasserie);
+  html += detailDojo(byEp.dojo);
+  html += detailQPM(byEp.qpm, cand.id);
+  zone.innerHTML = html;
+}
+
+function detailBrasserie(res){
+  var head = '<div class="sec-eyebrow" style="margin-top:18px;">Épreuve</div><div class="sec-title">Brasserie des Tuileries</div>';
+  if(!res) return head + '<div class="panel" style="padding:16px;color:var(--muted);font-size:13px;">Épreuve non réalisée.</div>';
+  var d = res.detail || {};
+  var ev = d.evaluation || {};
+  var icm = ev.icm || {};
+  var glob = '<div class="panel" style="padding:16px;">'
+    + '<div style="display:flex;align-items:baseline;gap:10px;">'
+    + '<span style="font-size:26px;font-weight:700;color:#efb810;">'+(res.score!=null?Math.round(res.score)+'%':'—')+'</span>'
+    + '<span class="sub-cell">ICM global — Brasserie</span></div>';
+  if(ev.appreciation) glob += '<div style="margin-top:8px;font-size:14px;line-height:1.5;">'+escP(ev.appreciation)+'</div>';
+  glob += '</div>';
+  var rows = Object.keys(MISSIONS_ICM).map(function(k){
+    var m = icm[k]||{};
+    return '<tr><td style="min-width:180px;"><b>'+k+'</b> · '+escP(MISSIONS_ICM[k])+'</td>'
+      + '<td style="text-align:center;white-space:nowrap;"><b>'+(m.score!=null?m.score+'/5':'—')+'</b></td>'
+      + '<td>'+escP(m.commentaire||'')+'</td></tr>';
+  }).join('');
+  var table = '<div class="panel" style="padding:8px 16px 16px;"><table><thead><tr><th>Mission ICM</th><th>Note</th><th>Commentaire</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+  var fv = '<div class="panel" style="padding:16px;">';
+  if((ev.pointsForts||[]).length){ fv += '<div class="field-label">Points forts</div>'+ev.pointsForts.map(function(p){return '<div style="font-size:13px;color:#3f6b4f;margin-top:2px;">+ '+escP(p)+'</div>';}).join(''); }
+  if((ev.pointsVigilance||[]).length){ fv += '<div class="field-label" style="margin-top:12px;">Points de vigilance</div>'+ev.pointsVigilance.map(function(p){return '<div style="font-size:13px;color:var(--signal);margin-top:2px;">! '+escP(p)+'</div>';}).join(''); }
+  if(ev.potentielConsultant){ fv += '<div class="field-label" style="margin-top:12px;">Potentiel consultant</div><div style="font-size:13px;line-height:1.5;">'+escP(ev.potentielConsultant)+'</div>'; }
+  if(ev.conseil){ fv += '<div class="field-label" style="margin-top:12px;">Conseil</div><div style="font-size:13px;line-height:1.5;">'+escP(ev.conseil)+'</div>'; }
+  fv += '</div>';
+  var tr = d.transcript ? '<details class="panel" style="padding:12px 16px;"><summary style="cursor:pointer;font-size:12px;color:var(--muted);">Transcription du jeu de rôle</summary><pre style="white-space:pre-wrap;font-size:12px;margin-top:8px;line-height:1.5;">'+escP(d.transcript)+'</pre></details>' : '';
+  var au = d.auto_analyse ? '<details class="panel" style="padding:12px 16px;"><summary style="cursor:pointer;font-size:12px;color:var(--muted);">Auto-analyse du candidat</summary><pre style="white-space:pre-wrap;font-size:12px;margin-top:8px;line-height:1.5;">'+escP(d.auto_analyse)+'</pre></details>' : '';
+  return head + glob + table + fv + tr + au;
+}
+
+function detailDojo(res){
+  var head = '<div class="sec-eyebrow" style="margin-top:18px;">Épreuve</div><div class="sec-title">Dojo — simulation de coaching</div>';
+  if(!res) return head + '<div class="panel" style="padding:16px;color:var(--muted);font-size:13px;">Épreuve non réalisée.</div>';
+  var d = res.detail || {};
+  var ev = d.evaluation || {};
+  var crit = ev.criteres || [];
+  var glob = '<div class="panel" style="padding:16px;">'
+    + '<div style="display:flex;align-items:baseline;gap:10px;">'
+    + '<span style="font-size:26px;font-weight:700;color:#efb810;">'+(res.score!=null?Math.round(res.score)+'%':'—')+'</span>'
+    + '<span class="sub-cell">ICC — Indicateur de Comportement de Coach</span></div>';
+  if(d.scenario) glob += '<div class="sub-cell" style="margin-top:6px;">Scénario : '+escP(d.scenario)+'</div>';
+  if(ev.appreciation) glob += '<div style="margin-top:8px;font-size:14px;line-height:1.5;">'+escP(ev.appreciation)+'</div>';
+  glob += '</div>';
+  var table = '';
+  if(crit.length){
+    var rows = crit.map(function(c){
+      return '<tr><td style="min-width:200px;">'+escP(c.nom||'')+'</td>'
+        + '<td style="text-align:center;white-space:nowrap;"><b>'+(c.score!=null?c.score+'/5':'—')+'</b></td>'
+        + '<td>'+escP(c.commentaire||'')+'</td></tr>';
+    }).join('');
+    table = '<div class="panel" style="padding:8px 16px 16px;"><table><thead><tr><th>Critère</th><th>Note</th><th>Commentaire</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+  }
+  var rap = d.rapport ? '<details class="panel" style="padding:12px 16px;"><summary style="cursor:pointer;font-size:12px;color:var(--muted);">Rapport complet</summary><pre style="white-space:pre-wrap;font-size:12px;margin-top:8px;line-height:1.5;">'+escP(d.rapport)+'</pre></details>' : '';
+  var tr = d.transcript ? '<details class="panel" style="padding:12px 16px;"><summary style="cursor:pointer;font-size:12px;color:var(--muted);">Transcription du débrief</summary><pre style="white-space:pre-wrap;font-size:12px;margin-top:8px;line-height:1.5;">'+escP(d.transcript)+'</pre></details>' : '';
+  return head + glob + table + rap + tr;
+}
+
+function detailQPM(res, candId){
+  var head = '<div class="sec-eyebrow" style="margin-top:18px;">Épreuve</div><div class="sec-title">QPM Humetria</div>';
+  var statut = res ? (res.statut||'—') : 'à faire';
+  var scoreLine = (res && res.score!=null) ? (' · '+Math.round(res.score)+'%') : '';
+  var scoreVal = (res && res.score!=null) ? res.score : '';
+  var body = '<div class="panel" style="padding:16px;">'
+    + '<div class="sub-cell" style="margin-bottom:12px;">Statut : '+escP(statut)+scoreLine+'</div>'
+    + '<div class="field-label">Score QPM — saisie recruteur (0–100)</div>'
+    + '<div style="display:flex;gap:8px;align-items:center;margin-top:6px;">'
+    +   '<input id="qpm-score-'+candId+'" type="number" min="0" max="100" value="'+scoreVal+'" placeholder="ex. 72" style="max-width:120px;padding:8px 10px;border:1px solid #d5cabf;border-radius:3px;font-size:14px;">'
+    +   '<button class="add-btn sm" onclick="saveQPMScore(\''+candId+'\')">Enregistrer le score</button>'
+    + '</div>'
+    + '<div class="sub-cell" style="margin-top:8px;">Le score Humetria se recopie ici à la main tant que l\'API n\'est pas branchée.</div>'
+    + '</div>';
+  return head + body;
+}
+
+async function saveQPMScore(candId){
+  var inp = document.getElementById('qpm-score-'+candId);
+  if(!inp) return;
+  var v = String(inp.value||'').trim();
+  var score = (v==='') ? null : Number(v);
+  if(v!=='' && (isNaN(score) || score<0 || score>100)){ if(typeof flashSync==='function') flashSync('⚠ score entre 0 et 100'); return; }
+  var now = new Date().toISOString();
+  try{
+    var r = await SB.from('parcours_resultats').upsert(
+      { candidat_id: candId, epreuve:'qpm', statut:'termine', score: score, started_at: now, completed_at: now, updated_at: now },
+      { onConflict: 'candidat_id,epreuve' });
+    if(r.error) throw r.error;
+    if(typeof flashSync==='function') flashSync('✓ score QPM enregistré');
+    voirCandidat(candId);
+  }catch(e){ if(typeof flashSync==='function') flashSync('⚠ '+(e.message||'échec')); }
 }
 </script>
 </body>
