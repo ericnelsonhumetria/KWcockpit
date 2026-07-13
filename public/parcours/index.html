@@ -31,9 +31,10 @@
   .pill{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:1px;text-transform:uppercase;padding:3px 9px;border-radius:10px;background:#e8e4da;color:var(--faint);}
   .pill.prog{background:#e3ebf3;color:var(--burg);}
   .pill.done{background:#dfece2;color:var(--green);}
-  .btn{margin-left:auto;background:var(--burg);color:#fff;border:none;padding:9px 16px;border-radius:4px;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;letter-spacing:1px;cursor:pointer;text-transform:uppercase;}
+  .btn{background:var(--burg);color:#fff;border:none;padding:9px 16px;border-radius:4px;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;letter-spacing:1px;cursor:pointer;text-transform:uppercase;}
   .btn:disabled{background:#c9bfb6;cursor:default;}
   .btn.soon{background:var(--card);color:var(--faint);border:1px solid var(--line);}
+  .foot-actions{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end;}
   .foot-note{margin-top:24px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--faint);letter-spacing:0.5px;line-height:1.7;border-top:1px solid var(--line);padding-top:14px;}
   .err-card{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:30px 26px;max-width:420px;text-align:center;}
   .err-card .em{font-size:34px;margin-bottom:10px;}
@@ -85,6 +86,8 @@
     var prenom = String(nom).split(' ')[0] || nom;
     var poste = data.candidat && data.candidat.poste ? data.candidat.poste : '';
     var eps = data.epreuves || {};
+    var qpmLien = (data.candidat && data.candidat.qpm_lien) ? data.candidat.qpm_lien : '';
+    window.QPM_LIEN = qpmLien;
 
     var cards = EPREUVES.map(function(e){
       var ep = eps[e.key];
@@ -95,6 +98,15 @@
         btn = done
           ? '<button class="btn soon" disabled>Terminé</button>'
           : '<button class="btn" onclick="ouvrir(\'' + base + '\')">Commencer</button>';
+      } else if(e.key === 'qpm'){
+        if(done){
+          btn = '<button class="btn soon" disabled>Terminé</button>';
+        } else if(qpmLien){
+          btn = '<button class="btn" onclick="ouvrirQPM()">Ouvrir le QPM ↗</button>'
+              + '<button class="btn soon" onclick="terminerQPM()">J\'ai terminé</button>';
+        } else {
+          btn = '<span style="font-size:12px;color:var(--faint);font-family:\'IBM Plex Mono\',monospace;">Non configuré</span>';
+        }
       } else {
         btn = '<button class="btn soon" onclick="bientot()">Commencer</button>';
       }
@@ -103,7 +115,7 @@
         + '<div class="body">'
         +   '<div class="t">' + esc(e.titre) + '</div>'
         +   '<div class="d">' + esc(e.desc) + '</div>'
-        +   '<div class="foot">' + pill(ep) + btn
+        +   '<div class="foot">' + pill(ep) + '<span class="foot-actions">' + btn + '</span>'
         +   '</div>'
         + '</div></div>';
     }).join('');
@@ -128,6 +140,21 @@
 
   window.ouvrir = function(base){
     location.href = base + encodeURIComponent(token);
+  };
+
+  window.ouvrirQPM = function(){
+    if(window.QPM_LIEN){ window.open(window.QPM_LIEN, '_blank', 'noopener'); }
+  };
+
+  window.terminerQPM = function(){
+    if(!confirm('Confirmer que vous avez terminé le QPM Humetria ? Vous pourrez le rouvrir tant que ce n\'est pas confirmé.')) return;
+    fetch('/.netlify/functions/parcours-resultat', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ token: token, epreuve:'qpm', statut:'termine' })
+    })
+    .then(function(r){ return r.json(); })
+    .then(function(d){ if(d && d.ok){ init(); } else { alert('Enregistrement impossible, réessayez.'); } })
+    .catch(function(){ alert('Connexion impossible, réessayez.'); });
   };
 
   async function init(){
