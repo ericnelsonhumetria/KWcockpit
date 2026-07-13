@@ -4048,6 +4048,7 @@ function renderCandidats(cands, resParCand){
       '<td><b>'+(c.nom||'—')+'</b><br><span class="sub-cell">'+(c.poste||'')+(c.email?(' · '+c.email):'')+'</span></td>'+
       '<td>'+epreuvePill(r.dojo)+'</td>'+
       '<td>'+epreuvePill(r.brasserie)+'</td>'+
+      '<td>'+epreuvePill(r.lean)+'</td>'+
       '<td>'+epreuvePill(r.qpm)+'</td>'+
       '<td><span class="pill '+st.c+'">'+st.t+'</span><br><span class="sub-cell">exp. '+exp+'</span></td>'+
       '<td>'+
@@ -4058,7 +4059,7 @@ function renderCandidats(cands, resParCand){
       '</tr>';
   }).join('');
   var table = cands.length
-    ? '<div class="panel" style="padding:8px 16px 16px;overflow-x:auto;"><table><thead><tr><th>Candidat</th><th>Dojo</th><th>Brasserie</th><th>QPM</th><th>Statut</th><th>Actions</th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+    ? '<div class="panel" style="padding:8px 16px 16px;overflow-x:auto;"><table><thead><tr><th>Candidat</th><th>Dojo</th><th>Brasserie</th><th>Lean</th><th>QPM</th><th>Statut</th><th>Actions</th></tr></thead><tbody>'+rows+'</tbody></table></div>'
     : '<div class="panel" style="padding:16px;color:var(--muted);font-size:13px;">Aucun candidat pour le moment.</div>';
   zone.innerHTML = form + table;
 }
@@ -4138,6 +4139,7 @@ function renderDetailCandidat(cand, byEp){
     + '</div>';
   html += detailBrasserie(byEp.brasserie);
   html += detailDojo(byEp.dojo);
+  html += detailLean(byEp.lean);
   html += detailQPM(byEp.qpm, cand.id);
   zone.innerHTML = html;
 }
@@ -4199,6 +4201,40 @@ function detailDojo(res){
   return head + glob + table + rap + tr;
 }
 
+function detailLean(res){
+  var head = '<div class="sec-eyebrow" style="margin-top:18px;">\u00c9preuve</div><div class="sec-title">Lean</div>';
+  if(!res) return head + '<div class="panel" style="padding:16px;color:var(--muted);font-size:13px;">\u00c9preuve non r\u00e9alis\u00e9e.</div>';
+  var d = res.detail || {};
+  var ev = d.evaluation || {};
+  var crit = ev.criteres || {};
+  var LAB = { outil:"Choix de l'outil", chiffre:'Ancrage chiffr\u00e9', methodo:'Rigueur m\u00e9thodo (A3/PDCA)', causeracine:'Cause racine', flux:'Ma\u00eetrise du flux', gemba:'Gemba & p\u00e9rennisation' };
+  var glob = '<div class="panel" style="padding:16px;">'
+    + '<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">'
+    + '<span style="font-size:26px;font-weight:700;color:#efb810;">'+(res.score!=null?Math.round(res.score)+'%':'\u2014')+'</span>'
+    + '<span class="sub-cell">ma\u00eetrise Lean'+(ev.profil?(' \u00b7 '+escP(ev.profil)):'')+'</span></div>';
+  if(ev.appreciation) glob += '<div style="margin-top:8px;font-size:14px;line-height:1.5;">'+escP(ev.appreciation)+'</div>';
+  glob += '</div>';
+  var rows = Object.keys(LAB).map(function(k){
+    var m = crit[k]||{};
+    var pond = (k==='outil'||k==='chiffre') ? ' <span class="sub-cell">(\u00d72)</span>' : '';
+    return '<tr><td style="word-break:break-word;">'+escP(LAB[k])+pond+'</td>'
+      + '<td style="text-align:center;white-space:nowrap;"><b>'+(m.score!=null?m.score+'/5':'\u2014')+'</b></td>'
+      + '<td>'+escP(m.commentaire||'')+'</td></tr>';
+  }).join('');
+  var table = '<div class="panel" style="padding:8px 16px 16px;overflow-x:auto;"><table><thead><tr><th>Crit\u00e8re</th><th>Note</th><th>Commentaire</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+  var fv = '<div class="panel" style="padding:16px;">';
+  if((ev.pointsForts||[]).length){ fv += '<div class="field-label">Points forts</div>'+ev.pointsForts.map(function(p){return '<div style="font-size:13px;color:#3f6b4f;margin-top:2px;">+ '+escP(p)+'</div>';}).join(''); }
+  if((ev.lacunes||[]).length){ fv += '<div class="field-label" style="margin-top:12px;">Lacunes</div>'+ev.lacunes.map(function(p){return '<div style="font-size:13px;color:var(--signal);margin-top:2px;">! '+escP(p)+'</div>';}).join(''); }
+  if(ev.avis){ fv += '<div class="field-label" style="margin-top:12px;">Avis d\'embauche</div><div style="font-size:13px;line-height:1.5;">'+escP(ev.avis)+'</div>'; }
+  fv += '</div>';
+  var rep = '';
+  if((d.reponses||[]).length){
+    var inner = d.reponses.map(function(x){ return '<div style="margin-bottom:10px;"><b style="font-size:12px;">'+escP(x.situation||'')+'</b><br><span style="font-size:12px;color:var(--muted);">'+escP(x.question||'')+'</span><div style="white-space:pre-wrap;word-break:break-word;font-size:12px;margin-top:4px;line-height:1.5;">'+escP(x.reponse||'(vide)')+'</div></div>'; }).join('');
+    rep = '<details class="panel" style="padding:12px 16px;"><summary style="cursor:pointer;font-size:12px;color:var(--muted);">R\u00e9ponses du candidat</summary><div style="margin-top:8px;">'+inner+'</div></details>';
+  }
+  return head + glob + table + fv + rep;
+}
+
 function detailQPM(res, candId){
   var head = '<div class="sec-eyebrow" style="margin-top:18px;">Épreuve</div><div class="sec-title">QPM Humetria</div>';
   var statut = res ? (res.statut||'—') : 'à faire';
@@ -4231,7 +4267,6 @@ async function saveQPMScore(candId){
     if(typeof flashSync==='function') flashSync('✓ score QPM enregistré');
     voirCandidat(candId);
   }catch(e){ if(typeof flashSync==='function') flashSync('⚠ '+(e.message||'échec')); }
-}
 </script>
 </body>
 </html>
