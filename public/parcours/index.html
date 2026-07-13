@@ -50,12 +50,18 @@
   var token = (params.get('c') || '').trim();
   var root = document.getElementById('root');
 
-  var EPREUVES = [
-    { key:'dojo',      num:'1', titre:'Dojo — simulation de coaching',   desc:'Un cas de management de proximité à conduire.' },
-    { key:'brasserie', num:'2', titre:'La Brasserie des Tuileries',       desc:'Un jeu de rôle managérial, évalué.' },
-    { key:'lean',      num:'3', titre:'Épreuve Lean',                     desc:'Quatre mises en situation Lean (flux, OEE, méthode).' },
-    { key:'qpm',       num:'4', titre:'QPM Humetria',                     desc:'Un questionnaire de positionnement managérial.' }
-  ];
+  // Catalogue des épreuves (métadonnées). L'ORDRE et l'ACTIVATION viennent
+  // désormais du serveur (champ data.parcours — Brique 1). Fallback plus bas.
+  var CATALOG = {
+    qpm:       { titre:'QPM Humetria',                  desc:'Un questionnaire de positionnement managérial.' },
+    brasserie: { titre:'La Brasserie des Tuileries',    desc:'Un jeu de rôle managérial, évalué.' },
+    lean:      { titre:'Épreuve Lean',                  desc:'Quatre mises en situation Lean (flux, OEE, méthode).' },
+    dojo:      { titre:'Dojo — simulation de coaching', desc:'Un cas de management de proximité à conduire.' }
+  };
+  // Ordre par défaut si le serveur ne renvoie pas encore "parcours"
+  // (nouvel ordre demandé : QPM, Brasserie, Lean, Dojo).
+  var ORDRE_DEFAUT = ['qpm', 'brasserie', 'lean', 'dojo'];
+  var NUM_MOTS = { 0:'aucune', 1:'une', 2:'deux', 3:'trois', 4:'quatre' };
 
   function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
@@ -90,18 +96,27 @@
     var qpmLien = (data.candidat && data.candidat.qpm_lien) ? data.candidat.qpm_lien : '';
     window.QPM_LIEN = qpmLien;
 
-    var cards = EPREUVES.map(function(e){
-      var ep = eps[e.key];
+    // Liste ordonnée des épreuves actives (Brique 1 : data.parcours).
+    // Fallback : ordre par défaut, 4 épreuves, si le serveur ne renvoie rien.
+    var liste = (Array.isArray(data.parcours) && data.parcours.length)
+      ? data.parcours.map(function(p){ return p.epreuve; })
+      : ORDRE_DEFAUT.slice();
+    liste = liste.filter(function(k){ return CATALOG[k]; }); // clés connues seulement
+
+    var cards = liste.map(function(key, i){
+      var meta = CATALOG[key];
+      var num  = i + 1;                 // numérotation dynamique
+      var ep   = eps[key];
       var done = ep && ep.statut === 'termine';
       var btn;
-      if(e.key === 'brasserie' || e.key === 'dojo' || e.key === 'lean'){
-        var base = (e.key === 'dojo') ? '/parcours/dojo/?c='
-                 : (e.key === 'lean') ? '/parcours/lean/?c='
+      if(key === 'brasserie' || key === 'dojo' || key === 'lean'){
+        var base = (key === 'dojo') ? '/parcours/dojo/?c='
+                 : (key === 'lean') ? '/parcours/lean/?c='
                  : '/parcours/brasserie/?c=';
         btn = done
           ? '<button class="btn soon" disabled>Terminé</button>'
           : '<button class="btn" onclick="ouvrir(\'' + base + '\')">Commencer</button>';
-      } else if(e.key === 'qpm'){
+      } else if(key === 'qpm'){
         if(done){
           btn = '<button class="btn soon" disabled>Terminé</button>';
         } else if(qpmLien){
@@ -114,14 +129,27 @@
         btn = '<button class="btn soon" onclick="bientot()">Commencer</button>';
       }
       return '<div class="card">'
-        + '<div class="num">' + e.num + '</div>'
+        + '<div class="num">' + num + '</div>'
         + '<div class="body">'
-        +   '<div class="t">' + esc(e.titre) + '</div>'
-        +   '<div class="d">' + esc(e.desc) + '</div>'
+        +   '<div class="t">' + esc(meta.titre) + '</div>'
+        +   '<div class="d">' + esc(meta.desc) + '</div>'
         +   '<div class="foot">' + pill(ep) + '<span class="foot-actions">' + btn + '</span>'
         +   '</div>'
         + '</div></div>';
     }).join('');
+
+    // Intro dynamique (le nombre d'épreuves dépend de la config du candidat)
+    var n = liste.length;
+    var nMot = NUM_MOTS[n] || String(n);
+    var introTxt;
+    if(n === 0){
+      introTxt = 'Aucune épreuve n\'est active pour le moment. Contactez votre interlocuteur Kaizen Way.';
+    } else {
+      var verbe = (n > 1) ? 'Vous pouvez les réaliser' : 'Vous pouvez la réaliser';
+      introTxt = 'Ce parcours comporte ' + nMot + ' épreuve' + (n > 1 ? 's' : '') + '. '
+        + verbe + ' à votre rythme depuis ce lien — pas besoin de créer de compte. '
+        + 'Vos résultats sont transmis à l\'équipe Kaizen Way.';
+    }
 
     root.innerHTML = '<div class="wrap">'
       + '<div class="head">'
@@ -131,7 +159,7 @@
       +   (poste ? '<div class="sub">' + esc(poste) + '</div>' : '')
       +   '</div>'
       + '</div>'
-      + '<p class="intro">Ce parcours comporte trois épreuves. Vous pouvez les réaliser à votre rythme depuis ce lien — pas besoin de créer de compte. Vos résultats sont transmis à l\'équipe Kaizen Way.</p>'
+      + '<p class="intro">' + esc(introTxt) + '</p>'
       + cards
       + '<div class="foot-note">Vos données ne servent qu\'à cette évaluation et ne sont partagées avec personne d\'autre que l\'équipe de recrutement Kaizen Way. Conservez ce lien : il est personnel.</div>'
       + '</div>';
