@@ -10,7 +10,7 @@ const { createClient } = require('@supabase/supabase-js');
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://omftqlvkmjlxoinruayr.supabase.co';
 const SERVICE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const UUID_RE  = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const EPREUVES = ['dojo', 'brasserie', 'qpm'];
+const EPREUVES = ['dojo', 'brasserie', 'qpm', 'lean'];
 const STATUTS  = ['a_faire', 'en_cours', 'termine'];
 
 function json(code, obj){
