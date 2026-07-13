@@ -1,0 +1,1345 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>CEREBRO · Kaizen Way</title>
+<style>html,body{margin:0;background:#0A1524;}</style>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.26/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+  // Config Supabase (identique au Cockpit — clé publishable publique)
+  window.CEREBRO_SB = window.supabase.createClient(
+    "https://omftqlvkmjlxoinruayr.supabase.co",
+    "sb_publishable_RgKYatx7zHx_SJvrvoyt2w_fXhLKQ1w"
+  );
+  // Shim de persistance (Brique A : localStorage, provisoire ; Supabase en Brique B)
+  window.storage = {
+    get: async function(k){ try{ var v=localStorage.getItem(k); return (v===null)?null:{key:k,value:v}; }catch(e){ return null; } },
+    set: async function(k,v){ try{ localStorage.setItem(k,v); return {key:k,value:v}; }catch(e){ return null; } },
+    delete: async function(k){ try{ localStorage.removeItem(k); return {key:k,deleted:true}; }catch(e){ return null; } },
+    list: async function(prefix){ try{ var ks=[]; for(var i=0;i<localStorage.length;i++){ var kk=localStorage.key(i); if(!prefix||kk.indexOf(prefix)===0) ks.push(kk); } return {keys:ks}; }catch(e){ return {keys:[]}; } }
+  };
+  // Preset React CLASSIQUE (évite l'injection JSX du runtime automatique)
+  Babel.registerPreset('kwreact', { presets: [ [Babel.availablePresets['react'], { runtime: 'classic' }] ] });
+</script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="kwreact">
+const { useState, useEffect } = React;
+const CEREBRO_SB = window.CEREBRO_SB;
+
+
+// ── CEREBRO · Humetria × Kaizen Way ────────────────────────────────────────
+// CEREBRO   : détecte à la demande les 10 comptes au plus fort score ICP.
+// QUALIFIER : analyse approfondie d'un compte (critères, signaux, verdict).
+// CARTO     : comité d'achat, nommé-si-public + chemin d'approche.
+// APPROCHE  : brouillon de premier contact (LinkedIn/email), validé par toi.
+
+const DEFAULT_ICP = [
+  { name: "Multi-site industriel", weight: 22, note: "Plusieurs sites de production (idéalement 5+)" },
+  { name: "Masse critique de managers terrain", weight: 20, note: "≥ 50–100 managers de proximité mesurables" },
+  { name: "Secteur à culture excellence op.", weight: 16, note: "Agro, cosmétique, pharma, chimie, auto, aéro, matériaux" },
+  { name: "Taille du groupe", weight: 12, note: "ETI / grand groupe, CA élevé" },
+  { name: "Signaux déclencheurs", weight: 18, note: "Fonction excellence op./performance, lean/CI, restructuration, enjeux qualité/sécurité" },
+  { name: "Empreinte FR / francophone", weight: 12, note: "France d'abord, puis multinationale à ancrage FR" },
+];
+
+const DEFAULT_KNOWN = [
+  "L'Oréal", "Michelin", "Andros", "Pierre Fabre", "Havea", "Saipol", "Avril",
+  "SOCOTEC", "LVMH", "Carrefour", "Siemens", "Teisseire", "Carlsberg",
+];
+
+const STORE_KEY = "humetria:radar:accounts";
+const ICP_KEY = "humetria:radar:icp";
+const KNOWN_KEY = "humetria:radar:known";
+const CAND_KEY = "humetria:radar:cerebro";
+const EVENTS_KEY = "humetria:radar:events";
+const TALENTS_KEY = "humetria:radar:talents";
+const PLAYBOOK_KEY = "humetria:radar:playbook";
+const NETWORK_KEY = "humetria:radar:network";
+const NETKW_KEY = "humetria:radar:netkw";
+const CONTACTS_KEY = "humetria:radar:contacts";
+
+const VERDICT = {
+  GO: { label: "GO", color: "#3FB68B", tag: "Poursuivre" },
+  NURTURE: { label: "NURTURE", color: "#E0A63C", tag: "Nourrir" },
+  PASS: { label: "PASS", color: "#C15B57", tag: "Écarter" },
+};
+const verdictFor = s => (s >= 70 ? "GO" : s >= 45 ? "NURTURE" : "PASS");
+
+const EV = { P: { label: "PRIORISER", color: "#3FB68B" }, O: { label: "OPPORT.", color: "#E0A63C" }, X: { label: "PASSER", color: "#C15B57" } };
+const eventVerdict = s => (s >= 70 ? EV.P : s >= 45 ? EV.O : EV.X);
+
+const TV = { R: { label: "RENCONTRER", color: "#3FB68B" }, C: { label: "À CREUSER", color: "#E0A63C" }, X: { label: "ÉCARTER", color: "#C15B57" } };
+const talentVerdict = s => (s >= 70 ? TV.R : s >= 45 ? TV.C : TV.X);
+
+const DEFAULT_NET_KW = ["consultant", "excellence op", "excellence opérationnelle", "lean", "amélioration continue", "continuous improvement", "transformation", "performance industrielle", "gemba", "kaizen", "WCM", "TPM", "directeur industriel", "directeur d'usine", "responsable production", "black belt", "green belt", "opérations"].join("\n");
+const NET_FIELDS = [
+  { key: "gemba", label: "Exposition Go Gemba®", opts: ["oui", "partielle", "non"] },
+  { key: "humility", label: "Humilité vue terrain", opts: ["oui", "?", "non"] },
+  { key: "lean", label: "Profondeur lean", opts: ["forte", "moyenne", "faible"] },
+  { key: "relation", label: "Relation", opts: ["chaude", "tiède", "froide"] },
+];
+const NET_W = { gemba: 0.25, humility: 0.30, lean: 0.25, relation: 0.20 };
+const NET_V = {
+  gemba: { oui: 100, partielle: 55, non: 15 },
+  humility: { oui: 100, "?": 50, non: 10 },
+  lean: { forte: 100, moyenne: 55, faible: 20 },
+  relation: { chaude: 100, "tiède": 55, froide: 25 },
+};
+function netScore(tags) { let s = 0; for (const k in NET_W) s += NET_W[k] * (NET_V[k][tags?.[k]] ?? 50); return Math.round(s); }
+
+const AFFINITY = [
+  { w: 100, kw: ["excellence op", "amélioration continue", "lean", "continuous improvement", "gemba", "kaizen", "wcm", "world class manufacturing", "tpm", "black belt", "green belt", "six sigma"] },
+  { w: 75, kw: ["transformation", "performance industrielle", "directeur industriel", "directeur d'usine", "plant manager", "directeur des opérations", "directeur opérations", "operations director", "head of operations", "amélioration"] },
+  { w: 55, kw: ["responsable production", "responsable industriel", "supply chain", "consultant", "coach", "opérations", "operations", "production", "qhse", "qse", "manufacturing"] },
+];
+function affinityScore(position) {
+  const p = (position || "").toLowerCase();
+  let best = 0, hits = 0;
+  for (const tier of AFFINITY) for (const k of tier.kw) if (p.includes(k)) { best = Math.max(best, tier.w); hits++; }
+  if (!best) return 30;
+  return Math.min(100, best + Math.min(15, (hits - 1) * 5));
+}
+
+const CHANNELS = [
+  { k: "linkedin_connect", l: "Connexion LinkedIn" },
+  { k: "linkedin_message", l: "Message LinkedIn" },
+  { k: "email", l: "Email" },
+];
+
+const CSS = `
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+* { box-sizing: border-box; }
+.hr-root {
+  --ink:#0A1524; --panel:#111E2E; --panel2:#172939; --line:#26384B;
+  --mute:#7E8DA1; --paper:#E9EEF5; --cyan:#2E86E6; --amber:#E0A63C; --green:#3FB68B; --orange:#F26A21;
+  background:var(--ink); color:var(--paper); min-height:100vh;
+  font-family:'Inter',system-ui,sans-serif; padding:20px 16px 64px;
+  -webkit-font-smoothing:antialiased;
+}
+.hr-wrap { max-width:760px; margin:0 auto; }
+.hr-head { display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:22px; }
+.hr-brand { font-family:'Space Grotesk',sans-serif; font-weight:800; font-size:20px; letter-spacing:0.03em; background:linear-gradient(92deg,var(--cyan),var(--orange)); -webkit-background-clip:text; background-clip:text; color:transparent; }
+.hr-brand span { color:var(--orange); }
+.hr-eyebrow { font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--mute); letter-spacing:0.08em; text-transform:uppercase; }
+.hr-r { font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--cyan); border:1px solid var(--line); padding:3px 8px; border-radius:4px; }
+.hr-tabs { display:flex; gap:8px; margin-bottom:18px; border-bottom:1px solid var(--line); }
+.hr-tabs button { background:none; border:none; border-bottom:2px solid transparent; color:var(--mute); font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:15px; padding:8px 4px 12px; margin-right:8px; cursor:pointer; }
+.hr-tabs button.on { color:var(--paper); border-bottom-color:var(--cyan); }
+
+.hr-card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:18px; margin-bottom:16px; }
+.hr-card.cerebro { border-color:var(--cyan); box-shadow:0 0 0 1px rgba(46,134,230,0.18), 0 8px 30px rgba(242,106,33,0.07); }
+.hr-section-title { font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:var(--mute); margin:0 0 14px; }
+.hr-cerebro-title { font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:17px; letter-spacing:0.02em; color:var(--cyan); margin:0 0 4px; display:flex; align-items:center; gap:8px; }
+.hr-cerebro-sub { font-size:13px; color:var(--mute); margin:0 0 14px; line-height:1.5; }
+.hr-caption { font-size:11.5px; color:var(--mute); line-height:1.5; margin:2px 4px 14px; }
+
+.hr-input, .hr-textarea, .hr-select {
+  width:100%; background:var(--panel2); border:1px solid var(--line); color:var(--paper);
+  border-radius:8px; padding:11px 12px; font-family:'Inter',sans-serif; font-size:15px; outline:none;
+}
+.hr-input:focus, .hr-textarea:focus, .hr-select:focus { border-color:var(--cyan); box-shadow:0 0 0 2px rgba(46,134,230,0.20); }
+.hr-textarea { resize:vertical; min-height:56px; margin-top:10px; font-size:14px; }
+.hr-select { font-size:14px; margin-bottom:4px; }
+.hr-input::placeholder, .hr-textarea::placeholder { color:#4E5B67; }
+
+.hr-btn {
+  margin-top:12px; background:var(--cyan); color:#F2F7FF; border:none; border-radius:8px;
+  padding:12px 18px; font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:15px;
+  cursor:pointer; letter-spacing:0.01em; transition:filter .15s, opacity .15s;
+}
+.hr-btn.ghost { background:transparent; color:var(--cyan); border:1px solid var(--cyan); padding:10px 16px; font-size:14px; }
+.hr-btn:hover:not(:disabled) { filter:brightness(1.08); }
+.hr-btn.ghost:hover:not(:disabled) { background:rgba(46,134,230,0.08); filter:none; }
+.hr-btn:disabled { opacity:0.45; cursor:progress; }
+.hr-btn:focus-visible { outline:2px solid var(--paper); outline-offset:2px; }
+
+.hr-link { background:none; border:none; color:var(--cyan); font-size:12px; cursor:pointer; font-family:'IBM Plex Mono',monospace; padding:0; letter-spacing:0.04em; }
+.hr-link:hover { text-decoration:underline; }
+
+.hr-gauge-score { font-family:'IBM Plex Mono',monospace; font-weight:600; font-size:46px; line-height:1; }
+.hr-gauge-verdict { font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:14px; letter-spacing:0.14em; }
+.hr-gauge-tag { font-size:12px; color:var(--mute); margin-left:8px; }
+.hr-scale { position:relative; height:10px; border-radius:6px; margin:20px 0 6px;
+  background:linear-gradient(90deg,#C15B57 0%,#C15B57 45%,#E0A63C 45%,#E0A63C 70%,#3FB68B 70%,#3FB68B 100%); }
+.hr-ticks { display:flex; justify-content:space-between; font-family:'IBM Plex Mono',monospace; font-size:9px; color:#4E5B67; }
+.hr-needle { position:absolute; top:-6px; width:3px; height:22px; background:var(--paper); border-radius:2px; box-shadow:0 0 0 2px var(--ink); transition:left .7s cubic-bezier(.2,.8,.2,1); }
+
+.hr-chips { display:flex; flex-wrap:wrap; gap:8px; margin:16px 0; }
+.hr-chip { font-family:'IBM Plex Mono',monospace; font-size:12px; background:var(--panel2); border:1px solid var(--line); border-radius:20px; padding:5px 11px; color:var(--paper); }
+.hr-chip b { color:var(--cyan); font-weight:500; }
+
+.hr-block { margin-top:14px; }
+.hr-label { font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.09em; text-transform:uppercase; color:var(--mute); margin-bottom:5px; }
+.hr-value { font-size:14.5px; line-height:1.5; }
+.hr-list { margin:0; padding-left:16px; }
+.hr-list li { font-size:14px; line-height:1.55; margin-bottom:3px; }
+.hr-flag { color:#E08B87; }
+
+.hr-crit { display:flex; align-items:center; gap:10px; margin-bottom:9px; }
+.hr-crit-bar { flex:1; height:6px; background:var(--panel2); border-radius:4px; overflow:hidden; }
+.hr-crit-fill { height:100%; border-radius:4px; }
+.hr-crit-name { font-size:13px; width:40%; }
+.hr-crit-w { font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--mute); width:34px; text-align:right; }
+
+.hr-dm { border-left:2px solid var(--line); padding:1px 0 1px 12px; margin-bottom:13px; }
+.hr-dm.tbc { border-left-color:var(--amber); }
+.hr-dm.named { border-left-color:var(--green); }
+.hr-dm-role { font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.06em; text-transform:uppercase; color:var(--mute); }
+.hr-dm-name { font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:15px; margin-top:2px; }
+.hr-dm-name.tbc { color:var(--amber); font-weight:500; }
+.hr-pubtag { font-family:'IBM Plex Mono',monospace; font-size:9px; color:var(--green); border:1px solid rgba(63,182,139,0.4); border-radius:4px; padding:1px 5px; margin-left:7px; vertical-align:1px; }
+.hr-dm-title { font-size:13px; color:var(--paper); margin-top:1px; }
+.hr-dm-src { font-size:11.5px; color:var(--mute); margin-top:4px; }
+.hr-dm-approach { font-size:12.5px; color:var(--paper); margin-top:3px; }
+
+/* Approche */
+.hr-seg { display:flex; gap:6px; flex-wrap:wrap; margin:2px 0 10px; }
+.hr-seg button { background:var(--panel2); border:1px solid var(--line); color:var(--mute); border-radius:7px; padding:7px 11px; font-size:12.5px; font-family:'Inter',sans-serif; cursor:pointer; }
+.hr-seg button.on { border-color:var(--cyan); color:var(--cyan); }
+.hr-variant { border:1px solid var(--line); border-radius:9px; padding:13px; margin-top:12px; background:var(--panel2); }
+.hr-variant-label { font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:13px; color:var(--cyan); margin:0 0 8px; display:flex; justify-content:space-between; align-items:center; gap:10px; }
+.hr-variant-subj { font-size:12.5px; color:var(--mute); margin:0 0 6px; }
+.hr-variant-body { font-size:13.5px; line-height:1.55; white-space:pre-wrap; }
+.hr-when { font-family:'IBM Plex Mono',monospace; font-size:9px; color:var(--mute); border:1px solid var(--line); border-radius:4px; padding:1px 6px; margin-left:8px; vertical-align:1px; }
+.hr-step-intent { font-size:11.5px; color:var(--mute); font-style:italic; margin:0 0 8px; line-height:1.4; }
+.hr-copy { background:none; border:1px solid var(--line); color:var(--cyan); border-radius:6px; padding:4px 9px; font-size:11px; font-family:'IBM Plex Mono',monospace; cursor:pointer; flex-shrink:0; }
+.hr-copy:hover { border-color:var(--cyan); }
+
+.hr-icp-row { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+.hr-icp-name { flex:1; background:var(--panel2); border:1px solid var(--line); color:var(--paper); border-radius:6px; padding:7px 9px; font-size:13px; }
+.hr-icp-w { width:64px; background:var(--panel2); border:1px solid var(--line); color:var(--cyan); border-radius:6px; padding:7px; font-family:'IBM Plex Mono',monospace; font-size:13px; text-align:center; }
+.hr-icp-total { font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--mute); }
+.hr-icp-total.warn { color:var(--amber); }
+
+.hr-cb { border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:10px; background:var(--panel); }
+.hr-cb-head { display:flex; align-items:center; gap:12px; }
+.hr-cb-rank { font-family:'IBM Plex Mono',monospace; font-size:12px; color:#4E5B67; width:22px; text-align:right; }
+.hr-cb-score { font-family:'IBM Plex Mono',monospace; font-weight:600; font-size:23px; width:42px; }
+.hr-cb-mid { flex:1; min-width:0; }
+.hr-cb-name { font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.hr-cb-meta { font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--cyan); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.hr-cb-why { font-size:13.5px; line-height:1.5; margin:9px 0 2px; }
+.hr-cb-persona { font-size:12px; color:var(--mute); }
+.hr-ev-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px 16px; margin-top:6px; font-size:12.5px; color:var(--paper); }
+.hr-ev-grid > div { line-height:1.45; }
+.hr-ev-k { display:block; font-family:'IBM Plex Mono',monospace; font-size:9px; letter-spacing:0.08em; text-transform:uppercase; color:var(--mute); margin-bottom:2px; }
+@media (max-width:480px){ .hr-ev-grid { grid-template-columns:1fr; } }
+.hr-nettag { margin-top:8px; }
+.hr-nettag-k { font-family:'IBM Plex Mono',monospace; font-size:9px; letter-spacing:0.08em; text-transform:uppercase; color:var(--mute); display:block; margin-bottom:4px; }
+.hr-cb-actions { display:flex; align-items:center; gap:10px; margin-top:11px; }
+.hr-mini { background:var(--cyan); color:#F2F7FF; border:none; border-radius:7px; padding:8px 13px; font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:13px; cursor:pointer; }
+.hr-mini:disabled { opacity:0.5; cursor:progress; }
+
+.hr-item { border:1px solid var(--line); border-radius:10px; padding:13px 14px; margin-bottom:10px; background:var(--panel); display:flex; align-items:center; gap:13px; cursor:pointer; transition:border-color .15s; }
+.hr-item:hover { border-color:var(--cyan); }
+.hr-item-score { font-family:'IBM Plex Mono',monospace; font-weight:600; font-size:22px; width:44px; }
+.hr-item-mid { flex:1; min-width:0; }
+.hr-item-name { font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.hr-item-sub { font-size:12px; color:var(--mute); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.hr-badge { font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:10px; letter-spacing:0.1em; padding:3px 8px; border-radius:5px; }
+.hr-del { background:none; border:none; color:#4E5B67; cursor:pointer; font-size:18px; padding:2px 4px; line-height:1; }
+.hr-del:hover { color:#E08B87; }
+
+.hr-empty { text-align:center; color:var(--mute); font-size:14px; padding:26px 10px; line-height:1.6; }
+.hr-err { color:#E08B87; font-size:13px; margin-top:12px; line-height:1.5; word-break:break-word; }
+.hr-spin { display:inline-block; width:14px; height:14px; border:2px solid rgba(255,255,255,0.35); border-top-color:#F2F7FF; border-radius:50%; animation:hr-rot .7s linear infinite; vertical-align:-2px; margin-right:7px; }
+.hr-spin.cy { border:2px solid rgba(46,134,230,0.25); border-top-color:var(--cyan); }
+@keyframes hr-rot { to { transform:rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .hr-needle { transition:none; } .hr-spin { animation:none; } }
+`;
+
+let searchDegraded = false;
+async function callClaude(system, userContent, useSearch = true) {
+  async function attempt(withSearch) {
+    const body = { model: "claude-sonnet-4-6", max_tokens: 1000, system, messages: [{ role: "user", content: userContent }] };
+    if (withSearch) body.tools = [{ type: "web_search_20250305", name: "web_search" }];
+    const headers = { "Content-Type": "application/json" };
+    try {
+      const s = CEREBRO_SB && (await CEREBRO_SB.auth.getSession());
+      const tok = s && s.data && s.data.session && s.data.session.access_token;
+      if (tok) headers["Authorization"] = "Bearer " + tok;
+    } catch (e) {}
+    const response = await fetch("/.netlify/functions/cerebro-claude", {
+      method: "POST", headers: headers, body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      let detail = ""; try { detail = (await response.text()).slice(0, 220); } catch (e) {}
+      throw new Error(`API ${response.status} ${detail}`);
+    }
+    const data = await response.json();
+    if (data.error) throw new Error(data.error.message || "erreur API");
+    const text = (data.content || []).filter(b => b.type === "text").map(b => b.text).join("\n").trim();
+    if (!text) throw new Error("réponse vide du modèle");
+    return text;
+  }
+  async function withRetry(withSearch, tries) {
+    let lastErr;
+    for (let i = 0; i < tries; i++) {
+      try { return await attempt(withSearch); }
+      catch (e) { lastErr = e; await new Promise(r => setTimeout(r, 400 * (i + 1))); }
+    }
+    throw lastErr;
+  }
+  searchDegraded = false;
+  if (!useSearch) return withRetry(false, 3);            // 3 essais (gère un 500 passager)
+  try { return await withRetry(true, 2); }               // 2 essais avec recherche
+  catch (e) { searchDegraded = true; return withRetry(false, 2); } // repli sans recherche
+}
+
+function parseObject(text) {
+  let t = text.replace(/```json/gi, "").replace(/```/g, "").trim();
+  const s = t.indexOf("{");
+  if (s < 0) throw new Error("JSON introuvable dans la réponse");
+  t = t.slice(s);
+  const e = t.lastIndexOf("}");
+  if (e > 0) { try { return JSON.parse(t.slice(0, e + 1)); } catch (_) {} }
+  return JSON.parse(closeTruncatedJSON(t)); // JSON tronqué : on répare
+}
+function closeTruncatedJSON(t) {
+  // dernier séparateur/fermeture hors chaîne = point de coupe sûr
+  let inStr = false, esc = false, cut = -1;
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i];
+    if (inStr) { if (esc) esc = false; else if (c === "\\") esc = true; else if (c === '"') inStr = false; continue; }
+    if (c === '"') inStr = true;
+    else if (c === "," || c === "}" || c === "]") cut = i;
+  }
+  if (cut < 0) throw new Error("JSON irrécupérable");
+  let out = t.slice(0, t[cut] === "," ? cut : cut + 1); // si virgule, on la retire
+  const st = []; inStr = false; esc = false;
+  for (let i = 0; i < out.length; i++) {
+    const c = out[i];
+    if (inStr) { if (esc) esc = false; else if (c === "\\") esc = true; else if (c === '"') inStr = false; continue; }
+    if (c === '"') inStr = true;
+    else if (c === "{") st.push("}");
+    else if (c === "[") st.push("]");
+    else if (c === "}" || c === "]") st.pop();
+  }
+  while (st.length) out += st.pop(); // ferme les structures ouvertes
+  return out;
+}
+function parseObjects(text) {
+  let t = text.replace(/```json/gi, "").replace(/```/g, "").trim();
+  const s = t.indexOf("["), e = t.lastIndexOf("]");
+  if (s >= 0 && e > s) { try { const a = JSON.parse(t.slice(s, e + 1)); if (Array.isArray(a)) return a; } catch (_) {} }
+  const objs = []; let depth = 0, start = -1;
+  for (let i = 0; i < t.length; i++) {
+    const ch = t[i];
+    if (ch === "{") { if (depth === 0) start = i; depth++; }
+    else if (ch === "}") { depth--; if (depth === 0 && start >= 0) { try { objs.push(JSON.parse(t.slice(start, i + 1))); } catch (_) {} start = -1; } }
+  }
+  if (objs.length === 0) throw new Error("aucune fiche exploitable dans la réponse");
+  return objs;
+}
+const clamp = n => Math.max(0, Math.min(100, Math.round(Number(n) || 0)));
+
+function RadarComptes() {
+  const [company, setCompany] = useState("");
+  const [notes, setNotes] = useState("");
+  const [showNotes, setShowNotes] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [result, setResult] = useState(null);
+  const [mapping, setMapping] = useState(false);
+  const [awareLoading, setAwareLoading] = useState(false);
+  const [awareErr, setAwareErr] = useState("");
+
+  const [outChannel, setOutChannel] = useState("linkedin_message");
+  const [outTarget, setOutTarget] = useState("default");
+  const [outAngle, setOutAngle] = useState("insight");
+  const [outLoading, setOutLoading] = useState(false);
+  const [outErr, setOutErr] = useState("");
+  const [copied, setCopied] = useState("");
+  const [dataMsg, setDataMsg] = useState("");
+
+  const [accounts, setAccounts] = useState([]);
+  const [candidates, setCandidates] = useState([]);
+  const [events, setEvents] = useState([]);
+  const [eventScanning, setEventScanning] = useState(false);
+  const [eventErr, setEventErr] = useState("");
+  const [eventFocus, setEventFocus] = useState("");
+  const [verifyingEvent, setVerifyingEvent] = useState("");
+  const [talents, setTalents] = useState([]);
+  const [talentName, setTalentName] = useState("");
+  const [talentMaterial, setTalentMaterial] = useState("");
+  const [talentStatus, setTalentStatus] = useState("Inconnu");
+  const [talentLoading, setTalentLoading] = useState(false);
+  const [talentErr, setTalentErr] = useState("");
+  const [playbook, setPlaybook] = useState(null);
+  const [playbookLoading, setPlaybookLoading] = useState(false);
+  const [playbookErr, setPlaybookErr] = useState("");
+  const [contacts, setContacts] = useState([]);
+  const [network, setNetwork] = useState([]);
+  const [netKeywords, setNetKeywords] = useState(DEFAULT_NET_KW);
+  const [netErr, setNetErr] = useState("");
+  const [importMsg, setImportMsg] = useState("");
+  const [draftingId, setDraftingId] = useState("");
+  const [showKw, setShowKw] = useState(false);
+  const [qualifyingName, setQualifyingName] = useState("");
+
+  const [scanning, setScanning] = useState(false);
+  const [cerebroErr, setCerebroErr] = useState("");
+  const [focus, setFocus] = useState("");
+
+  const [icp, setIcp] = useState(DEFAULT_ICP);
+  const [showIcp, setShowIcp] = useState(false);
+  const [known, setKnown] = useState(DEFAULT_KNOWN);
+  const [showKnown, setShowKnown] = useState(false);
+  const [ready, setReady] = useState(false);
+  const [tab, setTab] = useState("comptes");
+  const [exportText, setExportText] = useState("");
+  const [importText, setImportText] = useState("");
+
+  useEffect(() => {
+    (async () => {
+      const load = async (k, set) => { try { const r = await window.storage.get(k); if (r && r.value) set(JSON.parse(r.value)); } catch (e) {} };
+      await load(STORE_KEY, setAccounts);
+      await load(ICP_KEY, setIcp);
+      await load(KNOWN_KEY, setKnown);
+      await load(CAND_KEY, setCandidates);
+      await load(EVENTS_KEY, setEvents);
+      await load(TALENTS_KEY, setTalents);
+      await load(PLAYBOOK_KEY, setPlaybook);
+      await load(NETWORK_KEY, setNetwork);
+      await load(NETKW_KEY, setNetKeywords);
+      await load(CONTACTS_KEY, setContacts);
+      setReady(true);
+    })();
+  }, []);
+
+  const save = (k, v) => { try { window.storage.set(k, JSON.stringify(v)); } catch (e) {} };
+  const persistAccounts = v => { setAccounts(v); save(STORE_KEY, v); };
+  const persistCandidates = v => { setCandidates(v); save(CAND_KEY, v); };
+  const persistEvents = v => { setEvents(v); save(EVENTS_KEY, v); };
+  const persistTalents = v => { setTalents(v); save(TALENTS_KEY, v); };
+  const persistPlaybook = v => { setPlaybook(v); save(PLAYBOOK_KEY, v); };
+  const persistNetwork = v => { setNetwork(v); save(NETWORK_KEY, v); };
+  const persistNetKw = v => { setNetKeywords(v); save(NETKW_KEY, v); };
+  const persistContacts = v => { setContacts(v); save(CONTACTS_KEY, v); };
+  const persistIcp = v => { setIcp(v); save(ICP_KEY, v); };
+  const persistKnown = v => { setKnown(v); save(KNOWN_KEY, v); };
+
+  const icpTotal = icp.reduce((s, c) => s + (Number(c.weight) || 0), 0);
+  const gridText = () => icp.map(c => `- ${c.name} (poids ${c.weight}) : ${c.note}`).join("\n");
+
+  function qualifySystemPrompt() {
+    return `Tu es l'analyste de qualification commerciale de Humetria, un SaaS B2B qui vend aux grands groupes industriels multi-sites une plateforme d'excellence managériale bâtie sur l'indicateur propriétaire ICM® (corrélation validée r=0.83 entre comportements managériaux et performance industrielle). Fondation terrain : le cabinet Kaizen Way (Go Gemba®, 15+ ans, 50+ sites).
+
+Évalue une entreprise contre l'ICP et rends un verdict TRANCHÉ. Sois exigeant : un PASS clair vaut mieux qu'un faux espoir.
+
+GRILLE ICP (somme des poids = ${icpTotal}) :
+${gridText()}
+
+DISQUALIFIANTS (poussent vers PASS) : mono-site ; services purs sans managers terrain ; groupe trop petit ; pur tech/digital sans plancher industriel.
+
+Utilise la recherche web pour estimer les faits ET pour détecter des SIGNAUX FAIBLES récents (indices de timing d'achat). Chasse en priorité :
+- Direction : nomination récente (0-12 mois) d'un Dir. Industriel / Excellence Op. / Performance / Transformation ; création d'une fonction excellence op. ; nouveau CEO ou nouvel actionnaire.
+- Financier/stratégique : entrée d'un fonds (LBO), plan de compétitivité/économies, avertissement sur marges, relocalisation, ouverture de sites, intégration post-acquisition.
+- Opérationnel/risque : incidents sécurité/qualité répétés, rappels, conflit social, turnover d'encadrement, tensions RPS/QVT.
+- Intention : offres d'emploi Lean / Amélioration continue / Excellence op. / développement des managers de proximité ; prises de parole de dirigeants sur ces sujets.
+N'INVENTE aucun signal : sans fait fiable, mets [] ou marque le signal "(à vérifier)".
+
+Deux axes DISTINCTS : le score ICP mesure le FIT structurel ; le signal_score (0-100) mesure le TIMING — plus les signaux faibles récents sont forts et nombreux, plus il est élevé. timing = "Frapper maintenant" (signal_score ≥ 65), "Nourrir" (40-64) ou "Trop tôt" (< 40).
+
+Réponds UNIQUEMENT en JSON valide, sans texte ni Markdown autour. Sois TRÈS bref (< 850 tokens). Structure EXACTE :
+{"company":"nom","score":<0-100>,"firmographics":{"sites":"~N ou n/d","managers":"~N ou n/d","sector":"court","revenue":"court","geo":"court"},"criteria":[{"name":"nom exact de la grille","score":<0-100>,"note":"≤6 mots"}],"icm_angle":"1 phrase","entry_persona":"titre du point d'entrée","signals":["≤2 signaux faibles concrets, avec (à vérifier) si non confirmé"],"signal_score":<0-100>,"timing":"Frapper maintenant | Nourrir | Trop tôt","red_flags":["≤2, [] si aucun"],"next_step":"1 action concrète"}
+Le score ICP global = moyenne pondérée des critères.`;
+  }
+
+  function cerebroSystemPrompt(excludeList) {
+    return `Tu es CEREBRO, le moteur de détection de comptes de Humetria (SaaS B2B, excellence managériale industrielle, ICM® r=0.83, cabinet Kaizen Way).
+
+Identifie 6 entreprises RÉELLES et existantes au plus fort potentiel selon l'ICP, attribue à chacune un score ICP (0-100 = moyenne pondérée estimée), classe par score DÉCROISSANT.
+
+Priorise, à fit égal : 1) groupes FAMILIAUX/INDÉPENDANTS (procurement léger) ; 2) ancrage Auvergne-Rhône-Alpes ; 3) verticales déjà prouvées (agro/laitier via Andros, cosmétique via L'Oréal). Écarte mono-sites, services purs, sociétés sans masse critique de managers terrain.
+
+GRILLE ICP :
+${gridText()}
+
+À EXCLURE : ${excludeList.join(", ")}.
+
+Score = estimation de cadrage. N'invente aucune entreprise : uniquement des groupes réels et multi-sites.
+
+UTILISE LA RECHERCHE WEB pour partir de groupes réels et repérer des SIGNAUX RÉCENTS réels (nomination Dir. Excellence Op./Industriel, entrée d'un fonds, plan de compétitivité, incidents qualité/sécurité, offres d'emploi lean). Dans "watch", mets les signaux que tu as réellement trouvés ; si rien de fiable, indique le type d'indice à vérifier. N'invente aucun signal.
+
+Réponds UNIQUEMENT avec un tableau JSON valide (trié par score décroissant), sans aucun texte ni Markdown autour. Champs courts obligatoires :
+[{"company":"nom","sector":"court","region":"région/pays","score":<0-100>,"why":"≤10 mots","entry_persona":"titre","watch":["1-2 signaux faibles à vérifier"]}]`;
+  }
+
+  function mapSystemPrompt() {
+    return `Tu es l'analyste d'accès grands comptes de Humetria (SaaS excellence managériale industrielle, ICM® r=0.83, cabinet Kaizen Way).
+
+Cartographie le COMITÉ D'ACHAT pertinent pour vendre Humetria. Quatre rôles, dans cet ordre :
+1. Sponsor économique — Direction Industrielle / Opérations / Excellence Opérationnelle.
+2. Co-sponsor — DRH / Direction Transformation.
+3. Champion terrain — responsable excellence op. / lean / amélioration continue.
+4. Gardien — DPO / référent AI Act + Achats.
+
+RÈGLES ABSOLUES :
+- Ne nomme une personne QUE si une source publique crédible existe. Sinon name=null, public=false, source=non nommé publiquement.
+- N'INVENTE JAMAIS un nom. Dans le doute, name=null. À confirmer est une réponse valide.
+- Ne fournis JAMAIS d'email, de téléphone ni de coordonnée personnelle. Le champ d'accès est le CHEMIN d'approche.
+- Approche privilégiée : intro chaude > LinkedIn > canal standard.
+
+Utilise la recherche web pour vérifier les titulaires publics.
+
+Réponds UNIQUEMENT en JSON valide, sans texte ni Markdown. Pour le champ title, mets une chaîne vide si inconnu :
+{"roles":[{"role":"libellé","name":"Prénom Nom ou null","title":"poste","public":true,"source":"type de source ou non nommé publiquement","approach":"≤20 mots"}],"note":"rappel court"}`;
+  }
+
+  function outreachSystemPrompt(channel, angle) {
+    const chanRule = channel === "email"
+      ? "Canal EMAIL : objet court (≤7 mots), concret et posé — pas \"prise de contact\", pas d'accroche racoleuse. Message initial 110-150 mots ; relances ≤60 mots."
+      : channel === "linkedin_connect"
+      ? "Canal NOTE DE CONNEXION LinkedIn : message initial ≤300 caractères ; relances ≤300 caractères ; objet = chaîne vide."
+      : "Canal MESSAGE LinkedIn : message initial 90-130 mots ; relances ≤55 mots ; objet = chaîne vide.";
+    const angleRule = angle === "preuve"
+      ? "ANGLE PREUVE & MARCHÉ : ancre l'urgence sur une réalité extérieure et datée — le r=0.83 comme fait déjà mesuré ailleurs, et/ou un mouvement de marché vérifiable (la catégorie se structure, des concurrents s'équipent, une obligation réglementaire arrive à échéance). Sous-texte : cela se mesure désormais, et pas encore chez eux."
+      : "ANGLE COÛT DE L'INACTION : nomme une perte que le lecteur subit déjà sans la voir — l'écart de performance entre ses meilleurs et ses moins bons sites s'explique largement par des comportements managériaux qu'il ne mesure pas. Rends ce coût concret et récurrent (chaque trimestre, chaque site). Le statu quo devient le pari risqué.";
+    return `Tu es la plume d'Eric Nelson. Tu rédiges une SÉQUENCE de prise de contact signée Eric Nelson (fondateur & CEO du cabinet Kaizen Way et de la startup Humetria) vers un décideur industriel. Le texte doit sonner comme LUI, pas comme un copywriter.
+
+Proposition de valeur : Humetria mesure les comportements managériaux de terrain via l'indicateur ICM® — corrélation VALIDÉE r=0.83 avec la performance industrielle. Ancrage : 15+ ans de terrain Kaizen Way (Go Gemba®), 50+ sites.
+
+VOIX D'ERIC NELSON (à respecter scrupuleusement) :
+- Sobre, posée, menée par l'OBSERVATION — jamais provocante ni vendeuse. Eric constate, il ne harangue pas.
+- Phrases courtes, déclaratives. Rythme calme, parfois un tiret pour poser une nuance. Pas de phrases à rallonge.
+- Registre pair-à-pair d'un homme de terrain qui a passé 15 ans en usine : humble, direct, concret. Il parle d'égal à égal à un directeur industriel, sans déférence ni supériorité.
+- Chaleur retenue : courtois, humain, sans effusion ni flatterie. Understatement plutôt qu'emphase ("ça arrive au bon moment" plutôt que "opportunité unique").
+- Zéro hype, zéro superlatif, zéro buzzword, zéro emoji. Jamais "révolutionnaire", "disruptif", "solution innovante".
+- Invitation basse et ouverte, qui laisse le choix au lecteur — jamais d'injonction.
+- Signe le message initial et la clôture « Eric Nelson » ; les relances, « Eric » ou sans signature (c'est un fil qui continue).
+
+TA MISSION : susciter l'INTÉRÊT par la lucidité, pas l'urgence par la pression.
+- N'ouvre pas sur une question tiède ("est-ce un sujet pour vous ?") ni sur une provocation. Ouvre sur une OBSERVATION précise et vérifiable — un constat de terrain que le lecteur reconnaît aussitôt comme vrai chez lui. ${angleRule}
+- Rends le coût de l'inaction tangible SANS inventer de chiffre ni dramatiser : pose-le comme un constat, avec leurs propres grandeurs (l'écart entre leurs sites, leurs points de non-qualité, leur turnover d'encadrement) ou une question qu'ils se posent déjà. Le seul chiffre affirmé est r=0.83.
+- Si un déclencheur daté existe (horloge du lecteur : budget excellence op., plan stratégique, incident sécurité/qualité, échéance réglementaire) ou un mouvement de marché vérifiable, appuie-toi dessus ; sinon insère LITTÉRALEMENT [marqueur : déclencheur daté à vérifier] — n'en invente jamais.
+- Remplace le CTA "réunion" par une OFFRE concrète et modeste : montrer, sur un seul de leurs sites, l'écart entre performance affichée et comportements réels ; ou les situer face au r=0.83 observé sur 50+ sites. C'est la valeur de l'offre qui appelle la réponse, pas la demande.
+
+INTERDITS ABSOLUS :
+- Aucune fausse rareté, aucune échéance ou compte à rebours artificiel ("offre limitée", "dernière chance").
+- Aucune pression, aucune culpabilisation, aucune peur fabriquée, aucune formule agressive. La force vient du constat juste, jamais de la menace.
+- Aucun chiffre de perte inventé, aucun nom de client, aucun fait non vérifiable.
+
+RÈGLES DE FOND :
+- L'accroche cite un fait SPÉCIFIQUE et VÉRIFIABLE sur l'entreprise ; sinon insère [accroche : fait récent vérifié à insérer]. Jamais d'invention.
+- ${chanRule}
+
+SÉQUENCE de 4 étapes — l'intérêt monte par la SUBSTANCE ; le ton reste posé du début à la fin :
+- Message initial (J) : une observation de terrain + ce qu'elle coûte, sans dramatiser.
+- Relance 1 (~J+4) : un exemple concret ou un mécanisme qui rend ce constat palpable.
+- Relance 2 (~J+11) : l'angle horloge/marché s'il existe + l'offre concrète et modeste.
+- Clôture (~J+19) : break-up sobre et courtois qui laisse la porte ouverte (ex. je referme le sujet de mon côté pour l'instant — s'il remonte chez vous, ma porte reste ouverte). Aucune culpabilisation.
+
+Réponds UNIQUEMENT avec un tableau JSON valide, sans texte ni Markdown autour :
+[{"step":"Message initial","when":"J","intent":"≤10 mots : le ressort de l'étape","subject":"objet si email sinon chaîne vide","body":"le message, signé Eric Nelson"},{"step":"Relance 1","when":"J+4","intent":"...","subject":"","body":"court"},{"step":"Relance 2","when":"J+11","intent":"...","subject":"","body":"court"},{"step":"Clôture","when":"J+19","intent":"clôture sobre, signée Eric Nelson","subject":"","body":"court"}]`;
+  }
+
+  async function runQualify(name, notesText) {
+    const userMsg = notesText && notesText.trim() ? `Entreprise : ${name}\nContexte connu : ${notesText.trim()}` : `Entreprise : ${name}`;
+    const text = await callClaude(qualifySystemPrompt(), userMsg, true);
+    const parsed = parseObject(text);
+    const score = clamp(parsed.score);
+    const signalScore = (parsed.signal_score === undefined || parsed.signal_score === null || parsed.signal_score === "") ? null : clamp(parsed.signal_score);
+    return { ...parsed, company: parsed.company || name, score, verdict: verdictFor(score), signalScore, timing: parsed.timing || "", ts: Date.now() };
+  }
+
+  function mergeIntoShortlist(entry) {
+    const filtered = accounts.filter(a => a.company.toLowerCase() !== entry.company.toLowerCase());
+    persistAccounts([entry, ...filtered].sort((a, b) => b.score - a.score));
+  }
+  function updateResultAndAccount(updated) {
+    setResult(updated);
+    if (accounts.some(a => a.ts === updated.ts)) persistAccounts(accounts.map(a => a.ts === updated.ts ? updated : a));
+  }
+
+  async function qualify() {
+    const name = company.trim();
+    if (!name || loading) return;
+    setLoading(true); setError(""); setResult(null); setOutErr("");
+    try {
+      const entry = await runQualify(name, notes);
+      setResult(entry); mergeIntoShortlist(entry);
+      setCompany(""); setNotes(""); setShowNotes(false); setOutTarget("default");
+    } catch (e) { setError("Qualification impossible — " + (e?.message || "erreur inconnue")); }
+    finally { setLoading(false); }
+  }
+
+  async function qualifyCandidate(name) {
+    if (qualifyingName) return;
+    setQualifyingName(name); setCerebroErr("");
+    try {
+      const entry = await runQualify(name, "");
+      setResult(entry); mergeIntoShortlist(entry); setOutTarget("default");
+      persistCandidates(candidates.filter(c => c.company !== name));
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (e) { setCerebroErr("Qualification de " + name + " impossible — " + (e?.message || "erreur")); }
+    finally { setQualifyingName(""); }
+  }
+
+  async function runCerebro() {
+    if (scanning) return;
+    setScanning(true); setCerebroErr("");
+    try {
+      const exclude = [...new Set([...known, ...accounts.map(a => a.company)])];
+      const userMsg = focus.trim() ? `Focus : ${focus.trim()}` : "Balaye large sur les groupes industriels FR/francophones fittant l'ICP.";
+      const text = await callClaude(cerebroSystemPrompt(exclude), userMsg, true);
+      const arr = parseObjects(text);
+      const seen = new Set(exclude.map(x => x.toLowerCase()));
+      const ranked = arr
+        .filter(c => c && c.company && !seen.has(String(c.company).toLowerCase()))
+        .map(c => { const score = clamp(c.score); return { ...c, score, verdict: verdictFor(score) }; })
+        .sort((a, b) => b.score - a.score).slice(0, 10);
+      persistCandidates(ranked);
+      if (ranked.length === 0) setCerebroErr("Aucune cible retenue — élargis le focus ou allège le portefeuille exclu.");
+      else if (searchDegraded) setCerebroErr("⚠ Actualité web indisponible à l'instant — résultats basés sur la connaissance (pas de signaux temps réel). Réessaie plus tard.");
+    } catch (e) { setCerebroErr("Détection impossible — " + (e?.message || "erreur inconnue")); }
+    finally { setScanning(false); }
+  }
+
+  function eventsSystemPrompt(excludeList) {
+    return `Tu es le stratège marketing / réseautage de Humetria (SaaS B2B, excellence managériale industrielle, ICM® r=0.83, cabinet Kaizen Way, basé à Grenoble / Auvergne-Rhône-Alpes). Eric bootstrappe — il a abandonné la levée de fonds : les événements orientés INVESTISSEURS sont donc à déprioriser ; priment ceux qui mettent des DÉCIDEURS INDUSTRIELS (directeurs industriels, excellence op., DRH industriels, dirigeants d'ETI / groupes) en face de lui.
+
+UTILISE LA RECHERCHE WEB pour trouver 6 concours, salons, prix et événements RÉELS et À VENIR (édition en cours ou prochaine), y compris récents ou régionaux. Attribue un score d'IMPACT 0-100 selon :
+- Densité de décideurs industriels cibles dans l'audience (facteur n°1).
+- Effet de levier du format : prise de parole ou prix/finaliste > stand > simple présence. Un prix confère une crédibilité tierce précieuse face aux grands comptes.
+- Prestige aligné avec une marque sobre (instances sectorielles, filière industrie, Bercy).
+- ROI vs coût/temps pour un fondateur bootstrappé (un prix gratuit très visible bat un stand cher).
+- Ancrage AURA / réseau chaud.
+DÉPRIORISER franchement : événements purement startup/investisseurs, salons sans acheteurs industriels, et la vanité (collectionner des badges de finaliste sans acheteurs présents = 0 conversion). Sois prêt à mettre un score "Passer".
+
+Si la recherche te donne une date, une édition ou une deadline FIABLE, mets-la dans "check" ; sinon marque « à vérifier ». N'invente jamais de date. Ne propose que des événements réels et vérifiables.${excludeList.length ? "\nÉvite de reproposer : " + excludeList.join(", ") + "." : ""}
+
+Réponds UNIQUEMENT avec un tableau JSON valide (trié par score décroissant), sans texte ni Markdown autour :
+[{"name":"nom réel","type":"Salon|Concours|Prix|Événement","desc":"≤16 mots : ce qu'est l'événement et son envergure","score":<0-100>,"format":"levier visé (stand / speaker / prix / networking)","region":"ville, région, national ou international","why":"≤14 mots : impact/pertinence pour Humetria","check":"date / édition / candidature à vérifier"}]`;
+  }
+
+  async function runEvents() {
+    if (eventScanning) return;
+    setEventScanning(true); setEventErr("");
+    try {
+      const exclude = events.map(e => e.name);
+      const userMsg = eventFocus.trim() ? `Focus : ${eventFocus.trim()}` : "Sélection générale, priorité AURA et décideurs industriels.";
+      const text = await callClaude(eventsSystemPrompt(exclude), userMsg, true);
+      const ranked = parseObjects(text)
+        .filter(e => e && e.name)
+        .map(e => ({ ...e, score: clamp(e.score) }))
+        .sort((a, b) => b.score - a.score).slice(0, 8);
+      persistEvents(ranked);
+      if (ranked.length === 0) setEventErr("Aucun événement retenu — élargis le focus.");
+      else if (searchDegraded) setEventErr("⚠ Actualité web indisponible à l'instant — résultats basés sur la connaissance (dates non actualisées). Réessaie plus tard.");
+    } catch (e) { setEventErr("Chasse impossible — " + (e?.message || "erreur")); }
+    finally { setEventScanning(false); }
+  }
+  function dismissEvent(name) { persistEvents(events.filter(e => e.name !== name)); }
+
+  function eventVerifyPrompt() {
+    return `Tu constitues, via la recherche web, un DOSSIER DE DÉCISION détaillé sur un événement / salon / concours / prix, pour un fondateur (Humetria — SaaS d'excellence managériale industrielle, ICM® r=0.83, cabinet Kaizen Way) qui veut décider s'il s'y engage, candidate ou s'inscrit.
+
+Distingue deux natures d'information :
+1) FAITS DATÉS (dates, lieu, deadline, coût, URL officielle) : renseigne-les UNIQUEMENT si la recherche web les confirme. Sinon chaîne vide "" et explique dans note. Ne devine JAMAIS une date ni une URL ; l'URL doit être réellement présente dans les résultats.
+2) CARACTÉRISATION (audience, opportunité pour Humetria, format à jouer, recommandation) : sois RICHE, CONCRET et spécifique — ces champs n'ont pas besoin d'être "vérifiés" mais d'être utiles à une décision.
+
+Concret attendu : quel profil d'acheteurs est présent (des décideurs industriels cibles, ou surtout des startups/investisseurs ?), quelle catégorie de prix viser, s'il existe un créneau de prise de parole, l'ordre de grandeur du coût d'un stand ou d'une inscription, et l'action à mener.
+
+Réponds UNIQUEMENT en JSON valide, sans texte ni Markdown. Champs FACTUELS courts ; champs de CARACTÉRISATION en 1-2 phrases utiles :
+{"edition":"prochaine édition (année) ou ''","dates":"dates ou ''","location":"ville / lieu ou ''","deadline":"date limite candidature/inscription, 'n/a', ou ''","cost":"ordre de grandeur (stand / entrée / gratuit) ou ''","audience":"profil dominant des participants et présence (ou non) de décideurs industriels cibles","opportunity":"opportunité concrète pour Humetria : catégorie à viser, slot de prise de parole, type de RDV à décrocher","format_leverage":"le meilleur format à jouer ici et pourquoi","url":"URL officielle trouvée dans la recherche ou ''","recommendation":"action recommandée, datée si possible (candidater à X avant Y / assister / passer)","note":"niveau de confiance sur les faits datés / ce qui reste à confirmer"}`;
+  }
+
+  async function verifyEvent(name) {
+    if (verifyingEvent) return;
+    setVerifyingEvent(name); setEventErr("");
+    try {
+      const v = parseObject(await callClaude(eventVerifyPrompt(), `Événement : ${name}`, true));
+      persistEvents(events.map(e => e.name === name ? { ...e, verified: true, edition: v.edition || "", dates: v.dates || "", location: v.location || "", deadline: v.deadline || "", cost: v.cost || "", audience: v.audience || "", opportunity: v.opportunity || "", format_leverage: v.format_leverage || "", url: v.url || "", recommendation: v.recommendation || "", vnote: v.note || "" } : e));
+    } catch (e) { setEventErr("Vérification de " + name + " impossible — " + (e?.message || "erreur")); }
+    finally { setVerifyingEvent(""); }
+  }
+
+  function cultureEvalPrompt(status) {
+    return `Tu es l'aide au recrutement de Kaizen Way (cabinet de transformation industrielle, Go Gemba®, culture forte). Tu évalues le FIT CULTUREL d'un candidat consultant en transformation, UNIQUEMENT à partir du matériel public fourni par le recruteur (résumé de profil, titres, extraits de posts). Tu n'as pas d'autre source.
+
+Culture Kaizen Way à noter (chaque critère 0-100) :
+- Humilité
+- Posts de fond + réseau LinkedIn significatif (partage de connaissance, pas de vitrine)
+- Sens de l'adaptation
+- Fait briller les autres (met en valeur les équipes, pas son ego)
+- Expertise lean / excellence opérationnelle
+- N'est pas donneur de leçons (humble praticien, pas gourou)
+
+RÈGLES ABSOLUES :
+- Évalue les SIGNAUX PRÉSENTS DANS LE MATÉRIEL FOURNI, pas la personne. Formule "le matériel suggère…", jamais "cette personne est…". Si le matériel est insuffisant pour un critère, dis-le et note prudemment — n'invente aucune preuve.
+- N'affirme JAMAIS un statut de recherche d'emploi : reflète seulement le statut fourni par le recruteur ("${status}"). N'infère rien à ce sujet.
+- Le fit culturel réel se confirme en ENTRETIEN, pas sur un profil.
+
+Réponds UNIQUEMENT en JSON valide, sans texte ni Markdown :
+{"name":"nom","fit":<0-100>,"verdict":"Rencontrer|À creuser|Écarter","criteria":[{"name":"critère","score":<0-100>,"evidence":"≤16 mots : signal observé dans le matériel, ou 'matériel insuffisant'"}],"strengths":["≤3 forces observées"],"flags":["≤3 signaux d'alerte (ex: ton donneur de leçons), [] si aucun"],"interview_questions":["2-3 questions pour confirmer humilité / faire briller les autres / adaptation"],"note":"rappel : le fit se confirme en entretien"}`;
+  }
+
+  function sourcingPlaybookPrompt() {
+    return `Tu es le stratège sourcing de Kaizen Way (transformation industrielle, Go Gemba®, culture : humilité, expertise lean, partage de fond, faire briller les autres, pas donneur de leçons). Tu aides à SOURCER des consultants en transformation qui fittent cette culture, de façon légitime et respectueuse (sur les plateformes, sans scraping).
+
+Pour "repérer une ouverture à un poste", ne cite QUE des méthodes légitimes et publiques (badge Open to Work public, filtre open-to-work de LinkedIn Recruiter, personnes ayant récemment quitté un poste d'après leur profil public) — jamais d'inférence intrusive.
+
+Réponds UNIQUEMENT en JSON valide, sans texte ni Markdown :
+{"booleans":["2-4 requêtes booléennes LinkedIn/Google prêtes à coller"],"where":["3-5 endroits où ces profils se concentrent (communautés lean, certifications, événements, hashtags)"],"signals":["3-5 signaux de contenu qui trahissent la culture recherchée vs un donneur de leçons"],"openness":["2-4 façons LÉGITIMES de repérer une ouverture à un poste"]}`;
+  }
+
+  async function evaluateTalent() {
+    const name = talentName.trim();
+    if (!name || !talentMaterial.trim() || talentLoading) return;
+    setTalentLoading(true); setTalentErr("");
+    try {
+      const ctx = `Candidat : ${name}
+Statut indiqué par le recruteur : ${talentStatus}
+Matériel public fourni :
+${talentMaterial.trim()}`;
+      const t = parseObject(await callClaude(cultureEvalPrompt(talentStatus), ctx, false));
+      const fit = clamp(t.fit);
+      const entry = { ...t, name: t.name || name, fit, status: talentStatus, ts: Date.now() };
+      persistTalents([entry, ...talents.filter(x => x.name.toLowerCase() !== entry.name.toLowerCase())].sort((a, b) => b.fit - a.fit));
+      setTalentName(""); setTalentMaterial(""); setTalentStatus("Inconnu");
+    } catch (e) { setTalentErr("Évaluation impossible — " + (e?.message || "erreur")); }
+    finally { setTalentLoading(false); }
+  }
+  function removeTalent(ts) { persistTalents(talents.filter(t => t.ts !== ts)); }
+
+  async function runPlaybook() {
+    if (playbookLoading) return;
+    setPlaybookLoading(true); setPlaybookErr("");
+    try {
+      persistPlaybook(parseObject(await callClaude(sourcingPlaybookPrompt(), "Génère le playbook de sourcing Kaizen Way.", false)));
+    } catch (e) { setPlaybookErr("Génération impossible — " + (e?.message || "erreur")); }
+    finally { setPlaybookLoading(false); }
+  }
+
+  function parseCSV(text) {
+    const rows = []; let field = "", row = [], inQ = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (inQ) {
+        if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else inQ = false; }
+        else field += c;
+      } else if (c === '"') inQ = true;
+      else if (c === ",") { row.push(field); field = ""; }
+      else if (c === "\n" || c === "\r") { if (c === "\r" && text[i + 1] === "\n") i++; row.push(field); rows.push(row); row = []; field = ""; }
+      else field += c;
+    }
+    if (field.length || row.length) { row.push(field); rows.push(row); }
+    return rows.filter(r => r.some(x => x && x.trim()));
+  }
+
+  function importContacts(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const rows = parseCSV(String(reader.result));
+        if (!rows.length) throw new Error("CSV vide");
+        let hIdx = rows.findIndex(r => r.some(c => /first name|prénom|position|job title|intitulé|poste|titre/i.test(c)));
+        if (hIdx < 0) hIdx = 0;
+        const header = rows[hIdx].map(h => h.trim().toLowerCase());
+        const col = (...names) => header.findIndex(h => names.some(n => h === n || h.includes(n)));
+        const iFirst = col("first name", "prénom"), iLast = col("last name", "nom de famille"), iName = col("full name", "name", "nom complet"), iPos = col("position", "job title", "intitulé", "poste", "titre"), iComp = col("company", "entreprise", "organisation", "société");
+        const out = [];
+        for (let r = hIdx + 1; r < rows.length; r++) {
+          const row = rows[r];
+          const name = (iName >= 0 ? (row[iName] || "") : [row[iFirst], row[iLast]].filter(Boolean).join(" ")).trim();
+          if (!name) continue;
+          out.push({ name, position: (iPos >= 0 ? (row[iPos] || "") : "").trim(), company: (iComp >= 0 ? (row[iComp] || "") : "").trim() });
+        }
+        if (!out.length) throw new Error("aucun contact lisible (colonnes nom/poste introuvables)");
+        const map = new Map(contacts.map(c => [(c.name + "|" + c.company).toLowerCase(), c]));
+        for (const c of out) map.set((c.name + "|" + c.company).toLowerCase(), c);
+        const merged = [...map.values()];
+        persistContacts(merged); setNetErr("");
+        setImportMsg(out.length + " lus · " + merged.length + " contacts au total (sauvegardés).");
+      } catch (err) { setNetErr("Import impossible — " + (err?.message || "format non reconnu")); }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  }
+
+  function addToNetwork(c) {
+    const id = (c.name + "|" + c.company).toLowerCase();
+    if (network.some(n => n.id === id)) return;
+    persistNetwork([...network, { id, name: c.name, company: c.company, position: c.position, tags: { gemba: "partielle", humility: "?", lean: "moyenne", relation: "tiède" } }]);
+  }
+  function setTag(id, key, val) { persistNetwork(network.map(n => n.id === id ? { ...n, tags: { ...n.tags, [key]: val } } : n)); }
+  function removeNetwork(id) { persistNetwork(network.filter(n => n.id !== id)); }
+
+  function reconnectPrompt() {
+    return `Tu rédiges, pour Eric (fondateur du cabinet Kaizen Way — transformation industrielle, Go Gemba®, ICM® r=0.83), un message de REPRISE DE CONTACT à une personne de son réseau (ex-client, ex-collègue, alumni) qu'il envisage de recruter comme consultant en transformation, ou à qui demander une recommandation.
+
+RÈGLES :
+- Chaleureux, pair-à-pair, sobre. Zéro hype, pas d'emoji, pas de flatterie.
+- Référence leur histoire commune SANS l'inventer : insère [marqueur : site/projet partagé] pour qu'Eric le remplace. N'invente aucun fait ni aucune date.
+- CTA doux (échanger de vive voix), sans pression.
+
+Produis DEUX variantes ≤ 90 mots : "Reprise directe" (explorer un intérêt à rejoindre Kaizen Way) et "Par recommandation" (demander s'ils connaissent un profil qui fitte).
+
+Réponds UNIQUEMENT avec un tableau JSON valide, sans texte ni Markdown :
+[{"label":"Reprise directe","body":"..."},{"label":"Par recommandation","body":"..."}]`;
+  }
+
+  async function draftReconnect(id) {
+    if (draftingId) return;
+    const n = network.find(x => x.id === id); if (!n) return;
+    setDraftingId(id); setNetErr("");
+    try {
+      const ctx = `Personne : ${n.name}\nPoste : ${n.position || "n/d"}\nEntreprise : ${n.company || "n/d"}`;
+      const variants = parseObjects(await callClaude(reconnectPrompt(), ctx, false)).filter(v => v && v.body);
+      persistNetwork(network.map(x => x.id === id ? { ...x, draft: variants } : x));
+    } catch (e) { setNetErr("Rédaction impossible — " + (e?.message || "erreur")); }
+    finally { setDraftingId(""); }
+  }
+
+  async function mapDecisionMakers() {
+    if (!result || mapping) return;
+    setMapping(true); setError("");
+    try {
+      const text = await callClaude(mapSystemPrompt(), `Entreprise : ${result.company}`, true);
+      const parsed = parseObject(text);
+      const dm = { roles: Array.isArray(parsed.roles) ? parsed.roles : [], note: parsed.note || "" };
+      updateResultAndAccount({ ...result, decisionMap: dm });
+    } catch (e) { setError("Cartographie impossible — " + (e?.message || "erreur")); }
+    finally { setMapping(false); }
+  }
+
+  function targetOptions() {
+    const opts = [{ key: "default", label: result?.entry_persona ? `Persona : ${result.entry_persona}` : "Point d'entrée par défaut", role: result?.entry_persona || "décideur pertinent", name: "" }];
+    if (result?.decisionMap && Array.isArray(result.decisionMap.roles)) {
+      result.decisionMap.roles.forEach((r, i) => {
+        const named = r.name && r.public;
+        opts.push({ key: "r" + i, label: (named ? r.name + " — " : "") + (r.role || r.title || "rôle"), role: r.title || r.role || "décideur", name: named ? r.name : "" });
+      });
+    }
+    return opts;
+  }
+
+  async function generateOutreach() {
+    if (!result || outLoading) return;
+    setOutLoading(true); setOutErr("");
+    try {
+      const opts = targetOptions();
+      const tgt = opts.find(o => o.key === outTarget) || opts[0];
+      const ctx = `Entreprise : ${result.company}
+Secteur : ${result.firmographics?.sector || "n/d"}
+Destinataire : ${tgt.name ? tgt.name + " — " : ""}${tgt.role}
+Angle ICM® : ${result.icm_angle || "—"}
+Signaux déclencheurs : ${(result.signals || []).join(" ; ") || "—"}`;
+      const text = await callClaude(outreachSystemPrompt(outChannel, outAngle), ctx, false);
+      const steps = parseObjects(text).filter(s => s && (s.body || s.subject));
+      if (steps.length === 0) throw new Error("aucune étape générée");
+      updateResultAndAccount({ ...result, outreach: { channel: outChannel, angle: outAngle, target: tgt.label, steps } });
+    } catch (e) { setOutErr("Rédaction impossible — " + (e?.message || "erreur")); }
+    finally { setOutLoading(false); }
+  }
+
+  function awarenessSystemPrompt() {
+    return `Tu es le stratège d'aide à la vente de Humetria (SaaS de mesure de l'excellence managériale, indicateur ICM® r=0.83 comportements→performance ; cabinet Kaizen Way, Go Gemba®, 50+ sites).
+
+Objectif : outiller Eric pour créer la PRISE DE CONSCIENCE d'une douleur souvent invisible chez un décideur industriel — on mesure les résultats (TRS, qualité, sécurité, coûts) mais jamais les comportements managériaux de terrain qui les produisent. La douleur n'est pas "les résultats sont mauvais" (il le sait) mais "vous ne savez pas POURQUOI l'écart entre vos meilleurs et vos moins bons sites existe, car la cause n'est pas mesurée".
+
+Principes : la douleur AUTO-DÉCOUVERTE par le prospect (via ses propres chiffres) convainc plus que la douleur assénée. N'invente AUCUN chiffre (seul r=0.83 est affirmable) ; appuie-toi sur SES grandeurs (écart inter-sites, non-qualité, turnover d'encadrement). Ton sobre, expert, jamais anxiogène ni manipulateur : diagnosticien, pas agitateur de peur.
+
+Adapte au compte fourni (secteur, signaux). Réponds UNIQUEMENT en JSON valide, sans texte ni Markdown :
+{"recadrage":"le retournement à provoquer (le résultat est l'ombre, le comportement est l'objet ; on ne pilote pas une ombre) — 2 phrases max, adapté au secteur","revelateur":"LA question qui fait regarder au prospect son propre écart inter-sites et le rend curieux de la cause","cout_inaction":"comment chiffrer le coût SANS inventer : à partir de SES grandeurs, formulé en question — 1-2 phrases","diagnostic":"l'offre à faible friction qui matérialise la prise de conscience : mesurer l'ICM® sur UN site et le confronter à la performance réelle de ce site"}`;
+  }
+
+  async function generateAwareness() {
+    if (!result || awareLoading) return;
+    setAwareLoading(true); setAwareErr("");
+    try {
+      const ctx = `Entreprise : ${result.company}
+Secteur : ${result.firmographics?.sector || "n/d"}
+Angle ICM® : ${result.icm_angle || "—"}
+Signaux : ${(result.signals || []).join(" ; ") || "—"}`;
+      const a = parseObject(await callClaude(awarenessSystemPrompt(), ctx, false));
+      updateResultAndAccount({ ...result, awareness: { reframe: a.recadrage || "", question: a.revelateur || "", cost: a.cout_inaction || "", diagnostic: a.diagnostic || "" } });
+    } catch (e) { setAwareErr("Génération impossible — " + (e?.message || "erreur")); }
+    finally { setAwareLoading(false); }
+  }
+
+  function copyText(key, t) { try { navigator.clipboard.writeText(t); setCopied(key); setTimeout(() => setCopied(""), 1500); } catch (e) {} }
+
+  function applyImport(data) {
+    if (Array.isArray(data.accounts)) persistAccounts(data.accounts);
+    if (Array.isArray(data.candidates)) persistCandidates(data.candidates);
+    if (Array.isArray(data.events)) persistEvents(data.events);
+    if (Array.isArray(data.talents)) persistTalents(data.talents);
+    if (data.playbook && typeof data.playbook === "object") persistPlaybook(data.playbook);
+    if (Array.isArray(data.network)) persistNetwork(data.network);
+    if (typeof data.netKeywords === "string") persistNetKw(data.netKeywords);
+    if (Array.isArray(data.contacts)) persistContacts(data.contacts);
+    if (Array.isArray(data.icp)) persistIcp(data.icp);
+    if (Array.isArray(data.known)) persistKnown(data.known);
+    setResult(null);
+  }
+
+  function exportData() {
+    try {
+      const payload = { app: "cerebro", version: 7, exportedAt: new Date().toISOString(), accounts, candidates, events, talents, playbook, network, netKeywords, contacts, icp, known };
+      const json = JSON.stringify(payload, null, 2);
+      setExportText(json); // toujours affiché et copiable, même si le téléchargement est bloqué
+      try {
+        const blob = new Blob([json], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = `cerebro-${new Date().toISOString().slice(0, 10)}.json`;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+      } catch (_) {}
+      setDataMsg("Sauvegarde prête ci-dessous — copie le texte si aucun fichier ne se télécharge.");
+      setTimeout(() => setDataMsg(""), 4000);
+    } catch (e) { setDataMsg("Export impossible — " + (e?.message || "erreur")); }
+  }
+
+  function importFromText() {
+    try {
+      applyImport(JSON.parse(importText));
+      setImportText("");
+      setDataMsg("Données restaurées depuis le texte collé."); setTimeout(() => setDataMsg(""), 2800);
+    } catch (e) { setDataMsg("Collage invalide — le texte n'est pas un JSON de sauvegarde lisible."); }
+  }
+
+  function handleImport(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const data = JSON.parse(reader.result);
+        applyImport(data);
+        setDataMsg("Données restaurées depuis la sauvegarde."); setTimeout(() => setDataMsg(""), 2800);
+      } catch (err) { setDataMsg("Fichier invalide — sauvegarde non reconnue."); setTimeout(() => setDataMsg(""), 2800); }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  }
+
+  function clearAll() {
+    if (typeof window !== "undefined" && window.confirm && !window.confirm("Effacer tous les comptes, candidats et réglages ? Pense à exporter d'abord.")) return;
+    persistAccounts([]); persistCandidates([]); setResult(null);
+    setDataMsg("Données effacées."); setTimeout(() => setDataMsg(""), 2500);
+  }
+  function dismissCandidate(name) { persistCandidates(candidates.filter(c => c.company !== name)); }
+  function removeAccount(ts) { persistAccounts(accounts.filter(a => a.ts !== ts)); if (result && result.ts === ts) setResult(null); }
+  function updateIcp(i, field, val) { persistIcp(icp.map((c, idx) => idx === i ? { ...c, [field]: field === "weight" ? val.replace(/[^0-9]/g, "") : val } : c)); }
+
+  const needleLeft = result ? `calc(${result.score}% - 1.5px)` : "0";
+
+  return (
+    <div className="hr-root">
+      <style>{CSS}</style>
+      <div className="hr-wrap">
+
+        <div className="hr-head">
+          <div>
+            <div className="hr-brand">CEREBRO</div>
+            <div className="hr-eyebrow">Humetria × Kaizen Way · détecter, qualifier, approcher</div>
+          </div>
+          <div className="hr-r">ICM® r=0.83</div>
+        </div>
+
+        <div className="hr-tabs">
+          <button className={tab === "comptes" ? "on" : ""} onClick={() => setTab("comptes")}>Business</button>
+          <button className={tab === "evenements" ? "on" : ""} onClick={() => setTab("evenements")}>Events</button>
+        </div>
+
+        {tab === "comptes" && (<>
+
+        {/* CEREBRO */}
+        <div className="hr-card cerebro">
+          <p className="hr-cerebro-title">◎ CEREBRO BUSINESS</p>
+          <p className="hr-cerebro-sub">Détecte les 10 comptes au plus fort score ICP, classés. Score = cadrage rapide.</p>
+          <input className="hr-input" placeholder="Focus optionnel (secteur, région — ex : laitier AURA)" value={focus} onChange={e => setFocus(e.target.value)} disabled={scanning} />
+          <button className="hr-btn" onClick={runCerebro} disabled={scanning}>
+            {scanning ? <><span className="hr-spin" />Détection en cours…</> : "Détecter 10 comptes ▸"}
+          </button>
+          <span style={{ marginLeft: 14 }}>
+            <button className="hr-link" onClick={() => setShowKnown(v => !v)}>{showKnown ? "masquer le portefeuille" : "portefeuille exclu ▸"}</button>
+          </span>
+          {showKnown && (
+            <div style={{ marginTop: 12 }}>
+              <p className="hr-label">Comptes exclus de la détection (un par ligne)</p>
+              <textarea className="hr-textarea" style={{ minHeight: 90 }} value={known.join("\n")} onChange={e => persistKnown(e.target.value.split("\n").map(s => s.trim()).filter(Boolean))} />
+            </div>
+          )}
+          {cerebroErr && <p className="hr-err">{cerebroErr}</p>}
+        </div>
+
+        {/* Cerebro results */}
+        {candidates.length > 0 && (
+          <div style={{ marginBottom: 4 }}>
+            <p className="hr-section-title" style={{ padding: "0 4px" }}>Cerebro · {candidates.length} comptes détectés</p>
+            {candidates.map((c, i) => (
+              <div key={c.company + i} className="hr-cb">
+                <div className="hr-cb-head">
+                  <span className="hr-cb-rank">{String(i + 1).padStart(2, "0")}</span>
+                  <span className="hr-cb-score" style={{ color: VERDICT[c.verdict].color }}>{c.score}</span>
+                  <div className="hr-cb-mid">
+                    <div className="hr-cb-name">{c.company}</div>
+                    <div className="hr-cb-meta">{[c.sector, c.region].filter(Boolean).join(" · ")}</div>
+                  </div>
+                  <span className="hr-badge" style={{ color: VERDICT[c.verdict].color, background: VERDICT[c.verdict].color + "22" }}>{VERDICT[c.verdict].label}</span>
+                  <button className="hr-del" onClick={() => dismissCandidate(c.company)} title="Écarter">×</button>
+                </div>
+                {c.why && <p className="hr-cb-why">{c.why}</p>}
+                {c.entry_persona && <p className="hr-cb-persona">Point d'entrée : {c.entry_persona}</p>}
+                {Array.isArray(c.watch) && c.watch.length > 0 && <p className="hr-cb-persona" style={{ color: "var(--amber)" }}>À vérifier : {c.watch.join(" · ")}</p>}
+                <div className="hr-cb-actions">
+                  <button className="hr-mini" onClick={() => qualifyCandidate(c.company)} disabled={!!qualifyingName}>
+                    {qualifyingName === c.company ? <><span className="hr-spin" />…</> : "Qualifier en détail ▸"}
+                  </button>
+                </div>
+              </div>
+            ))}
+            <p className="hr-caption">Scores Cerebro = estimation de cadrage. « Qualifier en détail » lance l'analyse approfondie (avec recherche web) et range le compte dans la shortlist.</p>
+          </div>
+        )}
+
+        {/* Qualifier manuellement */}
+        <div className="hr-card">
+          <p className="hr-section-title">Qualifier un compte précis</p>
+          <input className="hr-input" placeholder="Nom de l'entreprise (ex : Somfy)" value={company} onChange={e => setCompany(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !showNotes) qualify(); }} disabled={loading} />
+          {showNotes && (
+            <textarea className="hr-textarea" placeholder="Contexte connu (contact, événement, angle repéré…)" value={notes} onChange={e => setNotes(e.target.value)} disabled={loading} />
+          )}
+          <div style={{ display: "flex", alignItems: "center", gap: 16, marginTop: 4, flexWrap: "wrap" }}>
+            <button className="hr-btn" onClick={qualify} disabled={loading || !company.trim()}>
+              {loading ? <><span className="hr-spin" />Analyse en cours…</> : "Qualifier ▸"}
+            </button>
+            {!showNotes && <button className="hr-link" onClick={() => setShowNotes(true)}>+ ajouter du contexte</button>}
+          </div>
+          {error && <p className="hr-err">{error}</p>}
+        </div>
+
+        {/* Résultat */}
+        {result && (
+          <div className="hr-card">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
+              <div>
+                <p className="hr-section-title" style={{ margin: "0 0 6px" }}>{result.company}</p>
+                <span className="hr-gauge-verdict" style={{ color: VERDICT[result.verdict].color }}>{VERDICT[result.verdict].label}</span>
+                <span className="hr-gauge-tag">{VERDICT[result.verdict].tag}</span>
+              </div>
+              <div className="hr-gauge-score" style={{ color: VERDICT[result.verdict].color }}>
+                {result.score}<span style={{ fontSize: 18, color: "var(--mute)" }}>/100</span>
+              </div>
+            </div>
+            <div className="hr-scale"><div className="hr-needle" style={{ left: needleLeft }} /></div>
+            <div className="hr-ticks"><span>0</span><span>45</span><span>70</span><span>100</span></div>
+
+            {result.signalScore != null && (
+              <div className="hr-block">
+                <p className="hr-label">Signal / timing{result.timing ? " — " + result.timing : ""}</p>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span className="hr-crit-bar"><span className="hr-crit-fill" style={{ width: result.signalScore + "%", background: result.signalScore >= 65 ? "#3FB68B" : result.signalScore >= 40 ? "#E0A63C" : "#C15B57" }} /></span>
+                  <span className="hr-crit-w">{result.signalScore}</span>
+                </div>
+              </div>
+            )}
+
+            {result.firmographics && (
+              <div className="hr-chips">
+                {result.firmographics.sites && <span className="hr-chip"><b>sites</b> {result.firmographics.sites}</span>}
+                {result.firmographics.managers && <span className="hr-chip"><b>managers</b> {result.firmographics.managers}</span>}
+                {result.firmographics.sector && <span className="hr-chip">{result.firmographics.sector}</span>}
+                {result.firmographics.revenue && <span className="hr-chip"><b>CA</b> {result.firmographics.revenue}</span>}
+                {result.firmographics.geo && <span className="hr-chip">{result.firmographics.geo}</span>}
+              </div>
+            )}
+            {Array.isArray(result.criteria) && result.criteria.length > 0 && (
+              <div className="hr-block">
+                <p className="hr-label">Détail par critère</p>
+                {result.criteria.map((c, i) => {
+                  const cs = clamp(c.score); const col = cs >= 70 ? "#3FB68B" : cs >= 45 ? "#E0A63C" : "#C15B57";
+                  return (
+                    <div key={i} className="hr-crit">
+                      <span className="hr-crit-name" title={c.note}>{c.name}</span>
+                      <span className="hr-crit-bar"><span className="hr-crit-fill" style={{ width: cs + "%", background: col }} /></span>
+                      <span className="hr-crit-w">{cs}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {result.icm_angle && <div className="hr-block"><p className="hr-label">Angle ICM®</p><p className="hr-value">{result.icm_angle}</p></div>}
+            {result.entry_persona && <div className="hr-block"><p className="hr-label">Point d'entrée</p><p className="hr-value">{result.entry_persona}</p></div>}
+            {Array.isArray(result.signals) && result.signals.length > 0 && (
+              <div className="hr-block"><p className="hr-label">Signaux déclencheurs</p><ul className="hr-list">{result.signals.map((x, i) => <li key={i}>{x}</li>)}</ul></div>
+            )}
+            {Array.isArray(result.red_flags) && result.red_flags.length > 0 && (
+              <div className="hr-block"><p className="hr-label">Drapeaux rouges</p><ul className="hr-list">{result.red_flags.map((x, i) => <li key={i} className="hr-flag">{x}</li>)}</ul></div>
+            )}
+            {result.next_step && <div className="hr-block"><p className="hr-label">Prochaine action</p><p className="hr-value">{result.next_step}</p></div>}
+
+            {/* Carto décideurs */}
+            <div className="hr-block" style={{ borderTop: "1px solid var(--line)", paddingTop: 14, marginTop: 18 }}>
+              <p className="hr-label">Carto décideurs</p>
+              {!result.decisionMap ? (
+                <>
+                  <button className="hr-btn ghost" onClick={mapDecisionMakers} disabled={mapping}>
+                    {mapping ? <><span className="hr-spin cy" />Cartographie en cours…</> : "Cartographier les décideurs ▸"}
+                  </button>
+                  <p className="hr-caption" style={{ margin: "10px 4px 0" }}>Nommé seulement si source publique. Aucune coordonnée personnelle — un chemin d'approche.</p>
+                </>
+              ) : (
+                <>
+                  {result.decisionMap.roles.map((r, i) => {
+                    const named = r.name && r.public;
+                    return (
+                      <div key={i} className={"hr-dm " + (named ? "named" : "tbc")}>
+                        <div className="hr-dm-role">{r.role}</div>
+                        <div className={"hr-dm-name " + (named ? "" : "tbc")}>{named ? r.name : "À confirmer"}{named && <span className="hr-pubtag">public</span>}</div>
+                        {r.title && <div className="hr-dm-title">{r.title}</div>}
+                        {r.source && <div className="hr-dm-src">Source : {r.source}</div>}
+                        {r.approach && <div className="hr-dm-approach">Accès : {r.approach}</div>}
+                      </div>
+                    );
+                  })}
+                  {result.decisionMap.note && <p className="hr-caption" style={{ margin: "6px 4px 0" }}>{result.decisionMap.note}</p>}
+                  <button className="hr-link" style={{ marginTop: 6 }} onClick={mapDecisionMakers} disabled={mapping}>{mapping ? "…" : "recartographier"}</button>
+                </>
+              )}
+            </div>
+
+            {/* Prise de conscience */}
+            <div className="hr-block" style={{ borderTop: "1px solid var(--line)", paddingTop: 14, marginTop: 18 }}>
+              <p className="hr-label">Prise de conscience — leviers de découverte</p>
+              {!result.awareness ? (
+                <>
+                  <button className="hr-btn ghost" onClick={generateAwareness} disabled={awareLoading}>
+                    {awareLoading ? <><span className="hr-spin cy" />Génération en cours…</> : "Générer les leviers ▸"}
+                  </button>
+                  {awareErr && <p className="hr-err">{awareErr}</p>}
+                  <p className="hr-caption" style={{ margin: "10px 4px 0" }}>De quoi faire découvrir la douleur au prospect via ses propres chiffres — pas la lui asséner.</p>
+                </>
+              ) : (
+                <>
+                  <div className="hr-dm named"><div className="hr-dm-role">Recadrage</div><p className="hr-variant-body" style={{ marginTop: 3 }}>{result.awareness.reframe}</p></div>
+                  <div className="hr-dm named"><div className="hr-dm-role">Question révélatrice</div><p className="hr-variant-body" style={{ marginTop: 3 }}>{result.awareness.question}</p></div>
+                  <div className="hr-dm named"><div className="hr-dm-role">Coût de l'inaction</div><p className="hr-variant-body" style={{ marginTop: 3 }}>{result.awareness.cost}</p></div>
+                  <div className="hr-dm named"><div className="hr-dm-role">Offre diagnostic</div><p className="hr-variant-body" style={{ marginTop: 3 }}>{result.awareness.diagnostic}</p></div>
+                  {awareErr && <p className="hr-err">{awareErr}</p>}
+                  <button className="hr-link" style={{ marginTop: 6 }} onClick={generateAwareness} disabled={awareLoading}>{awareLoading ? "…" : "régénérer"}</button>
+                </>
+              )}
+            </div>
+
+            {/* Approche (outreach) */}
+            <div className="hr-block" style={{ borderTop: "1px solid var(--line)", paddingTop: 14, marginTop: 18 }}>
+              <p className="hr-label">Approche — séquence de prise de contact</p>
+              <div className="hr-seg">
+                {CHANNELS.map(ch => (
+                  <button key={ch.k} className={outChannel === ch.k ? "on" : ""} onClick={() => setOutChannel(ch.k)}>{ch.l}</button>
+                ))}
+              </div>
+              <div className="hr-seg">
+                <button className={outAngle === "insight" ? "on" : ""} onClick={() => setOutAngle("insight")}>Coût de l'inaction</button>
+                <button className={outAngle === "preuve" ? "on" : ""} onClick={() => setOutAngle("preuve")}>Preuve &amp; marché</button>
+              </div>
+              <select className="hr-select" value={outTarget} onChange={e => setOutTarget(e.target.value)}>
+                {targetOptions().map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+              </select>
+              <button className="hr-btn ghost" onClick={generateOutreach} disabled={outLoading}>
+                {outLoading ? <><span className="hr-spin cy" />Rédaction en cours…</> : (result.outreach ? "Régénérer la séquence ▸" : "Rédiger la séquence ▸")}
+              </button>
+              {outErr && <p className="hr-err">{outErr}</p>}
+              {result.outreach && Array.isArray(result.outreach.steps) && result.outreach.steps.length > 0 && (
+                <>
+                  <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
+                    <button className="hr-copy" onClick={() => copyText("seq", result.outreach.steps.map(s => (s.step ? "— " + s.step + (s.when ? " (" + s.when + ")" : "") + " —\n" : "") + (s.subject ? "Objet : " + s.subject + "\n" : "") + (s.body || "")).join("\n\n"))}>{copied === "seq" ? "séquence copiée ✓" : "copier toute la séquence"}</button>
+                  </div>
+                  {result.outreach.steps.map((s, i) => {
+                    const key = "s" + i;
+                    const payload = (s.subject ? "Objet : " + s.subject + "\n\n" : "") + (s.body || "");
+                    return (
+                      <div key={i} className="hr-variant">
+                        <p className="hr-variant-label">
+                          <span>{s.step || ("Étape " + (i + 1))}{s.when && <span className="hr-when">{s.when}</span>}</span>
+                          <button className="hr-copy" onClick={() => copyText(key, payload)}>{copied === key ? "copié ✓" : "copier"}</button>
+                        </p>
+                        {s.intent && <p className="hr-step-intent">{s.intent}</p>}
+                        {s.subject && <p className="hr-variant-subj">Objet : {s.subject}</p>}
+                        <p className="hr-variant-body">{s.body}</p>
+                      </div>
+                    );
+                  })}
+                </>
+              )}
+              <p className="hr-caption" style={{ marginTop: 12 }}>Brouillons à valider — aucun envoi automatique. Le message d'ouverture apporte une idée avant toute demande ; remplace toute [accroche] par un fait vérifié. Espace les relances (délais indicatifs) et arrête-toi dès qu'il répond. En B2B, le message doit concerner la fonction du destinataire et offrir un refus simple ; sur LinkedIn, reste sur la plateforme.</p>
+            </div>
+          </div>
+        )}
+
+        {/* Grille ICP */}
+        <div className="hr-card">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <p className="hr-section-title" style={{ margin: 0 }}>Grille ICP</p>
+            <button className="hr-link" onClick={() => setShowIcp(v => !v)}>{showIcp ? "masquer" : "éditer ▸"}</button>
+          </div>
+          {showIcp && (
+            <div style={{ marginTop: 14 }}>
+              {icp.map((c, i) => (
+                <div key={i} className="hr-icp-row">
+                  <input className="hr-icp-name" value={c.name} onChange={e => updateIcp(i, "name", e.target.value)} />
+                  <input className="hr-icp-w" value={c.weight} inputMode="numeric" onChange={e => updateIcp(i, "weight", e.target.value)} />
+                </div>
+              ))}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6 }}>
+                <span className={"hr-icp-total" + (icpTotal !== 100 ? " warn" : "")}>Somme des poids : {icpTotal}{icpTotal !== 100 ? " (idéal : 100)" : " ✓"}</span>
+                <button className="hr-link" onClick={() => persistIcp(DEFAULT_ICP)}>réinitialiser</button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Shortlist */}
+        <div>
+          <p className="hr-section-title" style={{ padding: "0 4px" }}>Shortlist {accounts.length > 0 && `· ${accounts.length}`}</p>
+          {!ready ? null : accounts.length === 0 ? (
+            <div className="hr-empty">Aucun compte qualifié.<br />Lance Cerebro ou entre une entreprise.</div>
+          ) : (
+            accounts.map(a => (
+              <div key={a.ts} className="hr-item" onClick={() => { setResult(a); setOutTarget("default"); window.scrollTo({ top: 0, behavior: "smooth" }); }}>
+                <span className="hr-item-score" style={{ color: VERDICT[a.verdict].color }}>{a.score}</span>
+                <div className="hr-item-mid">
+                  <div className="hr-item-name">{a.company}{a.decisionMap ? " ◎" : ""}{a.outreach ? " ✎" : ""}</div>
+                  <div className="hr-item-sub">{a.firmographics?.sector || ""}{a.entry_persona ? ` · ${a.entry_persona}` : ""}</div>
+                </div>
+                <span className="hr-badge" style={{ color: VERDICT[a.verdict].color, background: VERDICT[a.verdict].color + "22" }}>{VERDICT[a.verdict].label}</span>
+                <button className="hr-del" onClick={e => { e.stopPropagation(); removeAccount(a.ts); }} title="Retirer">×</button>
+              </div>
+            ))
+          )}
+        </div>
+
+        </>)}
+
+        {tab === "evenements" && (<>
+
+        {/* ── Radar Événements ── */}
+        <div className="hr-card cerebro" style={{ marginTop: 8 }}>
+          <p className="hr-cerebro-title">◎ CEREBRO EVENTS</p>
+          <p className="hr-cerebro-sub">Concours, salons, prix et événements classés par impact pour Humetria. Prêt à dire « Passer ».</p>
+          <input className="hr-input" placeholder="Focus optionnel (ex : AURA, agro, industrie 4.0)" value={eventFocus} onChange={e => setEventFocus(e.target.value)} disabled={eventScanning} />
+          <button className="hr-btn" onClick={runEvents} disabled={eventScanning}>
+            {eventScanning ? <><span className="hr-spin" />Chasse en cours…</> : "Chasser les opportunités ▸"}
+          </button>
+          {eventErr && <p className="hr-err">{eventErr}</p>}
+        </div>
+        {events.length > 0 && (
+          <div style={{ marginBottom: 16 }}>
+            {events.map((ev, i) => {
+              const v = eventVerdict(ev.score);
+              return (
+                <div key={ev.name + i} className="hr-cb">
+                  <div className="hr-cb-head">
+                    <span className="hr-cb-rank">{String(i + 1).padStart(2, "0")}</span>
+                    <span className="hr-cb-score" style={{ color: v.color }}>{ev.score}</span>
+                    <div className="hr-cb-mid">
+                      <div className="hr-cb-name">{ev.name}</div>
+                      <div className="hr-cb-meta">{[ev.type, ev.region, ev.format].filter(Boolean).join(" · ")}</div>
+                    </div>
+                    <span className="hr-badge" style={{ color: v.color, background: v.color + "22" }}>{v.label}</span>
+                    <button className="hr-del" onClick={() => dismissEvent(ev.name)} title="Écarter">×</button>
+                  </div>
+                  {ev.desc && <p className="hr-cb-why">{ev.desc}</p>}
+                  {ev.why && <p className="hr-cb-persona">Impact : {ev.why}</p>}
+                  {ev.verified ? (
+                    <div style={{ marginTop: 8 }}>
+                      <div className="hr-ev-grid">
+                        {ev.dates && <div><span className="hr-ev-k">Dates</span>{ev.dates}{ev.edition ? ` (${ev.edition})` : ""}</div>}
+                        {ev.location && <div><span className="hr-ev-k">Lieu</span>{ev.location}</div>}
+                        {ev.deadline && <div><span className="hr-ev-k">Deadline</span><span style={{ color: "var(--amber)" }}>{ev.deadline}</span></div>}
+                        {ev.cost && <div><span className="hr-ev-k">Coût</span>{ev.cost}</div>}
+                        {ev.audience && <div style={{ gridColumn: "1 / -1" }}><span className="hr-ev-k">Audience</span>{ev.audience}</div>}
+                        {ev.format_leverage && <div style={{ gridColumn: "1 / -1" }}><span className="hr-ev-k">Format à jouer</span>{ev.format_leverage}</div>}
+                      </div>
+                      {ev.opportunity && <p className="hr-cb-persona" style={{ marginTop: 8 }}><b style={{ color: "var(--paper)" }}>Opportunité :</b> {ev.opportunity}</p>}
+                      {ev.recommendation && <p className="hr-cb-persona"><b style={{ color: "var(--paper)" }}>Reco :</b> {ev.recommendation}</p>}
+                      {ev.url
+                        ? <p className="hr-cb-persona" style={{ wordBreak: "break-all", marginTop: 4 }}><a href={ev.url} target="_blank" rel="noreferrer" style={{ color: "var(--cyan)" }}>{ev.url} ↗</a></p>
+                        : <p className="hr-cb-persona" style={{ marginTop: 4 }}>Lien non confirmé — à chercher sur le site officiel.</p>}
+                      {ev.vnote && <p className="hr-cb-persona" style={{ fontStyle: "italic" }}>{ev.vnote}</p>}
+                    </div>
+                  ) : (
+                    ev.check && <p className="hr-cb-persona" style={{ color: "var(--amber)" }}>À vérifier : {ev.check}</p>
+                  )}
+                  <div className="hr-cb-actions">
+                    <button className="hr-mini" onClick={() => verifyEvent(ev.name)} disabled={!!verifyingEvent}>
+                      {verifyingEvent === ev.name ? <><span className="hr-spin" />…</> : (ev.verified ? "Revérifier ▸" : "Vérifier dates & lien ▸")}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+            <p className="hr-caption">Impact = estimation de cadrage. « Vérifier » constitue le dossier : dates, lieu, deadline, coût, audience, opportunité et lien officiel. Les faits datés viennent de la recherche web — jamais inventés ; reconfirme une deadline avant de bloquer ton planning.</p>
+          </div>
+        )}
+
+        </>)}
+
+        {/* Données — sauvegarde / restauration */}
+        <div className="hr-card" style={{ marginTop: 16 }}>
+          <p className="hr-section-title">Sauvegarde des données</p>
+          <p className="hr-caption" style={{ margin: "0 0 12px 0" }}>Tes données sont enregistrées en continu dans cet outil et rechargées à l'ouverture — rien n'est perdu entre les sessions. L'export ci-dessous est une copie de secours (changement de version, reprise ailleurs). Le téléchargement de fichier est parfois bloqué dans l'app : dans ce cas, copie simplement le texte.</p>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+            <button className="hr-btn ghost" style={{ marginTop: 0 }} onClick={exportData} disabled={!(accounts.length || candidates.length || events.length || network.length || contacts.length)}>Exporter (sauvegarde) ▸</button>
+            <label className="hr-btn ghost" style={{ marginTop: 0, display: "inline-block" }}>
+              Importer un fichier
+              <input type="file" accept="application/json,.json" onChange={handleImport} style={{ display: "none" }} />
+            </label>
+            <button className="hr-link" onClick={clearAll}>tout effacer</button>
+          </div>
+          {exportText && (
+            <div style={{ marginTop: 14 }}>
+              <p className="hr-nettag-k">Sauvegarde — copie ce texte dans un fichier .json</p>
+              <textarea className="hr-textarea" readOnly value={exportText} onFocus={e => e.target.select()} style={{ minHeight: 120, fontFamily: "'IBM Plex Mono',monospace", fontSize: 11 }} />
+              <button className="hr-mini" onClick={() => copyText("exp", exportText)}>{copied === "exp" ? "copié ✓" : "Copier la sauvegarde"}</button>
+            </div>
+          )}
+          <div style={{ marginTop: 14 }}>
+            <p className="hr-nettag-k">Restaurer depuis un texte collé</p>
+            <textarea className="hr-textarea" value={importText} onChange={e => setImportText(e.target.value)} placeholder="Colle ici le contenu d'une sauvegarde JSON…" style={{ minHeight: 70, fontFamily: "'IBM Plex Mono',monospace", fontSize: 11 }} />
+            <button className="hr-mini" onClick={importFromText} disabled={!importText.trim()}>Restaurer ▸</button>
+          </div>
+          {dataMsg && <p className="hr-caption" style={{ margin: "12px 4px 0", color: "var(--cyan)" }}>{dataMsg}</p>}
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
+
+// ── Boot : exige une session Cockpit (même navigateur) ───────────────────────
+async function cerebroBoot(){
+  var mount = document.getElementById('root');
+  var session = null;
+  try { var s = await CEREBRO_SB.auth.getSession(); session = s && s.data ? s.data.session : null; } catch(e){}
+  if(!session){
+    mount.innerHTML = '<div style="max-width:520px;margin:80px auto;padding:24px;'
+      + 'font-family:Inter,system-ui,sans-serif;color:#E9EEF5;background:#111E2E;'
+      + 'border:1px solid #26384B;border-radius:12px;line-height:1.6;">'
+      + '<div style="font-family:\'IBM Plex Mono\',monospace;font-size:11px;letter-spacing:.08em;'
+      + 'text-transform:uppercase;color:#7E8DA1;margin-bottom:8px;">CEREBRO</div>'
+      + 'Connecte-toi d\'abord au <b>Cockpit KW</b> (même navigateur), puis reviens sur cette page.'
+      + '</div>';
+    return;
+  }
+  ReactDOM.createRoot(mount).render(<RadarComptes/>);
+}
+cerebroBoot();
+
+</script>
+</body>
+</html>
