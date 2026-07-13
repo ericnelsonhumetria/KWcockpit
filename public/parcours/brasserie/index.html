@@ -60,11 +60,11 @@ async function callProxy(payload){
   return r.json();
 }
 // MODE CANDIDAT : enregistre le resultat de l'epreuve Brasserie (evaluation CACHEE au candidat)
-async function submitBrasserieResult(evalObj, transcript, saText, frameAnalyses, name){
+async function submitBrasserieResult(evalObj, transcript, saText, name){
   try{
     var score = calcICM(evalObj);
     var detail = { evaluation: evalObj, transcript: transcript, auto_analyse: saText,
-      analyses_visuelles: frameAnalyses||[], candidat: name, date: new Date().toISOString() };
+      candidat: name, date: new Date().toISOString() };
     await fetch('/.netlify/functions/parcours-resultat',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({ token: window.PARC_TOKEN, epreuve:'brasserie', statut:'termine', score:score, detail:detail })});
   }catch(e){ /* best effort : l'ecran de fin s'affiche quand meme */ }
@@ -147,20 +147,7 @@ function useVoice(onText, active){
   },[active]);
 }
 
-// ── CAMERA WIDGET ────────────────────────────────────────────────────────────
-function CameraWidget({videoRef,active}){
-  if(!active) return null;
-  return (
-    <div style={{position:'fixed',bottom:'20px',right:'20px',zIndex:100,
-      width:'160px',borderRadius:'8px',overflow:'hidden',
-      border:'2px solid '+G.gold,boxShadow:'0 4px 20px rgba(0,0,0,0.3)'}}>
-      <video ref={videoRef} autoPlay muted playsInline
-        style={{width:'100%',display:'block',transform:'scaleX(-1)'}}/>
-      <div style={{...mono,fontSize:'9px',color:G.gold,background:'rgba(0,0,0,0.6)',
-        padding:'3px 8px',textAlign:'center'}}>● ANALYSE ACTIVE</div>
-    </div>
-  );
-}
+// ── CAMERA WIDGET (supprimé : analyse non-verbale IA retirée) ─────────────────
 
 // ── PROMPTS ──────────────────────────────────────────────────────────────────
 function buildEvalPrompt(transcript,sa){
@@ -194,15 +181,9 @@ function CandidatApp({name}){
   var [sa,setSa]=useState({reussi:'',ameliorer:'',parallele:'',criteres:''});
   var [result,setResult]=useState(null);
   var [err,setErr]=useState('');
-  var [cameraOn,setCameraOn]=useState(false);
-  var [frameAnalyses,setFrameAnalyses]=useState([]);
-  var [debriefFrames,setDebriefFrames]=useState([]);
   var [voiceOn,setVoiceOn]=useState(false);
   var [debriefInput,setDebriefInput]=useState('');
   var [debriefVoiceOn,setDebriefVoiceOn]=useState(false);
-  var videoRef=useRef(null);
-  var streamRef=useRef(null);
-  var captureRef=useRef(null);
   var endRef=useRef(null);
   var prenom=name.split(' ')[0]||name;
 
@@ -218,41 +199,11 @@ function CandidatApp({name}){
         setMsgs(function(prev){return prev.concat([{role:'assistant',content:d.content}]);});
         setLoading(false);
       }
-      if(d.type==='start_debrief'){setStep('debrief');if(cameraOn)startCapture(setDebriefFrames);}
+      if(d.type==='start_debrief'){setStep('debrief');}
     };
-  },[cameraOn]);
+  },[]);
 
-  function startCamera(){
-    navigator.mediaDevices.getUserMedia({video:true,audio:false})
-      .then(function(s){streamRef.current=s;if(videoRef.current)videoRef.current.srcObject=s;setCameraOn(true);})
-      .catch(function(){});
-  }
-  function stopCamera(){
-    if(streamRef.current)streamRef.current.getTracks().forEach(function(t){t.stop();});
-    if(captureRef.current)clearInterval(captureRef.current);
-    setCameraOn(false);
-  }
-  function captureFrame(){
-    if(!videoRef.current||!cameraOn) return null;
-    var c=document.createElement('canvas'); c.width=320; c.height=240;
-    var ctx=c.getContext('2d'); ctx.scale(-1,1); ctx.translate(-320,0);
-    ctx.drawImage(videoRef.current,0,0,320,240);
-    return c.toDataURL('image/jpeg',0.6).split(',')[1];
-  }
-  function analyzeFrame(b64,store){
-    if(!b64) return;
-    callProxy({model:'claude-sonnet-4-5',max_tokens:60,messages:[{role:'user',content:[
-      {type:'image',source:{type:'base64',media_type:'image/jpeg',data:b64}},
-      {type:'text',text:'10 mots: Posture: X | Expression: Y | Engagement: Z'}
-    ]}]}).then(function(d){
-      var t=(d.content||[]).find(function(b){return b.type==='text';});
-      if(t)store(function(prev){return prev.concat([t.text]);});
-    }).catch(function(){});
-  }
-  function startCapture(store){
-    captureRef.current=setInterval(function(){var b64=captureFrame();if(b64)analyzeFrame(b64,store);},60000);
-    setTimeout(function(){var b64=captureFrame();if(b64)analyzeFrame(b64,store);},3000);
-  }
+  // (fonctions caméra supprimées : plus de capture ni d'analyse d'image)
 
   useVoice(function(t){setInput(function(p){return p+t;});},voiceOn&&step==='simu');
   useVoice(function(t){setDebriefInput(function(p){return p+t;});},debriefVoiceOn&&step==='debrief');
@@ -295,7 +246,7 @@ function CandidatApp({name}){
         setResult(parsed);
         // MODE CANDIDAT : l'evaluation ICM reste CACHEE au candidat.
         // On l'envoie au Cockpit (recruteur) puis on passe a l'ecran de fin neutre.
-        submitBrasserieResult(parsed,transcript,saText,frameAnalyses,name);
+        submitBrasserieResult(parsed,transcript,saText,name);
         setStep('done');
       })
       .catch(function(e){setErr(e.message);setStep('analyse');});
@@ -307,9 +258,8 @@ function CandidatApp({name}){
     bc({type:'debrief_candidat',content:txt});
   }
   function finalSubmit(){
-    var debriefText='(debrief sans echange)';
-    bc({type:'done',name:name,frameAnalyses:frameAnalyses,debriefFrames:debriefFrames});
-    stopCamera();setStep('done');
+    bc({type:'done',name:name});
+    setStep('done');
   }
 
   // ── WAITING ──────────────────────────────────────────────────────────────
@@ -332,18 +282,14 @@ function CandidatApp({name}){
     <div style={{background:G.bg,minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',padding:'24px'}}>
       <div style={{width:'100%',maxWidth:'520px'}}>
         <div style={{textAlign:'center',marginBottom:'24px'}}><Logo size={44}/>
-          <h1 style={{fontSize:'20px',fontWeight:600,color:G.text,marginTop:'12px'}}>Consentement & Caméra</h1>
+          <h1 style={{fontSize:'20px',fontWeight:600,color:G.text,marginTop:'12px'}}>Avant de commencer</h1>
         </div>
-        <div style={{...pnl,padding:'20px',marginBottom:'16px',borderLeft:'4px solid #e05050',background:'#fff8f8'}}>
-          <div style={{...mono,fontSize:'11px',color:'#c04040',letterSpacing:'2px',marginBottom:'10px'}}>INFORMATION RGPD</div>
-          <p style={{...serif,fontSize:'15px',lineHeight:1.75,color:G.text,marginBottom:'8px'}}>Votre image peut être analysée par IA pour évaluer votre posture et engagement non-verbal. <strong>Aucun enregistrement vidéo n'est conservé.</strong> Seules des analyses textuelles synthétiques sont transmises à l'équipe Kaizen Way.</p>
+        <div style={{...pnl,padding:'20px',marginBottom:'16px'}}>
+          <div style={{...mono,fontSize:'11px',color:G.gold,letterSpacing:'2px',marginBottom:'10px'}}>INFORMATION</div>
+          <p style={{...serif,fontSize:'15px',lineHeight:1.75,color:G.text,marginBottom:'8px'}}>Cet exercice est un jeu de rôle managérial. Votre évaluation repose uniquement sur le <strong>contenu de vos échanges</strong> (transcription). Aucune image ni vidéo n'est captée. Les résultats sont transmis à l'équipe de recrutement Kaizen Way.</p>
         </div>
         <div style={{...pnl,padding:'18px 20px',marginBottom:'16px'}}>
-          <div style={{...mono,fontSize:'11px',color:G.gold,letterSpacing:'2px',marginBottom:'12px'}}>ACTIVATION CAMERA</div>
-          <div style={{display:'flex',gap:'10px'}}>
-            <Btn onClick={function(){startCamera();setStep('intro');}} variant="burg">📷 ACTIVER LA CAMERA</Btn>
-            <Btn onClick={function(){setStep('intro');}} variant="ghost">CONTINUER SANS</Btn>
-          </div>
+          <Btn onClick={function(){setStep('intro');}} variant="burg">COMMENCER</Btn>
         </div>
       </div>
     </div>
@@ -352,7 +298,6 @@ function CandidatApp({name}){
   // ── INTRO ────────────────────────────────────────────────────────────────
   if(step==='intro') return (
     <div style={{background:G.bg,minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',padding:'24px'}}>
-      <CameraWidget videoRef={videoRef} active={cameraOn}/>
       <div style={{width:'100%',maxWidth:'440px'}}>
         <div style={{textAlign:'center',marginBottom:'24px'}}><Logo size={44}/>
           <h1 style={{fontSize:'20px',fontWeight:600,color:G.text,marginTop:'12px',marginBottom:'4px'}}>Bienvenue, {prenom}</h1>
@@ -372,7 +317,6 @@ function CandidatApp({name}){
   // ── BRIEF ────────────────────────────────────────────────────────────────
   if(step==='brief') return (
     <div style={{background:G.bg,minHeight:'100vh'}}>
-      <CameraWidget videoRef={videoRef} active={cameraOn}/>
       <div style={{background:G.burg,padding:'12px 24px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
         <div style={{display:'flex',alignItems:'center',gap:'12px'}}><Logo size={26}/>
           <div style={{...mono,fontSize:'10px',color:G.gold,letterSpacing:'2px'}}>ASSESSMENT KAIZEN WAY</div>
@@ -395,7 +339,6 @@ function CandidatApp({name}){
         </div>
         <Btn onClick={function(){
           setStep('simu');setVoiceOn(true);
-          if(cameraOn)startCapture(setFrameAnalyses);
           bc({type:'candidat_ready',name:name});
         }} full={true} variant="burg">COMMENCER LE JEU DE ROLE</Btn>
       </div>
@@ -405,16 +348,14 @@ function CandidatApp({name}){
   // ── SIMU ─────────────────────────────────────────────────────────────────
   if(step==='simu') return (
     <div style={{background:G.bg,height:'100vh',display:'flex',flexDirection:'column'}}>
-      <CameraWidget videoRef={videoRef} active={cameraOn}/>
       <div style={{background:G.burg,padding:'10px 20px',display:'flex',justifyContent:'space-between',alignItems:'center',flexShrink:0}}>
         <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
           <Logo size={24}/>
           <div style={{...mono,fontSize:'10px',color:G.gold,letterSpacing:'2px'}}>SIMULATION — {name.toUpperCase()}</div>
         </div>
         <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
-          {cameraOn&&<div style={{...mono,fontSize:'9px',color:'#c8f060'}}>📷</div>}
           <div style={{...mono,fontSize:'10px',color:'#c09098'}}>{msgs.length} éch.</div>
-          <Btn onClick={function(){setVoiceOn(false);if(captureRef.current)clearInterval(captureRef.current);setStep('analyse');}}
+          <Btn onClick={function(){setVoiceOn(false);setStep('analyse');}}
             variant="ghost" style={{padding:'4px 10px',fontSize:'10px'}}>TERMINER</Btn>
         </div>
       </div>
@@ -461,7 +402,6 @@ function CandidatApp({name}){
   // ── ANALYSE ───────────────────────────────────────────────────────────────
   if(step==='analyse') return (
     <div style={{background:G.bg,minHeight:'100vh'}}>
-      <CameraWidget videoRef={videoRef} active={cameraOn}/>
       <div style={{background:G.burg,padding:'12px 24px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
         <div style={{display:'flex',alignItems:'center',gap:'12px'}}><Logo size={26}/>
           <div style={{...mono,fontSize:'10px',color:G.gold,letterSpacing:'2px'}}>AUTO-ANALYSE</div>
@@ -502,7 +442,6 @@ function CandidatApp({name}){
   // ── RESULT (candidat voit ICM uniquement) ─────────────────────────────────
   if(step==='result'&&result) return (
     <div style={{background:G.bg,minHeight:'100vh'}}>
-      <CameraWidget videoRef={videoRef} active={cameraOn}/>
       <div style={{background:G.burg,padding:'12px 24px',display:'flex',alignItems:'center',gap:'12px'}}>
         <Logo size={26}/>
         <div style={{...mono,fontSize:'10px',color:G.gold,letterSpacing:'2px'}}>RÉSULTAT — {name.toUpperCase()}</div>
@@ -530,7 +469,6 @@ function CandidatApp({name}){
   // ── DEBRIEF (candidat — saisie uniquement) ────────────────────────────────
   if(step==='debrief') return (
     <div style={{background:G.bg,minHeight:'100vh'}}>
-      <CameraWidget videoRef={videoRef} active={cameraOn}/>
       <div style={{background:G.burg,padding:'12px 24px',display:'flex',alignItems:'center',gap:'12px'}}>
         <Logo size={26}/>
         <div style={{...mono,fontSize:'10px',color:G.gold,letterSpacing:'2px'}}>DÉBRIEF — {name.toUpperCase()}</div>
