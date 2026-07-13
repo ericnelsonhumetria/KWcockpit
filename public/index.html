@@ -632,7 +632,7 @@ function render(role){
   // onglet Dojo : simulations de coaching (ouvre l'app Dojo, session partagée) — pas pour Najoua
   const oldDojo = tabsEl.querySelector('[data-tab="dojo"]');
   if(oldDojo) oldDojo.remove();
-  if(role !== 'najoua'){
+  if(role !== 'najoua' && role !== 'paul' && role !== 'juliette'){
     const dojoTab = document.createElement('button');
     dojoTab.className = 'tab'; dojoTab.dataset.tab = 'dojo';
     dojoTab.setAttribute('onclick', "window.location.href='/dojo/'");
@@ -642,7 +642,7 @@ function render(role){
   // onglet Plan de charge : espace personnel ; pas pour Najoua
   const oldPdc = tabsEl.querySelector('[data-tab="pdc"]');
   if(oldPdc) oldPdc.remove();
-  if(role !== 'najoua'){
+  if(role !== 'najoua' && role !== 'paul' && role !== 'juliette'){
     const pdcTab = document.createElement('button');
     pdcTab.className = 'tab'; pdcTab.dataset.tab = 'pdc';
     pdcTab.setAttribute('onclick', "switchTab('pdc')");
