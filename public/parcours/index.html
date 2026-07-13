@@ -87,13 +87,22 @@
     var eps = data.epreuves || {};
 
     var cards = EPREUVES.map(function(e){
+      var ep = eps[e.key];
+      var done = ep && ep.statut === 'termine';
+      var btn;
+      if(e.key === 'brasserie'){
+        btn = done
+          ? '<button class="btn soon" disabled>Terminé</button>'
+          : '<button class="btn" onclick="ouvrir(\'/parcours/brasserie/?c=\')">Commencer</button>';
+      } else {
+        btn = '<button class="btn soon" onclick="bientot()">Commencer</button>';
+      }
       return '<div class="card">'
         + '<div class="num">' + e.num + '</div>'
         + '<div class="body">'
         +   '<div class="t">' + esc(e.titre) + '</div>'
         +   '<div class="d">' + esc(e.desc) + '</div>'
-        +   '<div class="foot">' + pill(eps[e.key])
-        +     '<button class="btn soon" onclick="bientot()">Commencer</button>'
+        +   '<div class="foot">' + pill(ep) + btn
         +   '</div>'
         + '</div></div>';
     }).join('');
@@ -114,6 +123,10 @@
 
   window.bientot = function(){
     alert('Cette épreuve sera activée très prochainement. Merci de revenir avec ce même lien.');
+  };
+
+  window.ouvrir = function(base){
+    location.href = base + encodeURIComponent(token);
   };
 
   async function init(){
