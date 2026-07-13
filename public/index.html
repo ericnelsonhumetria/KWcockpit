@@ -4470,5 +4470,132 @@ async function saveQPMScore(candId){
   }
 })();
 </script>
+<script>
+/* ============================================================
+   COCKPIT KW - ITEM 3 : onglets reorganisables par utilisateur
+   Drag and drop des .tab dans #tabs ; persistance localStorage
+   par utilisateur (CURRENT_EMAIL, fallback CURRENT_ROLE).
+   Wrapper le PLUS EXTERNE de render : tourne APRES Parcours + Cerebro.
+   Delegation d'evenements sur #tabs (survit au remplacement des boutons
+   que render remove()+appendChild a chaque rendu).
+   ============================================================ */
+(function(){
+  var DRAG_CLASS = 'tab-dragging';
+  var OVER_CLASS = 'tab-dragover';
+  var dragKey = null;
+
+  function tabsEl(){ return document.getElementById('tabs'); }
+
+  function orderKey(){
+    var who = (typeof CURRENT_EMAIL !== 'undefined' && CURRENT_EMAIL) ? CURRENT_EMAIL
+            : (typeof CURRENT_ROLE !== 'undefined' && CURRENT_ROLE) ? CURRENT_ROLE : 'anon';
+    return 'kw:taborder:' + String(who).toLowerCase();
+  }
+  function loadOrder(){
+    try{ var raw = localStorage.getItem(orderKey()); return raw ? JSON.parse(raw) : null; }catch(e){ return null; }
+  }
+  function saveOrder(){
+    try{
+      var el = tabsEl(); if(!el) return;
+      var order = Array.prototype.slice.call(el.querySelectorAll('.tab'))
+        .map(function(t){ return t.dataset.tab; }).filter(Boolean);
+      localStorage.setItem(orderKey(), JSON.stringify(order));
+    }catch(e){}
+  }
+
+  /* Reordonne les boutons existants selon l'ordre sauvegarde.
+     Ne cree/supprime rien : deplace les noeuds -> onclick/data-tab preserves. */
+  function applyTabOrder(){
+    var el = tabsEl(); if(!el) return;
+    var order = loadOrder(); if(!order || !order.length) return;
+    var known = {};
+    Array.prototype.slice.call(el.querySelectorAll('.tab')).forEach(function(t){
+      if(t.dataset.tab) known[t.dataset.tab] = t;
+    });
+    order.forEach(function(k){
+      var node = known[k];
+      if(node){ el.appendChild(node); delete known[k]; }
+    });
+    /* onglets non listes (nouveaux/inconnus) : pousses a la fin, ordre d'origine */
+    Object.keys(known).forEach(function(k){ el.appendChild(known[k]); });
+  }
+
+  /* Rend chaque onglet draggable a chaque rendu (noeuds recrees par render) */
+  function decorateTabs(){
+    var el = tabsEl(); if(!el) return;
+    Array.prototype.slice.call(el.querySelectorAll('.tab')).forEach(function(t){
+      t.setAttribute('draggable', 'true');
+      t.classList.remove(DRAG_CLASS, OVER_CLASS);
+    });
+  }
+
+  function clearOver(){
+    var el = tabsEl(); if(!el) return;
+    Array.prototype.slice.call(el.querySelectorAll('.' + OVER_CLASS)).forEach(function(t){ t.classList.remove(OVER_CLASS); });
+  }
+
+  /* Delegation : listeners poses UNE seule fois sur #tabs */
+  function wireDnD(){
+    var el = tabsEl(); if(!el || el.__kwDnD) return; el.__kwDnD = true;
+
+    el.addEventListener('dragstart', function(e){
+      var t = (e.target && e.target.closest) ? e.target.closest('.tab') : null;
+      if(!t) return;
+      dragKey = t.dataset.tab;
+      t.classList.add(DRAG_CLASS);
+      try{ e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', dragKey); }catch(_){}
+    });
+
+    el.addEventListener('dragover', function(e){
+      if(dragKey == null) return;
+      var t = (e.target && e.target.closest) ? e.target.closest('.tab') : null;
+      if(!t || t.dataset.tab === dragKey) return;
+      e.preventDefault();
+      try{ e.dataTransfer.dropEffect = 'move'; }catch(_){}
+      clearOver(); t.classList.add(OVER_CLASS);
+    });
+
+    el.addEventListener('drop', function(e){
+      if(dragKey == null) return;
+      e.preventDefault();
+      var t = (e.target && e.target.closest) ? e.target.closest('.tab') : null;
+      var dragged = el.querySelector('.tab[data-tab="' + dragKey + '"]');
+      if(dragged && t && t !== dragged){
+        var r = t.getBoundingClientRect();
+        var after = (e.clientX - r.left) > (r.width / 2);
+        if(after){ el.insertBefore(dragged, t.nextSibling); }
+        else { el.insertBefore(dragged, t); }
+        saveOrder();
+      }
+      clearOver();
+    });
+
+    el.addEventListener('dragend', function(){
+      var el2 = tabsEl();
+      if(el2){ Array.prototype.slice.call(el2.querySelectorAll('.tab')).forEach(function(t){ t.classList.remove(DRAG_CLASS); }); }
+      clearOver(); dragKey = null;
+    });
+  }
+
+  /* Wrapper render le plus externe : tourne apres tous les autres enrobages */
+  if(typeof render === 'function'){
+    var _render = render;
+    render = function(role){
+      _render(role);
+      try{ wireDnD(); decorateTabs(); applyTabOrder(); }catch(e){}
+    };
+  }
+
+  /* Style leger du drag (injecte une fois) */
+  try{
+    var st = document.createElement('style');
+    st.textContent = '.tab[draggable="true"]{cursor:grab;} .tab.' + DRAG_CLASS + '{opacity:.45;cursor:grabbing;} .tab.' + OVER_CLASS + '{box-shadow:inset 0 -3px 0 0 var(--signal,#efb810);}';
+    document.head.appendChild(st);
+  }catch(e){}
+
+  /* Si l'app est deja rendue quand ce script s'execute */
+  try{ wireDnD(); decorateTabs(); applyTabOrder(); }catch(e){}
+})();
+</script>
 </body>
 </html>
