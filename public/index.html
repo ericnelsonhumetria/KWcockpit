@@ -4049,7 +4049,7 @@ function renderCandidats(cands, resParCand){
       '</tr>';
   }).join('');
   var table = cands.length
-    ? '<div class="panel" style="padding:8px 16px 16px;"><table><thead><tr><th>Candidat</th><th>Dojo</th><th>Brasserie</th><th>QPM</th><th>Statut</th><th>Actions</th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+    ? '<div class="panel" style="padding:8px 16px 16px;overflow-x:auto;"><table><thead><tr><th>Candidat</th><th>Dojo</th><th>Brasserie</th><th>QPM</th><th>Statut</th><th>Actions</th></tr></thead><tbody>'+rows+'</tbody></table></div>'
     : '<div class="panel" style="padding:16px;color:var(--muted);font-size:13px;">Aucun candidat pour le moment.</div>';
   zone.innerHTML = form + table;
 }
@@ -4147,19 +4147,19 @@ function detailBrasserie(res){
   glob += '</div>';
   var rows = Object.keys(MISSIONS_ICM).map(function(k){
     var m = icm[k]||{};
-    return '<tr><td style="min-width:180px;"><b>'+k+'</b> · '+escP(MISSIONS_ICM[k])+'</td>'
+    return '<tr><td style="word-break:break-word;"><b>'+k+'</b> · '+escP(MISSIONS_ICM[k])+'</td>'
       + '<td style="text-align:center;white-space:nowrap;"><b>'+(m.score!=null?m.score+'/5':'—')+'</b></td>'
       + '<td>'+escP(m.commentaire||'')+'</td></tr>';
   }).join('');
-  var table = '<div class="panel" style="padding:8px 16px 16px;"><table><thead><tr><th>Mission ICM</th><th>Note</th><th>Commentaire</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+  var table = '<div class="panel" style="padding:8px 16px 16px;overflow-x:auto;"><table><thead><tr><th>Mission ICM</th><th>Note</th><th>Commentaire</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
   var fv = '<div class="panel" style="padding:16px;">';
   if((ev.pointsForts||[]).length){ fv += '<div class="field-label">Points forts</div>'+ev.pointsForts.map(function(p){return '<div style="font-size:13px;color:#3f6b4f;margin-top:2px;">+ '+escP(p)+'</div>';}).join(''); }
   if((ev.pointsVigilance||[]).length){ fv += '<div class="field-label" style="margin-top:12px;">Points de vigilance</div>'+ev.pointsVigilance.map(function(p){return '<div style="font-size:13px;color:var(--signal);margin-top:2px;">! '+escP(p)+'</div>';}).join(''); }
   if(ev.potentielConsultant){ fv += '<div class="field-label" style="margin-top:12px;">Potentiel consultant</div><div style="font-size:13px;line-height:1.5;">'+escP(ev.potentielConsultant)+'</div>'; }
   if(ev.conseil){ fv += '<div class="field-label" style="margin-top:12px;">Conseil</div><div style="font-size:13px;line-height:1.5;">'+escP(ev.conseil)+'</div>'; }
   fv += '</div>';
-  var tr = d.transcript ? '<details class="panel" style="padding:12px 16px;"><summary style="cursor:pointer;font-size:12px;color:var(--muted);">Transcription du jeu de rôle</summary><pre style="white-space:pre-wrap;font-size:12px;margin-top:8px;line-height:1.5;">'+escP(d.transcript)+'</pre></details>' : '';
-  var au = d.auto_analyse ? '<details class="panel" style="padding:12px 16px;"><summary style="cursor:pointer;font-size:12px;color:var(--muted);">Auto-analyse du candidat</summary><pre style="white-space:pre-wrap;font-size:12px;margin-top:8px;line-height:1.5;">'+escP(d.auto_analyse)+'</pre></details>' : '';
+  var tr = d.transcript ? '<details class="panel" style="padding:12px 16px;"><summary style="cursor:pointer;font-size:12px;color:var(--muted);">Transcription du jeu de rôle</summary><pre style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;font-size:12px;margin-top:8px;line-height:1.5;">'+escP(d.transcript)+'</pre></details>' : '';
+  var au = d.auto_analyse ? '<details class="panel" style="padding:12px 16px;"><summary style="cursor:pointer;font-size:12px;color:var(--muted);">Auto-analyse du candidat</summary><pre style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;font-size:12px;margin-top:8px;line-height:1.5;">'+escP(d.auto_analyse)+'</pre></details>' : '';
   return head + glob + table + fv + tr + au;
 }
 
@@ -4179,14 +4179,14 @@ function detailDojo(res){
   var table = '';
   if(crit.length){
     var rows = crit.map(function(c){
-      return '<tr><td style="min-width:200px;">'+escP(c.nom||'')+'</td>'
+      return '<tr><td style="word-break:break-word;">'+escP(c.nom||'')+'</td>'
         + '<td style="text-align:center;white-space:nowrap;"><b>'+(c.score!=null?c.score+'/5':'—')+'</b></td>'
         + '<td>'+escP(c.commentaire||'')+'</td></tr>';
     }).join('');
-    table = '<div class="panel" style="padding:8px 16px 16px;"><table><thead><tr><th>Critère</th><th>Note</th><th>Commentaire</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+    table = '<div class="panel" style="padding:8px 16px 16px;overflow-x:auto;"><table><thead><tr><th>Critère</th><th>Note</th><th>Commentaire</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
   }
-  var rap = d.rapport ? '<details class="panel" style="padding:12px 16px;"><summary style="cursor:pointer;font-size:12px;color:var(--muted);">Rapport complet</summary><pre style="white-space:pre-wrap;font-size:12px;margin-top:8px;line-height:1.5;">'+escP(d.rapport)+'</pre></details>' : '';
-  var tr = d.transcript ? '<details class="panel" style="padding:12px 16px;"><summary style="cursor:pointer;font-size:12px;color:var(--muted);">Transcription du débrief</summary><pre style="white-space:pre-wrap;font-size:12px;margin-top:8px;line-height:1.5;">'+escP(d.transcript)+'</pre></details>' : '';
+  var rap = d.rapport ? '<details class="panel" style="padding:12px 16px;"><summary style="cursor:pointer;font-size:12px;color:var(--muted);">Rapport complet</summary><pre style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;font-size:12px;margin-top:8px;line-height:1.5;">'+escP(d.rapport)+'</pre></details>' : '';
+  var tr = d.transcript ? '<details class="panel" style="padding:12px 16px;"><summary style="cursor:pointer;font-size:12px;color:var(--muted);">Transcription du débrief</summary><pre style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;font-size:12px;margin-top:8px;line-height:1.5;">'+escP(d.transcript)+'</pre></details>' : '';
   return head + glob + table + rap + tr;
 }
 
