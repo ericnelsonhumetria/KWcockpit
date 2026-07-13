@@ -116,15 +116,9 @@ function repairJSON(str) {
 
 // ── TTS ─────────────────────────────────────────────────────────────────────
 function speak(text){
-  if(!window.speechSynthesis) return;
-  window.speechSynthesis.cancel();
-  var u=new SpeechSynthesisUtterance(text);
-  u.lang='fr-FR'; u.rate=0.92; u.pitch=1.05;
-  var voices=window.speechSynthesis.getVoices();
-  var fr=voices.find(function(v){return v.lang.startsWith('fr')&&v.name.toLowerCase().includes('female');});
-  if(!fr) fr=voices.find(function(v){return v.lang.startsWith('fr');});
-  if(fr) u.voice=fr;
-  window.speechSynthesis.speak(u);
+  // MODE CANDIDAT : voix de Renee DESACTIVEE (evite que le micro capte la voix de l'IA).
+  // Renee reste affichee en texte ; le micro candidat continue de fonctionner.
+  return;
 }
 
 // ── BROADCAST CHANNEL ───────────────────────────────────────────────────────
