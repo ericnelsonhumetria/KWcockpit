@@ -55,7 +55,7 @@ exports.handler = async (event) => {
       .from('parcours_resultats')
       .select('epreuve, statut, score')
       .eq('candidat_id', cand.id);
-    const epreuves = { dojo:null, brasserie:null, qpm:null };
+    const epreuves = { dojo:null, brasserie:null, qpm:null, lean:null };
     (res || []).forEach(function(r){ epreuves[r.epreuve] = { statut:r.statut, score:r.score }; });
 
     // On n'expose QUE le strict nécessaire (pas d'email, d'id, de created_by…)
