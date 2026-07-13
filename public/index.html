@@ -453,6 +453,8 @@
         <button class="logout" onclick="switchTab('dash')" title="Revenir au tableau de bord">⌂ Accueil</button>
         <button class="logout" onclick="refreshShared()" title="Récupérer les dernières modifications partagées">↻ Rafraîchir</button>
         <button class="logout" onclick="logout()">Changer de rôle</button>
+        <button id="kwAvatar" class="kw-avatar" type="button" onclick="kwAvatarPick()" oncontextmenu="return kwAvatarRemove(event)" title="Cliquer pour ajouter une photo"><span id="kwAvatarInitials" class="kw-avatar-initials"></span><img id="kwAvatarImg" class="kw-avatar-img" alt="" style="display:none;"><span class="kw-avatar-edit" aria-hidden="true">✎</span></button>
+        <input id="kwAvatarInput" type="file" accept="image/*" onchange="kwAvatarUpload(event)" style="display:none;">
       </div>
     </div>
     <div class="tabs" id="tabs">
@@ -461,7 +463,7 @@
   </header>
   <div class="lifecycle" id="lifecycle">
     <div class="lc-inner">
-      <div class="lc-title">Cycle de vie — chaîne de valeur Kaizen Way</div>
+      <div class="lc-head"><span class="lc-head-label">Cycle de vie — chaîne de valeur Kaizen Way</span><button class="lc-toggle" type="button" onclick="kwLifecycleToggle()"><span id="lcToggleIco" class="lc-toggle-ico">▾</span> <span id="lcToggleTxt">Réduire</span></button></div>
       <div class="lc-flow">
         <div class="lc-step" data-step="demande"><span class="lc-num">1</span><div class="lc-body"><div class="lc-name">Génération de demande</div><div class="lc-owner">Paul Ingrassia</div></div></div>
         <div class="lc-arrow">→</div>
@@ -4595,6 +4597,128 @@ async function saveQPMScore(candId){
 
   /* Si l'app est deja rendue quand ce script s'execute */
   try{ wireDnD(); decorateTabs(); applyTabOrder(); }catch(e){}
+})();
+</script>
+<script>
+/* ============================================================
+   COCKPIT KW - ITEM 5
+   A) Medaillon photo (header, haut a droite) : clic = choisir/remplacer,
+      clic droit = retirer. Image redimensionnee ~160px puis stockee en
+      localStorage par utilisateur (kw:avatar:<email|role>). Repli = initiales.
+   B) Cycle de vie en accordeon : bouton Reduire/Afficher, etat memorise.
+   Handlers globaux (appeles par onclick inline) + IIFE pour styles/wrap.
+   ============================================================ */
+function kwAvatarKey(){
+  var who = (typeof CURRENT_EMAIL !== 'undefined' && CURRENT_EMAIL) ? CURRENT_EMAIL
+          : (typeof CURRENT_ROLE !== 'undefined' && CURRENT_ROLE) ? CURRENT_ROLE : 'anon';
+  return 'kw:avatar:' + String(who).toLowerCase();
+}
+function kwInitials(){
+  var n = '';
+  try{
+    if(typeof NAMES !== 'undefined' && typeof CURRENT_ROLE !== 'undefined' && NAMES[CURRENT_ROLE]) n = NAMES[CURRENT_ROLE];
+    else if(typeof CURRENT_EMAIL !== 'undefined') n = CURRENT_EMAIL;
+  }catch(e){}
+  n = String(n || '').trim();
+  if(!n) return '·';
+  var parts = n.split(/[ .@_-]+/).filter(Boolean);
+  var a = parts[0] ? parts[0][0] : '';
+  var b = parts[1] ? parts[1][0] : '';
+  return ((a + b).toUpperCase()) || a.toUpperCase() || '·';
+}
+function kwAvatarPick(){ var i = document.getElementById('kwAvatarInput'); if(i) i.click(); }
+function kwAvatarRemove(ev){
+  if(ev && ev.preventDefault) ev.preventDefault();
+  try{ localStorage.removeItem(kwAvatarKey()); }catch(e){}
+  kwAvatarRefresh();
+  return false;
+}
+function kwAvatarRefresh(){
+  var btn = document.getElementById('kwAvatar'); if(!btn) return;
+  var img = document.getElementById('kwAvatarImg');
+  var ini = document.getElementById('kwAvatarInitials');
+  var data = null;
+  try{ data = localStorage.getItem(kwAvatarKey()); }catch(e){}
+  if(data){
+    if(img){ img.src = data; img.style.display = 'block'; }
+    if(ini){ ini.style.display = 'none'; }
+    btn.title = 'Cliquer pour changer la photo · clic droit pour retirer';
+  } else {
+    if(img){ img.style.display = 'none'; img.removeAttribute('src'); }
+    if(ini){ ini.style.display = ''; ini.textContent = kwInitials(); }
+    btn.title = 'Cliquer pour ajouter une photo';
+  }
+}
+function kwAvatarUpload(e){
+  var f = e.target && e.target.files && e.target.files[0];
+  e.target.value = '';
+  if(!f) return;
+  if(!/^image\//.test(f.type)){ alert('Choisis un fichier image.'); return; }
+  var reader = new FileReader();
+  reader.onload = function(){
+    var img = new Image();
+    img.onload = function(){
+      try{
+        var S = 160;
+        var c = document.createElement('canvas'); c.width = S; c.height = S;
+        var ctx = c.getContext('2d');
+        var scale = Math.max(S / img.width, S / img.height); // recadrage "cover"
+        var w = img.width * scale, h = img.height * scale;
+        ctx.drawImage(img, (S - w) / 2, (S - h) / 2, w, h);
+        var data = c.toDataURL('image/jpeg', 0.85);
+        try{ localStorage.setItem(kwAvatarKey(), data); }
+        catch(err){ alert('Image trop lourde pour le stockage local — essaie une photo plus petite.'); return; }
+        kwAvatarRefresh();
+      }catch(err){ alert('Impossible de traiter cette image.'); }
+    };
+    img.onerror = function(){ alert('Fichier image illisible.'); };
+    img.src = reader.result;
+  };
+  reader.readAsDataURL(f);
+}
+
+function kwLifecycleToggle(){
+  var lc = document.getElementById('lifecycle'); if(!lc) return;
+  var collapsed = lc.classList.toggle('lc-collapsed');
+  try{ localStorage.setItem('kw:lifecycle:collapsed', collapsed ? '1' : '0'); }catch(e){}
+  kwLifecycleSyncBtn();
+}
+function kwLifecycleSyncBtn(){
+  var lc = document.getElementById('lifecycle'); if(!lc) return;
+  var collapsed = lc.classList.contains('lc-collapsed');
+  var ico = document.getElementById('lcToggleIco');
+  var txt = document.getElementById('lcToggleTxt');
+  if(ico) ico.textContent = collapsed ? '▸' : '▾';
+  if(txt) txt.textContent = collapsed ? 'Afficher' : 'Réduire';
+}
+
+(function(){
+  /* Styles (injectes une fois) */
+  var css = ''
+  + '.kw-avatar{width:38px;height:38px;border-radius:50%;border:2px solid var(--gold,#efb810);background:var(--steel,#560a0f);color:#fff;padding:0;cursor:pointer;overflow:visible;position:relative;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;line-height:0;}'
+  + '.kw-avatar:hover{filter:brightness(1.08);}'
+  + '.kw-avatar-initials{font-weight:700;font-size:14px;letter-spacing:.02em;line-height:1;}'
+  + '.kw-avatar-img{width:100%;height:100%;object-fit:cover;border-radius:50%;}'
+  + '.kw-avatar-edit{position:absolute;right:-2px;bottom:-2px;width:15px;height:15px;border-radius:50%;background:var(--gold,#efb810);color:#560a0f;font-size:9px;line-height:15px;text-align:center;border:1.5px solid var(--paper,#f3efe9);}'
+  + '.lc-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;}'
+  + '.lc-head-label{font-weight:700;font-size:13px;color:var(--ink,#1a1416);}'
+  + '.lc-toggle{background:none;border:1px solid var(--line,#e0d6cf);border-radius:6px;padding:4px 10px;font-size:12px;font-weight:600;color:var(--muted,#8b8578);cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap;}'
+  + '.lc-toggle:hover{color:var(--ink,#1a1416);border-color:var(--signal,#560a0f);}'
+  + '.lifecycle.lc-collapsed .lc-inner > *:not(.lc-head){display:none;}'
+  + '.lifecycle.lc-collapsed .lc-head{margin-bottom:0;}';
+  try{ var st = document.createElement('style'); st.textContent = css; document.head.appendChild(st); }catch(e){}
+
+  /* Wrapper render le plus externe : rafraichit le medaillon a chaque rendu
+     (login / changement de role -> bonne cle utilisateur + bonnes initiales) */
+  if(typeof render === 'function'){
+    var _render = render;
+    render = function(role){ _render(role); try{ kwAvatarRefresh(); }catch(e){} };
+  }
+
+  /* Restaure l'etat de l'accordeon + init medaillon */
+  try{ if(localStorage.getItem('kw:lifecycle:collapsed') === '1'){ var lc = document.getElementById('lifecycle'); if(lc) lc.classList.add('lc-collapsed'); } }catch(e){}
+  try{ kwLifecycleSyncBtn(); }catch(e){}
+  try{ kwAvatarRefresh(); }catch(e){}
 })();
 </script>
 </body>
