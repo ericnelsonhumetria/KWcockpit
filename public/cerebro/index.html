@@ -3,26 +3,30 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>CEREBRO · Kaizen Way</title>
+<title>CEREBRO - Kaizen Way</title>
 <style>html,body{margin:0;background:#0A1524;}</style>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone@7.26/babel.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
-  // Config Supabase (identique au Cockpit — clé publishable publique)
   window.CEREBRO_SB = window.supabase.createClient(
     "https://omftqlvkmjlxoinruayr.supabase.co",
     "sb_publishable_RgKYatx7zHx_SJvrvoyt2w_fXhLKQ1w"
   );
-  // Shim de persistance (Brique A : localStorage, provisoire ; Supabase en Brique B)
+  // Sous-onglets autorises selon le role recu du Cockpit (UX ; l'isolation reelle = RLS Brique B)
+  (function(){
+    var role = new URLSearchParams(location.search).get('role') || '';
+    var map = { eric:['comptes','evenements'], direction:['comptes','evenements'],
+                paul:['comptes'], juliette:['evenements'] };
+    window.CEREBRO_ALLOWED = map[role] || ['comptes','evenements'];
+  })();
   window.storage = {
     get: async function(k){ try{ var v=localStorage.getItem(k); return (v===null)?null:{key:k,value:v}; }catch(e){ return null; } },
     set: async function(k,v){ try{ localStorage.setItem(k,v); return {key:k,value:v}; }catch(e){ return null; } },
     delete: async function(k){ try{ localStorage.removeItem(k); return {key:k,deleted:true}; }catch(e){ return null; } },
     list: async function(prefix){ try{ var ks=[]; for(var i=0;i<localStorage.length;i++){ var kk=localStorage.key(i); if(!prefix||kk.indexOf(prefix)===0) ks.push(kk); } return {keys:ks}; }catch(e){ return {keys:[]}; } }
   };
-  // Preset React CLASSIQUE (évite l'injection JSX du runtime automatique)
   Babel.registerPreset('kwreact', { presets: [ [Babel.availablePresets['react'], { runtime: 'classic' }] ] });
 </script>
 </head>
@@ -31,6 +35,7 @@
 <script type="text/babel" data-presets="kwreact">
 const { useState, useEffect } = React;
 const CEREBRO_SB = window.CEREBRO_SB;
+const CEREBRO_ALLOWED = window.CEREBRO_ALLOWED || ['comptes','evenements'];
 
 
 // ── CEREBRO · Humetria × Kaizen Way ────────────────────────────────────────
@@ -392,7 +397,7 @@ function RadarComptes() {
   const [known, setKnown] = useState(DEFAULT_KNOWN);
   const [showKnown, setShowKnown] = useState(false);
   const [ready, setReady] = useState(false);
-  const [tab, setTab] = useState("comptes");
+  const [tab, setTab] = useState(CEREBRO_ALLOWED[0] || "comptes");
   const [exportText, setExportText] = useState("");
   const [importText, setImportText] = useState("");
 
@@ -949,8 +954,8 @@ Signaux : ${(result.signals || []).join(" ; ") || "—"}`;
         </div>
 
         <div className="hr-tabs">
-          <button className={tab === "comptes" ? "on" : ""} onClick={() => setTab("comptes")}>Business</button>
-          <button className={tab === "evenements" ? "on" : ""} onClick={() => setTab("evenements")}>Events</button>
+          {CEREBRO_ALLOWED.indexOf("comptes") >= 0 && <button className={tab === "comptes" ? "on" : ""} onClick={() => setTab("comptes")}>Business</button>}
+          {CEREBRO_ALLOWED.indexOf("evenements") >= 0 && <button className={tab === "evenements" ? "on" : ""} onClick={() => setTab("evenements")}>Events</button>}
         </div>
 
         {tab === "comptes" && (<>
@@ -1321,7 +1326,6 @@ Signaux : ${(result.signals || []).join(" ; ") || "—"}`;
 }
 
 
-// ── Boot : exige une session Cockpit (même navigateur) ───────────────────────
 async function cerebroBoot(){
   var mount = document.getElementById('root');
   var session = null;
@@ -1332,7 +1336,7 @@ async function cerebroBoot(){
       + 'border:1px solid #26384B;border-radius:12px;line-height:1.6;">'
       + '<div style="font-family:\'IBM Plex Mono\',monospace;font-size:11px;letter-spacing:.08em;'
       + 'text-transform:uppercase;color:#7E8DA1;margin-bottom:8px;">CEREBRO</div>'
-      + 'Connecte-toi d\'abord au <b>Cockpit KW</b> (même navigateur), puis reviens sur cette page.'
+      + 'Connecte-toi d\'abord au <b>Cockpit KW</b> (meme navigateur), puis reviens sur cette page.'
       + '</div>';
     return;
   }
