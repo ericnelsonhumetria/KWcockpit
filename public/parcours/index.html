@@ -53,7 +53,8 @@
   var EPREUVES = [
     { key:'dojo',      num:'1', titre:'Dojo — simulation de coaching',   desc:'Un cas de management de proximité à conduire.' },
     { key:'brasserie', num:'2', titre:'La Brasserie des Tuileries',       desc:'Un jeu de rôle managérial, évalué.' },
-    { key:'qpm',       num:'3', titre:'QPM Humetria',                     desc:'Un questionnaire de positionnement managérial.' }
+    { key:'lean',      num:'3', titre:'Épreuve Lean',                     desc:'Quatre mises en situation Lean (flux, OEE, méthode).' },
+    { key:'qpm',       num:'4', titre:'QPM Humetria',                     desc:'Un questionnaire de positionnement managérial.' }
   ];
 
   function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -93,8 +94,10 @@
       var ep = eps[e.key];
       var done = ep && ep.statut === 'termine';
       var btn;
-      if(e.key === 'brasserie' || e.key === 'dojo'){
-        var base = (e.key === 'dojo') ? '/parcours/dojo/?c=' : '/parcours/brasserie/?c=';
+      if(e.key === 'brasserie' || e.key === 'dojo' || e.key === 'lean'){
+        var base = (e.key === 'dojo') ? '/parcours/dojo/?c='
+                 : (e.key === 'lean') ? '/parcours/lean/?c='
+                 : '/parcours/brasserie/?c=';
         btn = done
           ? '<button class="btn soon" disabled>Terminé</button>'
           : '<button class="btn" onclick="ouvrir(\'' + base + '\')">Commencer</button>';
