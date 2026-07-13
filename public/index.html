@@ -4402,5 +4402,51 @@ async function saveQPMScore(candId){
   }catch(e){ if(typeof flashSync==='function') flashSync('⚠ '+(e.message||'échec')); }
   }
 </script>
+<script>
+/* ============================================================
+   COCKPIT KW - Onglet CEREBRO (gaté par role)
+   Ouvre /cerebro/ en iframe dans la vue Cockpit.
+   Business => Paul + Eric ; Events => Juliette + Eric.
+   ============================================================ */
+(function(){
+  var CEREBRO_ROLES = ['eric','direction','paul','juliette'];
+  if(typeof render === 'function'){
+    var _r = render;
+    render = function(role){
+      _r(role);
+      try{
+        var tabsEl = document.getElementById('tabs');
+        if(!tabsEl) return;
+        var old = tabsEl.querySelector('[data-tab="cerebro"]'); if(old) old.remove();
+        if(CEREBRO_ROLES.indexOf(role) >= 0){
+          var t = document.createElement('button');
+          t.className = 'tab'; t.dataset.tab = 'cerebro';
+          t.setAttribute('onclick', "switchTab('cerebro')");
+          t.innerHTML = 'Cerebro';
+          var adminBtn = tabsEl.querySelector('[data-tab="admin"]');
+          if(adminBtn) tabsEl.insertBefore(t, adminBtn); else tabsEl.appendChild(t);
+        }
+      }catch(e){}
+    };
+  }
+  if(typeof renderTab === 'function'){
+    var _rt = renderTab;
+    renderTab = function(){
+      if(typeof CURRENT_TAB !== 'undefined' && CURRENT_TAB === 'cerebro'){
+        var role = (typeof CURRENT_ROLE !== 'undefined') ? CURRENT_ROLE : '';
+        var src = '/cerebro/?role=' + encodeURIComponent(role);
+        document.getElementById('view').innerHTML =
+          '<div class="sec-eyebrow">Prospection &amp; signaux</div>'+
+          '<div class="sec-title">Cerebro</div>'+
+          '<div class="sec-note">Detection de comptes et d\'opportunites, assistee par IA.</div>'+
+          '<iframe title="Cerebro" src="'+src+'" '+
+            'style="width:100%;height:calc(100vh - 240px);min-height:560px;border:1px solid var(--line,#26384b);border-radius:10px;background:#0A1524;margin-top:8px;"></iframe>';
+      } else {
+        _rt();
+      }
+    };
+  }
+})();
+</script>
 </body>
 </html>
