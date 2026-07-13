@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Parcours candidat · Kaizen Way</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Crimson+Pro:ital,wght@0,400;0,600;1,400&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&display=swap" rel="stylesheet"/>
+<style>
+  :root{
+    --burg:#560a0f; --burg-soft:#8a4a4f; --gold:#efb810; --gold-deep:#9c7400;
+    --bg:#f7f4f0; --card:#ffffff; --line:#e0d6cf; --ink:#1a1416; --dim:#5a4030; --faint:#8a7868; --green:#3f6b4f;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:var(--bg);font-family:'DM Sans',sans-serif;color:var(--ink);line-height:1.5;}
+  .mono{font-family:'IBM Plex Mono',monospace;}
+  .serif{font-family:'Crimson Pro',serif;}
+  .wrap{max-width:640px;margin:0 auto;padding:32px 20px 60px;}
+  .center{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;}
+  .logo{height:48px;width:auto;display:block;}
+  .head{display:flex;align-items:center;gap:14px;margin-bottom:8px;}
+  .eyebrow{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:2.5px;text-transform:uppercase;color:var(--gold-deep);}
+  h1{font-size:26px;font-weight:600;letter-spacing:-0.01em;margin:6px 0 2px;}
+  .sub{font-family:'Crimson Pro',serif;font-size:17px;font-style:italic;color:var(--dim);}
+  .intro{font-family:'Crimson Pro',serif;font-size:16px;line-height:1.75;color:var(--dim);margin:18px 0 22px;}
+  .card{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--burg-soft);border-radius:6px;padding:16px 18px;margin-bottom:12px;display:flex;gap:14px;align-items:flex-start;}
+  .card .num{flex-shrink:0;width:30px;height:30px;border-radius:50%;background:var(--burg);color:#fff;font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:13px;display:flex;align-items:center;justify-content:center;}
+  .card .body{flex:1;}
+  .card .t{font-size:16px;font-weight:600;}
+  .card .d{font-family:'Crimson Pro',serif;font-size:14px;color:var(--faint);margin-top:2px;line-height:1.5;}
+  .card .foot{display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap;}
+  .pill{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:1px;text-transform:uppercase;padding:3px 9px;border-radius:10px;background:#e8e4da;color:var(--faint);}
+  .pill.prog{background:#e3ebf3;color:var(--burg);}
+  .pill.done{background:#dfece2;color:var(--green);}
+  .btn{margin-left:auto;background:var(--burg);color:#fff;border:none;padding:9px 16px;border-radius:4px;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;letter-spacing:1px;cursor:pointer;text-transform:uppercase;}
+  .btn:disabled{background:#c9bfb6;cursor:default;}
+  .btn.soon{background:var(--card);color:var(--faint);border:1px solid var(--line);}
+  .foot-note{margin-top:24px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--faint);letter-spacing:0.5px;line-height:1.7;border-top:1px solid var(--line);padding-top:14px;}
+  .err-card{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:30px 26px;max-width:420px;text-align:center;}
+  .err-card .em{font-size:34px;margin-bottom:10px;}
+  .err-card h2{font-size:20px;font-weight:600;margin-bottom:8px;}
+  .err-card p{font-family:'Crimson Pro',serif;font-size:16px;color:var(--dim);line-height:1.7;}
+  .load{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:2px;color:var(--burg);}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+  var params = new URLSearchParams(location.search);
+  var token = (params.get('c') || '').trim();
+  var root = document.getElementById('root');
+
+  var EPREUVES = [
+    { key:'dojo',      num:'1', titre:'Dojo — simulation de coaching',   desc:'Un cas de management de proximité à conduire.' },
+    { key:'brasserie', num:'2', titre:'La Brasserie des Tuileries',       desc:'Un jeu de rôle managérial, évalué.' },
+    { key:'qpm',       num:'3', titre:'QPM Humetria',                     desc:'Un questionnaire de positionnement managérial.' }
+  ];
+
+  function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  function loading(){
+    root.innerHTML = '<div class="center"><div style="text-align:center;">'
+      + '<img class="logo" src="/icon-192.png" alt="Kaizen Way" style="margin:0 auto 16px;" onerror="this.style.display=\'none\'"/>'
+      + '<div class="load">VÉRIFICATION DU LIEN…</div></div></div>';
+  }
+
+  function screenError(titre, msg){
+    root.innerHTML = '<div class="center"><div class="err-card">'
+      + '<img class="logo" src="/icon-192.png" alt="Kaizen Way" style="margin:0 auto 16px;" onerror="this.style.display=\'none\'"/>'
+      + '<div class="em">•</div>'
+      + '<h2>' + esc(titre) + '</h2>'
+      + '<p>' + esc(msg) + '</p>'
+      + '</div></div>';
+  }
+
+  function pill(ep){
+    if(!ep) return '<span class="pill">à faire</span>';
+    var lib = { a_faire:'à faire', en_cours:'en cours', termine:'terminé' };
+    var cls = ep.statut==='termine' ? 'pill done' : (ep.statut==='en_cours' ? 'pill prog' : 'pill');
+    var sc  = (ep.score!=null) ? (' · ' + Math.round(ep.score) + '%') : '';
+    return '<span class="' + cls + '">' + (lib[ep.statut] || 'à faire') + sc + '</span>';
+  }
+
+  function screenValid(data){
+    var nom = data.candidat && data.candidat.nom ? data.candidat.nom : 'candidat';
+    var prenom = String(nom).split(' ')[0] || nom;
+    var poste = data.candidat && data.candidat.poste ? data.candidat.poste : '';
+    var eps = data.epreuves || {};
+
+    var cards = EPREUVES.map(function(e){
+      return '<div class="card">'
+        + '<div class="num">' + e.num + '</div>'
+        + '<div class="body">'
+        +   '<div class="t">' + esc(e.titre) + '</div>'
+        +   '<div class="d">' + esc(e.desc) + '</div>'
+        +   '<div class="foot">' + pill(eps[e.key])
+        +     '<button class="btn soon" onclick="bientot()">Commencer</button>'
+        +   '</div>'
+        + '</div></div>';
+    }).join('');
+
+    root.innerHTML = '<div class="wrap">'
+      + '<div class="head">'
+      +   '<img class="logo" src="/icon-192.png" alt="Kaizen Way" onerror="this.style.display=\'none\'"/>'
+      +   '<div><div class="eyebrow">Parcours candidat · Kaizen Way</div>'
+      +   '<h1>Bienvenue, ' + esc(prenom) + '</h1>'
+      +   (poste ? '<div class="sub">' + esc(poste) + '</div>' : '')
+      +   '</div>'
+      + '</div>'
+      + '<p class="intro">Ce parcours comporte trois épreuves. Vous pouvez les réaliser à votre rythme depuis ce lien — pas besoin de créer de compte. Vos résultats sont transmis à l\'équipe Kaizen Way.</p>'
+      + cards
+      + '<div class="foot-note">Vos données ne servent qu\'à cette évaluation et ne sont partagées avec personne d\'autre que l\'équipe de recrutement Kaizen Way. Conservez ce lien : il est personnel.</div>'
+      + '</div>';
+  }
+
+  window.bientot = function(){
+    alert('Cette épreuve sera activée très prochainement. Merci de revenir avec ce même lien.');
+  };
+
+  async function init(){
+    if(!token){ screenError('Lien incomplet', "Ce lien ne contient pas de code d'accès. Vérifiez que vous avez copié le lien en entier."); return; }
+    loading();
+    try {
+      var r = await fetch('/.netlify/functions/parcours-token?c=' + encodeURIComponent(token));
+      var d = await r.json();
+      if(!d || !d.valid){
+        var reasons = {
+          'lien invalide':"Ce lien n'est pas valide.",
+          'introuvable':"Ce lien ne correspond à aucun parcours.",
+          'expiré':"Ce lien a expiré. Contactez votre interlocuteur Kaizen Way.",
+          'archivé':"Ce parcours a été clôturé.",
+          'config':"Service momentanément indisponible. Réessayez plus tard.",
+          'erreur':"Une erreur est survenue. Réessayez dans un instant."
+        };
+        var msg = (d && reasons[d.reason]) ? reasons[d.reason] : "Ce lien n'est pas accessible.";
+        screenError('Accès impossible', msg);
+        return;
+      }
+      screenValid(d);
+    } catch(e){
+      screenError('Connexion impossible', 'Réessayez dans un instant.');
+    }
+  }
+  init();
+</script>
+</body>
+</html>
