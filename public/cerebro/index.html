@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>CEREBRO - Kaizen Way</title>
-<style>html,body{margin:0;background:#0A1524;}</style>
+<style>html,body{margin:0;background:#0c0a0b;}</style>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone@7.26/babel.min.js"></script>
@@ -121,9 +121,9 @@ const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 * { box-sizing: border-box; }
 .hr-root {
-  --ink:#0A1524; --panel:#111E2E; --panel2:#172939; --line:#26384B;
-  --mute:#7E8DA1; --paper:#E9EEF5; --cyan:#2E86E6; --amber:#E0A63C; --green:#3FB68B; --orange:#F26A21;
-  background:var(--ink); color:var(--paper); min-height:100vh;
+  --ink:#0c0a0b; --panel:#1a1214; --panel2:#241a1c; --line:#3a2b2e;
+  --mute:#9c8f88; --paper:#F2ECE3; --cyan:#EFB810; --amber:#E0A63C; --green:#3FB68B; --orange:#8A2B2F;
+  background:var(--ink); color:var(--paper); min-height:auto;
   font-family:'Inter',system-ui,sans-serif; padding:20px 16px 64px;
   -webkit-font-smoothing:antialiased;
 }
@@ -138,7 +138,7 @@ const CSS = `
 .hr-tabs button.on { color:var(--paper); border-bottom-color:var(--cyan); }
 
 .hr-card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:18px; margin-bottom:16px; }
-.hr-card.cerebro { border-color:var(--cyan); box-shadow:0 0 0 1px rgba(46,134,230,0.18), 0 8px 30px rgba(242,106,33,0.07); }
+.hr-card.cerebro { border-color:var(--cyan); box-shadow:0 0 0 1px rgba(239,184,16,0.18), 0 8px 30px rgba(138,43,47,0.12); }
 .hr-section-title { font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:var(--mute); margin:0 0 14px; }
 .hr-cerebro-title { font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:17px; letter-spacing:0.02em; color:var(--cyan); margin:0 0 4px; display:flex; align-items:center; gap:8px; }
 .hr-cerebro-sub { font-size:13px; color:var(--mute); margin:0 0 14px; line-height:1.5; }
@@ -148,19 +148,19 @@ const CSS = `
   width:100%; background:var(--panel2); border:1px solid var(--line); color:var(--paper);
   border-radius:8px; padding:11px 12px; font-family:'Inter',sans-serif; font-size:15px; outline:none;
 }
-.hr-input:focus, .hr-textarea:focus, .hr-select:focus { border-color:var(--cyan); box-shadow:0 0 0 2px rgba(46,134,230,0.20); }
+.hr-input:focus, .hr-textarea:focus, .hr-select:focus { border-color:var(--cyan); box-shadow:0 0 0 2px rgba(239,184,16,0.20); }
 .hr-textarea { resize:vertical; min-height:56px; margin-top:10px; font-size:14px; }
 .hr-select { font-size:14px; margin-bottom:4px; }
 .hr-input::placeholder, .hr-textarea::placeholder { color:#4E5B67; }
 
 .hr-btn {
-  margin-top:12px; background:var(--cyan); color:#F2F7FF; border:none; border-radius:8px;
+  margin-top:12px; background:var(--cyan); color:#1a1010; border:none; border-radius:8px;
   padding:12px 18px; font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:15px;
   cursor:pointer; letter-spacing:0.01em; transition:filter .15s, opacity .15s;
 }
 .hr-btn.ghost { background:transparent; color:var(--cyan); border:1px solid var(--cyan); padding:10px 16px; font-size:14px; }
 .hr-btn:hover:not(:disabled) { filter:brightness(1.08); }
-.hr-btn.ghost:hover:not(:disabled) { background:rgba(46,134,230,0.08); filter:none; }
+.hr-btn.ghost:hover:not(:disabled) { background:rgba(239,184,16,0.10); filter:none; }
 .hr-btn:disabled { opacity:0.45; cursor:progress; }
 .hr-btn:focus-visible { outline:2px solid var(--paper); outline-offset:2px; }
 
@@ -238,7 +238,7 @@ const CSS = `
 .hr-nettag { margin-top:8px; }
 .hr-nettag-k { font-family:'IBM Plex Mono',monospace; font-size:9px; letter-spacing:0.08em; text-transform:uppercase; color:var(--mute); display:block; margin-bottom:4px; }
 .hr-cb-actions { display:flex; align-items:center; gap:10px; margin-top:11px; }
-.hr-mini { background:var(--cyan); color:#F2F7FF; border:none; border-radius:7px; padding:8px 13px; font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:13px; cursor:pointer; }
+.hr-mini { background:var(--cyan); color:#1a1010; border:none; border-radius:7px; padding:8px 13px; font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:13px; cursor:pointer; }
 .hr-mini:disabled { opacity:0.5; cursor:progress; }
 
 .hr-item { border:1px solid var(--line); border-radius:10px; padding:13px 14px; margin-bottom:10px; background:var(--panel); display:flex; align-items:center; gap:13px; cursor:pointer; transition:border-color .15s; }
@@ -253,8 +253,8 @@ const CSS = `
 
 .hr-empty { text-align:center; color:var(--mute); font-size:14px; padding:26px 10px; line-height:1.6; }
 .hr-err { color:#E08B87; font-size:13px; margin-top:12px; line-height:1.5; word-break:break-word; }
-.hr-spin { display:inline-block; width:14px; height:14px; border:2px solid rgba(255,255,255,0.35); border-top-color:#F2F7FF; border-radius:50%; animation:hr-rot .7s linear infinite; vertical-align:-2px; margin-right:7px; }
-.hr-spin.cy { border:2px solid rgba(46,134,230,0.25); border-top-color:var(--cyan); }
+.hr-spin { display:inline-block; width:14px; height:14px; border:2px solid rgba(26,16,16,0.35); border-top-color:#1a1010; border-radius:50%; animation:hr-rot .7s linear infinite; vertical-align:-2px; margin-right:7px; }
+.hr-spin.cy { border:2px solid rgba(239,184,16,0.25); border-top-color:var(--cyan); }
 @keyframes hr-rot { to { transform:rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .hr-needle { transition:none; } .hr-spin { animation:none; } }
 `;
@@ -1332,10 +1332,10 @@ async function cerebroBoot(){
   try { var s = await CEREBRO_SB.auth.getSession(); session = s && s.data ? s.data.session : null; } catch(e){}
   if(!session){
     mount.innerHTML = '<div style="max-width:520px;margin:80px auto;padding:24px;'
-      + 'font-family:Inter,system-ui,sans-serif;color:#E9EEF5;background:#111E2E;'
-      + 'border:1px solid #26384B;border-radius:12px;line-height:1.6;">'
+      + 'font-family:Inter,system-ui,sans-serif;color:#F2ECE3;background:#1a1214;'
+      + 'border:1px solid #3a2b2e;border-radius:12px;line-height:1.6;">'
       + '<div style="font-family:\'IBM Plex Mono\',monospace;font-size:11px;letter-spacing:.08em;'
-      + 'text-transform:uppercase;color:#7E8DA1;margin-bottom:8px;">CEREBRO</div>'
+      + 'text-transform:uppercase;color:#9c8f88;margin-bottom:8px;">CEREBRO</div>'
       + 'Connecte-toi d\'abord au <b>Cockpit KW</b> (meme navigateur), puis reviens sur cette page.'
       + '</div>';
     return;
