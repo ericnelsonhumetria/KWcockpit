@@ -453,9 +453,9 @@
         <button class="logout" onclick="switchTab('dash')" title="Revenir au tableau de bord">⌂ Accueil</button>
         <button class="logout" onclick="refreshShared()" title="Récupérer les dernières modifications partagées">↻ Rafraîchir</button>
         <button class="logout" onclick="logout()">Changer de rôle</button>
-        <button id="kwAvatar" class="kw-avatar" type="button" onclick="kwAvatarPick()" oncontextmenu="return kwAvatarRemove(event)" title="Cliquer pour ajouter une photo"><span id="kwAvatarInitials" class="kw-avatar-initials"></span><img id="kwAvatarImg" class="kw-avatar-img" alt="" style="display:none;"><span class="kw-avatar-edit" aria-hidden="true">✎</span></button>
-        <input id="kwAvatarInput" type="file" accept="image/*" onchange="kwAvatarUpload(event)" style="display:none;">
       </div>
+      <button id="kwAvatar" class="kw-avatar" type="button" onclick="kwAvatarPick()" oncontextmenu="return kwAvatarRemove(event)" title="Cliquer pour ajouter une photo"><span id="kwAvatarInitials" class="kw-avatar-initials"></span><img id="kwAvatarImg" class="kw-avatar-img" alt="" style="display:none;"><span class="kw-avatar-edit" aria-hidden="true">✎</span></button>
+      <input id="kwAvatarInput" type="file" accept="image/*" onchange="kwAvatarUpload(event)" style="display:none;">
     </div>
     <div class="tabs" id="tabs">
       <button class="tab active" data-tab="dash" onclick="switchTab('dash')">Tableau de bord</button>
@@ -4700,6 +4700,9 @@ function kwLifecycleSyncBtn(){
   + '.kw-avatar-initials{font-weight:700;font-size:28px;letter-spacing:.02em;line-height:1;}'
   + '.kw-avatar-img{width:100%;height:100%;object-fit:cover;border-radius:50%;}'
   + '.kw-avatar-edit{position:absolute;right:0;bottom:0;width:23px;height:23px;border-radius:50%;background:var(--gold,#efb810);color:#560a0f;font-size:12px;line-height:23px;text-align:center;border:2px solid var(--paper,#f3efe9);}'
+  + '.brand{order:0;}'
+  + '#kwAvatar.kw-avatar{order:1;margin-left:auto;}'
+  + '.head-right{order:2;flex-basis:100%;}'
   + '.lc-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;}'
   + '.lc-head-label{font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:0.14em;color:var(--gold,#efb810);}'
   + '.lc-toggle{background:rgba(255,255,255,0.10);border:1px solid rgba(239,184,16,0.55);border-radius:6px;padding:4px 10px;font-size:12px;font-weight:600;color:var(--gold,#efb810);cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap;}'
