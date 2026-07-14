@@ -5110,5 +5110,128 @@ function kwLifecycleSyncBtn(){
 })();
 
 </script>
+<script>
+/* ============================================================
+   COCKPIT KW - PILOTAGE FINANCIER (brique 2 - diagnostic charges)
+   Bouton "Analyser les charges" dans la vue finance (direction/finance) :
+   appelle /api/qonto-diag et affiche les débits de l'année groupés par
+   contrepartie + catégorie proposée. Lecture seule. Additif, non-cassant :
+   greffe sur loadFinance(), zone #finChargesZone insérée après #finZone.
+   ============================================================ */
+(function(){
+  'use strict';
+
+  var ROLES = ['eric', 'direction', 'najoua'];
+  function roleOk(){ return typeof CURRENT_ROLE !== 'undefined' && ROLES.indexOf(CURRENT_ROLE) >= 0; }
+  function euro(n){
+    if(typeof fmtEuro === 'function') return fmtEuro(n);
+    n = Number(n)||0;
+    return n.toLocaleString('fr-FR',{style:'currency',currency:'EUR',maximumFractionDigits:0});
+  }
+  function annee(){ return new Date().getFullYear(); }
+  function esc(v){ return v==null ? '' : String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+  function hdr(){ return { Authorization: 'Bearer ' + ((typeof SB_SESSION !== 'undefined' && SB_SESSION) ? SB_SESSION.access_token : '') }; }
+
+  var CAT_LABEL = {
+    opex:'Charges d\u2019exploitation', social:'Social / URSSAF', soustraitance:'Sous-traitance / freelances',
+    fiscalite:'Fiscalit\u00e9', treso:'Mouvements tr\u00e9sorerie / virements', bilan:'Haut de bilan',
+    perso:'Flux dirigeant', inter:'Inter-entit\u00e9s'
+  };
+  var CAT_PILL = {
+    opex:'p-green', social:'p-amber', soustraitance:'p-blue', fiscalite:'p-signal',
+    treso:'p-grey', bilan:'p-grey', perso:'p-signal', inter:'p-grey'
+  };
+
+  function ensureZone(){
+    var fz = document.getElementById('finZone');
+    if(!fz) return null;
+    var z = document.getElementById('finChargesZone');
+    if(!z){
+      z = document.createElement('div');
+      z.id = 'finChargesZone';
+      z.style.marginTop = '18px';
+      fz.parentNode.insertBefore(z, fz.nextSibling);
+    }
+    return z;
+  }
+
+  function renderButton(){
+    var z = ensureZone();
+    if(!z) return;
+    z.innerHTML =
+      '<div class="sec-eyebrow">Brique 2 \u2014 diagnostic</div>'
+      + '<div class="sec-title">Charges Qonto par cat\u00e9gorie</div>'
+      + '<div class="sec-note">D\u00e9bits de l\u2019ann\u00e9e group\u00e9s par contrepartie, avec cat\u00e9gorie propos\u00e9e. Sert \u00e0 caler le mapping avant le calcul EBITDA \u2014 rien n\u2019est fig\u00e9.</div>'
+      + '<div class="panel" style="padding:16px;"><button class="add-btn" onclick="loadQontoDiag()">Analyser les charges (' + annee() + ')</button>'
+      + '<span class="edit-hint" style="margin-left:10px;">Lecture seule. Rep\u00e8re les libell\u00e9s URSSAF, retraite, mutuelle, sous-traitance\u2026 pour valider les cat\u00e9gories.</span></div>';
+  }
+
+  window.loadQontoDiag = async function(){
+    var z = ensureZone();
+    if(!z) return;
+    var p = z.querySelector('.panel');
+    if(p) p.innerHTML = 'Analyse des charges en cours\u2026';
+    try {
+      var r = await fetch('/api/qonto-diag?start=' + annee() + '-01-01', { headers: hdr() });
+      if(!r.ok){
+        var t = '';
+        try { t = (await r.json()).error || ''; } catch(e){}
+        if(p) p.innerHTML = '<span style="color:var(--signal)">Erreur ' + r.status + (t ? (' \u2014 ' + esc(t)) : '') + (r.status===404 ? ' (fonction qonto-diag non d\u00e9ploy\u00e9e / redirection netlify.toml absente)' : '') + '</span>';
+        return;
+      }
+      renderQontoDiag(await r.json());
+    } catch(e){
+      if(p) p.innerHTML = '<span style="color:var(--signal)">R\u00e9seau indisponible.</span>';
+    }
+  };
+
+  window.renderQontoDiag = function(d){
+    var z = document.getElementById('finChargesZone');
+    if(!z) return;
+    var cats = d.categories || [];
+    var catRows = cats.map(function(c){
+      return '<tr><td><span class="pill ' + (CAT_PILL[c.cat]||'p-grey') + '">' + esc(CAT_LABEL[c.cat]||c.cat) + '</span> '
+        + (c.in_ebitda ? '<span class="sub-cell">\u2192 EBITDA</span>' : '<span class="sub-cell">exclu</span>') + '</td>'
+        + '<td style="text-align:center;">' + c.count + '</td>'
+        + '<td class="val" style="text-align:right;">' + euro(c.total) + '</td></tr>';
+    }).join('');
+    var grp = d.groupes || [];
+    var grpRows = grp.map(function(g){
+      var labs = (g.labels || []).slice(0, 2).join(' \u00b7 ');
+      return '<tr><td>' + esc(g.contrepartie || '(sans nom)') + (labs ? '<br><span class="sub-cell">' + esc(labs) + '</span>' : '') + '</td>'
+        + '<td><span class="pill ' + (CAT_PILL[g.cat]||'p-grey') + '">' + esc(CAT_LABEL[g.cat]||g.cat) + '</span></td>'
+        + '<td style="text-align:center;">' + g.count + '</td>'
+        + '<td class="val" style="text-align:right;">' + euro(g.total) + '</td></tr>';
+    }).join('');
+    z.innerHTML =
+      '<div class="sec-eyebrow">Brique 2 \u2014 diagnostic</div>'
+      + '<div class="sec-title">Charges Qonto ' + esc(d.annee) + ' \u2014 ' + (d.nb_debits||0) + ' d\u00e9bits</div>'
+      + '<div class="sec-note">Cat\u00e9gorie <b>propos\u00e9e</b> par les r\u00e8gles Nelson. \u00c0 valider : dis-moi les corrections, je fige ensuite le mapping et le calcul EBITDA.</div>'
+      + '<div class="kpis k4" style="margin-bottom:6px;">'
+      +   '<div class="kpi accent"><div class="k-label">Total d\u00e9bits</div><div class="k-val">' + euro(d.total_debits) + '</div></div>'
+      +   '<div class="kpi good"><div class="k-label">OPEX (base EBITDA)</div><div class="k-val">' + euro(d.opex_ebitda) + '</div><div class="k-sub">expl. + URSSAF + sous-trait.</div></div>'
+      +   '<div class="kpi warn"><div class="k-label">Exclus de l\u2019EBITDA</div><div class="k-val">' + euro(d.exclus) + '</div><div class="k-sub">fisca, tr\u00e9so, bilan, perso, inter</div></div>'
+      +   '<div class="kpi"><div class="k-label">Contreparties</div><div class="k-val">' + grp.length + '</div></div>'
+      + '</div>'
+      + '<div class="panel" style="padding:8px 16px 16px;overflow-x:auto;"><table><thead><tr><th>Cat\u00e9gorie</th><th style="text-align:center;">Nb</th><th style="text-align:right;">Total</th></tr></thead><tbody>' + catRows + '</tbody></table></div>'
+      + '<div class="sec-eyebrow" style="margin-top:12px;">Par contrepartie (les plus gros postes)</div>'
+      + '<div class="panel" style="padding:8px 16px 16px;overflow-x:auto;"><table><thead><tr><th>Contrepartie / libell\u00e9</th><th>Cat\u00e9gorie propos\u00e9e</th><th style="text-align:center;">Nb</th><th style="text-align:right;">Total</th></tr></thead><tbody>' + grpRows + '</tbody></table>'
+      + (d.tronque ? '<div class="edit-hint" style="color:var(--signal);margin-top:8px;">\u26a0 Liste tronqu\u00e9e (beaucoup de transactions) \u2014 les plus gros postes sont l\u00e0, mais le total peut \u00eatre partiel.</div>' : '')
+      + '<div class="edit-hint" style="margin-top:8px;">Rappel : l\u2019URSSAF est r\u00e9int\u00e9gr\u00e9e en charge (d\u00e9cision valid\u00e9e). Prochaine \u00e9tape : figer tes corrections puis EBITDA = CA HT (Evoliz) \u2212 OPEX.</div>'
+      + '<div style="margin-top:10px;"><button class="add-btn" onclick="loadQontoDiag()">\u21bb Recharger</button></div></div>';
+  };
+
+  // Greffe : afficher le bouton diagnostic après chaque chargement finance.
+  if(typeof window.loadFinance === 'function'){
+    var _lf = window.loadFinance;
+    window.loadFinance = async function(){
+      var r = await _lf.apply(this, arguments);
+      try { if(roleOk()) renderButton(); } catch(e){}
+      return r;
+    };
+  }
+})();
+
+</script>
 </body>
 </html>
