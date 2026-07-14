@@ -3724,12 +3724,6 @@ eric: () => `
   <div class="sec-title">Vue direction — le cap</div>
   <div class="sec-note">Lecture transverse du système de management · synthèse des 6 modules</div>
 
-  <div class="goal">
-    <div><div class="label">CA signé — cible fin 2027</div><div class="big">2,0 M€ <small>· réalisé 0,74 M€</small></div></div>
-    <div class="proj"><div class="label">Projection entonnoir</div><div class="pval">≈ 2,9 M€</div><div class="label" style="opacity:.6">marge de sécurité</div></div>
-    <div class="bar-track"><div class="bar-fill" id="goalbar"></div></div>
-  </div>
-
   <div class="sec-eyebrow">Objectifs de l'équipe</div>
   <div class="sec-title">Indicateurs — objectifs validés</div>
   <div class="sec-note">Synthèse de tous les objectifs validés · vert = tenu / à l'objectif · rouge = en retard / sous l'objectif</div>
@@ -5399,7 +5393,24 @@ function kwLifecycleSyncBtn(){
   'use strict';
 
   var YEAR = new Date().getFullYear();
-  var LOADING = false;
+  var LOADING = false, PROGRESS = 0, PHASE = '';
+  var creepTimer = null;
+
+  function setProg(p, label){
+    PROGRESS = Math.max(0, Math.min(100, p));
+    if(label != null) PHASE = label;
+    var fill = document.getElementById('finLoadFill');
+    if(fill) fill.style.width = PROGRESS + '%';
+    var lbl = document.getElementById('finLoadLabel');
+    if(lbl && label != null) lbl.textContent = label;
+  }
+  function stopCreep(){ if(creepTimer){ clearInterval(creepTimer); creepTimer = null; } }
+  function startCreep(cap){
+    stopCreep();
+    creepTimer = setInterval(function(){
+      if(PROGRESS < cap) setProg(PROGRESS + Math.max(0.4, (cap - PROGRESS) * 0.06));
+    }, 200);
+  }
 
   function euro(n){
     if(typeof fmtEuro === 'function') return fmtEuro(n);
@@ -5480,6 +5491,11 @@ function kwLifecycleSyncBtn(){
     var parent = fz.parentNode;
     if(!parent) return false;
 
+    var hz = document.createElement('div');
+    hz.id = 'finHeroZone';
+    hz.style.marginBottom = '14px';
+    parent.insertBefore(hz, fz);
+
     var sy = document.createElement('div');
     sy.id = 'finSynthZone';
     sy.style.marginBottom = '14px';
@@ -5507,9 +5523,26 @@ function kwLifecycleSyncBtn(){
     return true;
   }
 
+  // clone le bandeau bordeaux d'atterrissage en tete (au-dessus des paves).
+  // l'original reste dans #finProjZone (accordeon) => snapshot inchange.
+  function relocateHero(){
+    var hz = document.getElementById('finHeroZone');
+    if(!hz) return;
+    var pz = document.getElementById('finProjZone');
+    var hero = pz ? (pz.querySelector('.panel[style*="560A0F"]') || pz.querySelector('.panel[style*="560a0f"]')) : null;
+    if(hero){
+      hz.style.display = '';
+      hz.innerHTML = '';
+      hz.appendChild(hero.cloneNode(true));
+    } else if(!hz.children.length){
+      hz.style.display = 'none';
+    }
+  }
+
   // ---- rendu du panneau synthese ----
   window.finSynthRepaint = function(){
     if(!ensureLayout()) return;
+    relocateHero();
     var sy = document.getElementById('finSynthZone');
     if(!sy) return;
 
@@ -5567,8 +5600,11 @@ function kwLifecycleSyncBtn(){
     // barre d'action unique (place EN TETE) : un seul chargement pour tout
     var actionBar;
     if(LOADING){
-      actionBar = '<button class="add-btn" disabled style="opacity:.65;cursor:default;">\u23f3 Chargement en cours\u2026</button>'
-        + '<span class="edit-hint" style="margin-left:10px;">Qonto + Evoliz + charges \u2014 quelques secondes.</span>';
+      actionBar = '<div id="finLoadLabel" style="font-size:12.5px;color:#560A0F;font-weight:600;margin-bottom:7px;">' + (PHASE || 'Chargement\u2026') + '</div>'
+        + '<div style="position:relative;height:10px;border-radius:6px;background:rgba(86,10,15,.10);overflow:hidden;">'
+        +   '<div id="finLoadFill" style="position:absolute;left:0;top:0;height:100%;width:' + PROGRESS + '%;background:linear-gradient(90deg,#560A0F,#EFB810);border-radius:6px;transition:width .35s ease;"></div>'
+        + '</div>'
+        + '<div class="edit-hint" style="margin-top:6px;">Qonto + Evoliz \u2014 quelques secondes.</div>';
     } else if(hasFinData && diag != null){
       actionBar = '<button class="per-btn" style="font-size:12px;padding:5px 13px;" onclick="finSynthLoadAll(this)">\u21bb Actualiser</button>'
         + '<span class="edit-hint" style="margin-left:10px;">Recharge tr\u00e9sorerie, CA, atterrissage et charges/EBITDA en un clic.</span>';
@@ -5590,7 +5626,6 @@ function kwLifecycleSyncBtn(){
       + '</div>';
 
     var attSub = 'projet\u00e9 \u00b7 run-rate';
-    var attChips = '<div style="display:flex;gap:7px;flex-wrap:wrap;margin:0 0 7px;">' + chip(land, 'signe', sc) + chip(land, 'p75', sc) + chip(land, 'p50', sc) + '</div>';
     var attKpis = '<div class="kpis k4" style="margin-bottom:6px;">'
       + tile('accent', 'Atterrissage CA', attCA != null ? euro(attCA) : '\u2014', 'r\u00e9alis\u00e9 + carnet')
       + tile('', 'Atterr. Charges Expl.', projetable ? euro(attCharges) : '\u2014', attSub)
@@ -5616,18 +5651,26 @@ function kwLifecycleSyncBtn(){
       + errBox
       + '<div class="panel" style="padding:12px 14px;margin-bottom:14px;">' + actionBar + '</div>'
       + '<div class="sec-eyebrow" style="margin:2px 0 4px;">R\u00e9alis\u00e9 \u2014 cumul \u00e0 date</div>' + reelKpis
-      + '<div class="sec-eyebrow" style="margin:14px 0 4px;">Atterrissage \u2014 sc\u00e9nario ' + ({ signe:'Sign\u00e9', p75:'Pond\u00e9r\u00e9 75%', p50:'Pond\u00e9r\u00e9 50%' }[sc]) + '</div>' + attChips + attKpis
+      + '<div class="sec-eyebrow" style="margin:14px 0 4px;">Atterrissage \u2014 sc\u00e9nario ' + ({ signe:'Sign\u00e9', p75:'Pond\u00e9r\u00e9 75%', p50:'Pond\u00e9r\u00e9 50%' }[sc]) + '</div>' + attKpis
       + '<div class="sec-eyebrow" style="margin:14px 0 4px;">Position</div>' + posKpis
       + hyp;
   };
 
-  // chargement unifie : finance + charges/EBITDA en une action
+  // chargement unifie : finance + charges/EBITDA en une action, avec barre de progression
   window.finSynthLoadAll = async function(){
     if(LOADING) return;
-    LOADING = true;
+    LOADING = true; PROGRESS = 0; PHASE = 'Connexion\u2026';
     try { window.finSynthRepaint(); } catch(e){}
+    setProg(6, 'Tr\u00e9sorerie, CA & atterrissage (Qonto + Evoliz)\u2026');
+    startCreep(48);
     try { if(typeof window.loadFinance === 'function') await window.loadFinance(); } catch(e){}
+    stopCreep();
+    setProg(55, 'Charges & EBITDA (Qonto)\u2026');
+    startCreep(92);
     try { if(typeof window.loadQontoDiag === 'function') await window.loadQontoDiag(); } catch(e){}
+    stopCreep();
+    setProg(100, 'Termin\u00e9');
+    await new Promise(function(r){ setTimeout(r, 400); }); // laisse voir le 100%
     LOADING = false;
     try { window.finSynthRepaint(); } catch(e){}
   };
@@ -5669,5 +5712,41 @@ function kwLifecycleSyncBtn(){
 })();
 
 </script>
+<style>
+/* ============================================================
+   COCKPIT KW - ADAPTATION SMARTPHONE (additif, non destructif)
+   Repli progressif des grilles KPI (4 -> 2 -> 1 colonne), tables
+   scrollables, police/padding resserres sur petit ecran. Place en
+   fin de document : surcharge les regles equivalentes anterieures.
+   ============================================================ */
+
+/* .kpis.k2 (ligne Position de la synthese) n'etait pas defini */
+.kpis.k2 { grid-template-columns: repeat(2, 1fr); }
+
+/* Tablette / grand telephone en paysage */
+@media (max-width: 760px){
+  .wrap { padding-left: 14px; padding-right: 14px; }
+  .kpi { padding: 14px; }
+  .kpi .k-val { font-size: 20px; }
+  .kpi .k-label { letter-spacing: 0.06em; }
+  /* tables larges : scroll horizontal dans le panel plutot que debordement */
+  .panel { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  table { font-size: 12.5px; }
+}
+
+/* Smartphone (portrait) : une seule colonne, chiffres lisibles */
+@media (max-width: 480px){
+  .kpis, .kpis.k4, .kpis.k2 { grid-template-columns: 1fr; }
+  .kpi { padding: 15px 16px; }
+  .kpi .k-val { font-size: 24px; }
+  .wrap { padding-left: 11px; padding-right: 11px; }
+  .sec-title { font-size: 17px; line-height: 1.25; }
+  table { font-size: 12px; }
+  .tab { padding: 9px 11px; font-size: 12px; }
+  /* barre de progression / action : reste pleine largeur */
+  #finSynthZone .panel, #finHeroZone .panel { padding-left: 14px; padding-right: 14px; }
+}
+
+</style>
 </body>
 </html>
