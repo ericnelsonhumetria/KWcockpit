@@ -4765,7 +4765,7 @@ function kwLifecycleSyncBtn(){
 (function(){
   'use strict';
 
-  window.FINANCE_OBJECTIF = window.FINANCE_OBJECTIF || 2000000;      // objectif annuel CA (éditable)
+  window.FINANCE_OBJECTIF = window.FINANCE_OBJECTIF || 1800000;      // objectif annuel CA (éditable)
   window.FIN_PROJ_SCENARIO = window.FIN_PROJ_SCENARIO || 'signe';    // 'signe' | 'p75' | 'p50'
   window.FIN_PROJ_ROWS = window.FIN_PROJ_ROWS || [];
   window.FIN_CA_REALISE = (window.FIN_CA_REALISE !== undefined) ? window.FIN_CA_REALISE : null;
@@ -5159,8 +5159,8 @@ function kwLifecycleSyncBtn(){
     var z = ensureZone();
     if(!z) return;
     z.innerHTML =
-      '<div class="sec-eyebrow">Brique 2 \u2014 diagnostic</div>'
-      + '<div class="sec-title">Charges Qonto par cat\u00e9gorie</div>'
+      '<div class="sec-eyebrow">Brique 2 \u2014 rentabilit\u00e9 & charges</div>'
+      + '<div class="sec-title">Rentabilit\u00e9 (EBITDA) & charges Qonto</div>'
       + '<div class="sec-note">D\u00e9bits de l\u2019ann\u00e9e group\u00e9s par contrepartie, avec cat\u00e9gorie propos\u00e9e. Sert \u00e0 caler le mapping avant le calcul EBITDA \u2014 rien n\u2019est fig\u00e9.</div>'
       + '<div class="panel" style="padding:16px;"><button class="add-btn" onclick="loadQontoDiag()">Analyser les charges (' + annee() + ')</button>'
       + '<span class="edit-hint" style="margin-left:10px;">Lecture seule. Rep\u00e8re les libell\u00e9s URSSAF, retraite, mutuelle, sous-traitance\u2026 pour valider les cat\u00e9gories.</span></div>';
@@ -5203,13 +5203,28 @@ function kwLifecycleSyncBtn(){
         + '<td style="text-align:center;">' + g.count + '</td>'
         + '<td class="val" style="text-align:right;">' + euro(g.total) + '</td></tr>';
     }).join('');
+    var caHT = (typeof window.FIN_CA_REALISE === 'number') ? window.FIN_CA_REALISE : null;
+    var ebitda = (caHT != null) ? (caHT - (Number(d.opex_ebitda)||0)) : null;
+    var marge = (caHT && caHT > 0 && ebitda != null) ? Math.round(ebitda / caHT * 100) : null;
+    var margeCls = (marge == null) ? '' : (marge >= 20 ? 'good' : (marge >= 10 ? 'warn' : 'ko'));
+    var rentaKpis = (caHT != null)
+      ? ('<div class="kpis k4" style="margin-bottom:6px;">'
+          + '<div class="kpi accent"><div class="k-label">CA HT (Evoliz)</div><div class="k-val">' + euro(caHT) + '</div></div>'
+          + '<div class="kpi good"><div class="k-label">OPEX (base EBITDA)</div><div class="k-val">' + euro(d.opex_ebitda) + '</div><div class="k-sub">expl. + URSSAF + sous-trait.</div></div>'
+          + '<div class="kpi ' + margeCls + '"><div class="k-label">EBITDA</div><div class="k-val">' + euro(ebitda) + '</div><div class="k-sub">CA HT \u2212 OPEX</div></div>'
+          + '<div class="kpi ' + margeCls + '"><div class="k-label">Marge EBITDA</div><div class="k-val">' + (marge==null?'\u2014':marge+'%') + '</div><div class="k-sub">r\u00e9f. 2025 ~26%</div></div>'
+          + '</div>')
+      : '<div class="edit-hint" style="margin-bottom:6px;color:var(--signal);">CA HT indisponible \u2014 clique d\u2019abord \u00ab Charger les donn\u00e9es financi\u00e8res \u00bb puis relance l\u2019analyse pour l\u2019EBITDA.</div>';
     z.innerHTML =
-      '<div class="sec-eyebrow">Brique 2 \u2014 diagnostic</div>'
-      + '<div class="sec-title">Charges Qonto ' + esc(d.annee) + ' \u2014 ' + (d.nb_debits||0) + ' d\u00e9bits</div>'
-      + '<div class="sec-note">Cat\u00e9gorie <b>propos\u00e9e</b> par les r\u00e8gles Nelson. \u00c0 valider : dis-moi les corrections, je fige ensuite le mapping et le calcul EBITDA.</div>'
+      '<div class="sec-eyebrow">Brique 2 \u2014 rentabilit\u00e9 & charges</div>'
+      + '<div class="sec-title">Rentabilit\u00e9 (base EBITDA) ' + esc(d.annee) + ' \u2014 YTD</div>'
+      + '<div class="sec-note">EBITDA = CA HT factur\u00e9 (Evoliz) \u2212 OPEX cash (Qonto, URSSAF r\u00e9int\u00e9gr\u00e9e), cumul YTD. Marge mensuelle et d\u00e9calage 30j sous-traitants : maillon suivant.</div>'
+      + rentaKpis
+      + '<div class="sec-eyebrow" style="margin-top:12px;">D\u00e9tail des charges \u2014 ' + (d.nb_debits||0) + ' d\u00e9bits</div>'
+      + '<div class="sec-note" style="margin-bottom:8px;">Cat\u00e9gorie <b>valid\u00e9e</b> (r\u00e8gles Nelson).</div>'
       + '<div class="kpis k4" style="margin-bottom:6px;">'
       +   '<div class="kpi accent"><div class="k-label">Total d\u00e9bits</div><div class="k-val">' + euro(d.total_debits) + '</div></div>'
-      +   '<div class="kpi good"><div class="k-label">OPEX (base EBITDA)</div><div class="k-val">' + euro(d.opex_ebitda) + '</div><div class="k-sub">expl. + URSSAF + sous-trait.</div></div>'
+      +   '<div class="kpi good"><div class="k-label">OPEX (base EBITDA)</div><div class="k-val">' + euro(d.opex_ebitda) + '</div><div class="k-sub">dans l\u2019EBITDA</div></div>'
       +   '<div class="kpi warn"><div class="k-label">Exclus de l\u2019EBITDA</div><div class="k-val">' + euro(d.exclus) + '</div><div class="k-sub">fisca, tr\u00e9so, bilan, perso, inter</div></div>'
       +   '<div class="kpi"><div class="k-label">Contreparties</div><div class="k-val">' + grp.length + '</div></div>'
       + '</div>'
