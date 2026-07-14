@@ -5210,21 +5210,21 @@ function kwLifecycleSyncBtn(){
     var rentaKpis = (caHT != null)
       ? ('<div class="kpis k4" style="margin-bottom:6px;">'
           + '<div class="kpi accent"><div class="k-label">CA HT (Evoliz)</div><div class="k-val">' + euro(caHT) + '</div></div>'
-          + '<div class="kpi good"><div class="k-label">OPEX (base EBITDA)</div><div class="k-val">' + euro(d.opex_ebitda) + '</div><div class="k-sub">expl. + URSSAF + sous-trait.</div></div>'
-          + '<div class="kpi ' + margeCls + '"><div class="k-label">EBITDA</div><div class="k-val">' + euro(ebitda) + '</div><div class="k-sub">CA HT \u2212 OPEX</div></div>'
+          + '<div class="kpi good"><div class="k-label">Charges Expl.</div><div class="k-val">' + euro(d.opex_ebitda) + '</div><div class="k-sub">expl. + URSSAF + sous-trait.</div></div>'
+          + '<div class="kpi ' + margeCls + '"><div class="k-label">EBITDA</div><div class="k-val">' + euro(ebitda) + '</div><div class="k-sub">CA HT \u2212 charges expl.</div></div>'
           + '<div class="kpi ' + margeCls + '"><div class="k-label">Marge EBITDA</div><div class="k-val">' + (marge==null?'\u2014':marge+'%') + '</div><div class="k-sub">r\u00e9f. 2025 ~26%</div></div>'
           + '</div>')
       : '<div class="edit-hint" style="margin-bottom:6px;color:var(--signal);">CA HT indisponible \u2014 clique d\u2019abord \u00ab Charger les donn\u00e9es financi\u00e8res \u00bb puis relance l\u2019analyse pour l\u2019EBITDA.</div>';
     z.innerHTML =
       '<div class="sec-eyebrow">Brique 2 \u2014 rentabilit\u00e9 & charges</div>'
       + '<div class="sec-title">Rentabilit\u00e9 (base EBITDA) ' + esc(d.annee) + ' \u2014 YTD</div>'
-      + '<div class="sec-note">EBITDA = CA HT factur\u00e9 (Evoliz) \u2212 OPEX cash (Qonto, URSSAF r\u00e9int\u00e9gr\u00e9e), cumul YTD. Marge mensuelle et d\u00e9calage 30j sous-traitants : maillon suivant.</div>'
+      + '<div class="sec-note">EBITDA = CA HT factur\u00e9 (Evoliz) \u2212 charges d\u2019exploitation cash (Qonto, URSSAF r\u00e9int\u00e9gr\u00e9e), cumul YTD. Marge mensuelle et d\u00e9calage 30j sous-traitants : maillon suivant.</div>'
       + rentaKpis
       + '<div class="sec-eyebrow" style="margin-top:12px;">D\u00e9tail des charges \u2014 ' + (d.nb_debits||0) + ' d\u00e9bits</div>'
       + '<div class="sec-note" style="margin-bottom:8px;">Cat\u00e9gorie <b>valid\u00e9e</b> (r\u00e8gles Nelson).</div>'
       + '<div class="kpis k4" style="margin-bottom:6px;">'
       +   '<div class="kpi accent"><div class="k-label">Total d\u00e9bits</div><div class="k-val">' + euro(d.total_debits) + '</div></div>'
-      +   '<div class="kpi good"><div class="k-label">OPEX (base EBITDA)</div><div class="k-val">' + euro(d.opex_ebitda) + '</div><div class="k-sub">dans l\u2019EBITDA</div></div>'
+      +   '<div class="kpi good"><div class="k-label">Charges Expl.</div><div class="k-val">' + euro(d.opex_ebitda) + '</div><div class="k-sub">dans l\u2019EBITDA</div></div>'
       +   '<div class="kpi warn"><div class="k-label">Exclus de l\u2019EBITDA</div><div class="k-val">' + euro(d.exclus) + '</div><div class="k-sub">fisca, tr\u00e9so, bilan, perso, inter</div></div>'
       +   '<div class="kpi"><div class="k-label">Contreparties</div><div class="k-val">' + grp.length + '</div></div>'
       + '</div>'
