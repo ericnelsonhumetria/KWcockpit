@@ -5256,5 +5256,133 @@ function kwLifecycleSyncBtn(){
 })();
 
 </script>
+<script>
+/* ============================================================
+   COCKPIT KW - INSTANTANE FINANCIER (persistance + date)
+   Conserve le dernier etat du tableau de bord finance (KPIs,
+   atterrissage, charges/EBITDA) dans le navigateur et le
+   reaffiche a l'ouverture, avec la date de derniere mise a jour.
+   Additif : n'edite aucun bloc existant, wrappe les rendus.
+   ============================================================ */
+(function(){
+  'use strict';
+  var KEY = 'kw:finance:snapshot:v1';
+
+  function fmtTs(ts){
+    try { return new Date(ts).toLocaleString('fr-FR', { dateStyle:'short', timeStyle:'short' }); }
+    catch(e){ return ''; }
+  }
+  function topFinNode(){
+    return document.getElementById('finProjZone') || document.getElementById('finZone') || null;
+  }
+  function hasLiveData(){
+    var fz = document.getElementById('finZone');
+    return !!(fz && fz.querySelector('.kpis'));
+  }
+  function banner(ts, conserved){
+    var top = topFinNode();
+    if(!top) return;
+    var b = document.getElementById('finSnapBanner');
+    if(!b){ b = document.createElement('div'); b.id = 'finSnapBanner'; }
+    if(b.parentNode) b.parentNode.removeChild(b);
+    top.parentNode.insertBefore(b, top);
+    b.style.cssText = 'margin:0 0 12px;padding:8px 12px;border-radius:8px;font-size:12px;line-height:1.4;'
+      + (conserved
+          ? 'background:rgba(239,184,16,.12);border:1px solid #EFB810;color:#8a6a00;'
+          : 'background:rgba(86,10,15,.06);border:1px solid rgba(86,10,15,.25);color:#560A0F;');
+    b.innerHTML = (conserved ? '\u25cb Donn\u00e9es conserv\u00e9es \u2014 ' : '\u25cf ')
+      + 'Mis \u00e0 jour le <b>' + fmtTs(ts) + '</b>'
+      + (conserved ? ' \u00b7 clique \u00ab\u00a0Charger les donn\u00e9es financi\u00e8res\u00a0\u00bb pour actualiser.' : '.');
+  }
+
+  var saveTimer = null;
+  function scheduleSave(){ if(saveTimer) clearTimeout(saveTimer); saveTimer = setTimeout(doSave, 500); }
+  function doSave(){
+    try {
+      if(!hasLiveData()) return; // ne jamais ecraser un bon instantane par du vide
+      var fz = document.getElementById('finZone');
+      var pz = document.getElementById('finProjZone');
+      var cz = document.getElementById('finChargesZone');
+      var ts = Date.now();
+      var snap = {
+        ts: ts,
+        finZone: fz ? fz.innerHTML : '',
+        finProjZone: pz ? pz.innerHTML : '',
+        finChargesZone: cz ? cz.innerHTML : '',
+        caRealise: (typeof window.FIN_CA_REALISE !== 'undefined') ? window.FIN_CA_REALISE : null,
+        projRows: window.FIN_PROJ_ROWS || [],
+        scenario: window.FIN_PROJ_SCENARIO || 'signe',
+        diag: window.FIN_DIAG || null,
+        objectif: window.FINANCE_OBJECTIF || null
+      };
+      localStorage.setItem(KEY, JSON.stringify(snap));
+      window.FIN_LAST_UPDATE = ts;
+      banner(ts, false);
+    } catch(e){}
+  }
+  function readSnap(){
+    try { var s = localStorage.getItem(KEY); return s ? JSON.parse(s) : null; }
+    catch(e){ return null; }
+  }
+
+  function restore(){
+    try {
+      var fz = document.getElementById('finZone');
+      if(!fz) return;          // pas la vue finance
+      if(hasLiveData()) return; // deja des donnees live a l'ecran
+      var snap = readSnap();
+      if(!snap || !snap.finZone) return;
+
+      if(typeof snap.caRealise !== 'undefined') window.FIN_CA_REALISE = snap.caRealise;
+      if(Array.isArray(snap.projRows)) window.FIN_PROJ_ROWS = snap.projRows;
+      if(snap.scenario) window.FIN_PROJ_SCENARIO = snap.scenario;
+      if(snap.diag) window.FIN_DIAG = snap.diag;
+      if(snap.objectif) window.FINANCE_OBJECTIF = snap.objectif;
+
+      fz.innerHTML = snap.finZone;
+
+      if(snap.finProjZone){
+        var pz = document.getElementById('finProjZone');
+        if(!pz){ pz = document.createElement('div'); pz.id = 'finProjZone'; pz.style.marginBottom = '18px'; fz.parentNode.insertBefore(pz, fz); }
+        pz.innerHTML = snap.finProjZone;
+      }
+      if(snap.finChargesZone){
+        var cz = document.getElementById('finChargesZone');
+        if(!cz){ cz = document.createElement('div'); cz.id = 'finChargesZone'; cz.style.marginTop = '18px'; fz.parentNode.insertBefore(cz, fz.nextSibling); }
+        cz.innerHTML = snap.finChargesZone;
+      }
+      banner(snap.ts, true);
+      try { if(typeof window.finHeroUpdate === 'function') window.finHeroUpdate(); } catch(e){}
+    } catch(e){}
+  }
+
+  // ---- wrappers de sauvegarde ----
+  function wrapAsyncSave(name){
+    if(typeof window[name] === 'function'){
+      var orig = window[name];
+      window[name] = async function(){ var r = await orig.apply(this, arguments); scheduleSave(); return r; };
+    }
+  }
+  wrapAsyncSave('loadFinance');
+  wrapAsyncSave('loadFinanceProjection');
+  if(typeof window.renderQontoDiag === 'function'){
+    var _rq = window.renderQontoDiag;
+    window.renderQontoDiag = function(d){ try { window.FIN_DIAG = d; } catch(e){} var r = _rq.apply(this, arguments); scheduleSave(); return r; };
+  }
+
+  // ---- declencheur de restauration : observateur du conteneur de vue ----
+  // (les appels internes renderTab() ne passent pas par window ; on observe le DOM)
+  var view = document.getElementById('view');
+  if(view && window.MutationObserver){
+    var obsTimer = null;
+    var obs = new MutationObserver(function(){
+      if(obsTimer) clearTimeout(obsTimer);
+      obsTimer = setTimeout(function(){ try { restore(); } catch(e){} }, 60);
+    });
+    obs.observe(view, { childList:true, subtree:true });
+  }
+  try { restore(); } catch(e){}
+})();
+</script>
 </body>
 </html>
