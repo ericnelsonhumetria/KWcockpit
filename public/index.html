@@ -4897,6 +4897,7 @@ function kwLifecycleSyncBtn(){
         + '<td class="sub-cell">' + m + '</td>'
         + '<td><span class="pill ' + (PROBA_PILL[r.probabilite]||'p-grey') + '">' + (PROBA_LABEL[r.probabilite]||esc(r.probabilite)||'\u2014') + '</span></td>'
         + '<td class="sub-cell">' + esc(r.statut||'') + '</td>'
+        + '<td class="sub-cell">' + (r.mode_livraison==='freelance' ? ('Freelance' + (r.cout!=null&&r.cout!=='' ? ' \u00b7 ' + euro(Number(r.cout)) : '')) : 'Salarié') + '</td>'
         + '<td><button class="per-btn" style="font-size:11px;padding:2px 8px;" onclick="finProjEdit(\'' + r.id + '\')">éditer</button> '
         +     '<button class="per-btn" style="font-size:11px;padding:2px 8px;" onclick="finProjDelete(\'' + r.id + '\')">suppr.</button></td>'
         + '</tr>';
@@ -4907,8 +4908,8 @@ function kwLifecycleSyncBtn(){
       +   ' <button class="add-btn" style="font-size:11px;padding:2px 10px;margin-left:8px;" onclick="finProjNew()">+ ajouter une ligne</button></div>'
       + (err ? '<div class="edit-hint" style="color:var(--signal);">' + err + '</div>' : '')
       + '<div class="panel" style="padding:8px 16px 16px;"><table>'
-      +   '<thead><tr><th>Intitulé (client / mission)</th><th class="val">Montant HT</th><th>Mois</th><th>Probabilité</th><th>Statut</th><th></th></tr></thead>'
-      +   '<tbody>' + (body || '<tr><td colspan="6" class="edit-hint">Aucune ligne. Ajoute tes affaires prévues pour construire l\u2019atterrissage.</td></tr>') + '</tbody>'
+      +   '<thead><tr><th>Intitulé (client / mission)</th><th class="val">Montant HT</th><th>Mois</th><th>Probabilité</th><th>Statut</th><th>Livraison / coût</th><th></th></tr></thead>'
+      +   '<tbody>' + (body || '<tr><td colspan="7" class="edit-hint">Aucune ligne. Ajoute tes affaires prévues pour construire l\u2019atterrissage.</td></tr>') + '</tbody>'
       + '</table></div>'
       + '<div id="finProjForm"></div>';
 
@@ -4948,6 +4949,11 @@ function kwLifecycleSyncBtn(){
       +   '<label class="field-label">TJM (\u20ac) <span class="sub-cell">optionnel</span><input id="fp_tjm" type="number" step="50" value="' + esc(r.tjm) + '" style="width:100%;"></label>'
       +   '<label class="field-label">Jours <span class="sub-cell">optionnel</span><input id="fp_jours" type="number" step="0.5" value="' + esc(r.jours) + '" style="width:100%;"></label>'
       +   '<label class="field-label">Statut<input id="fp_statut" type="text" value="' + esc(r.statut) + '" placeholder="à facturer, en attente\u2026" style="width:100%;"></label>'
+      +   '<label class="field-label">Livraison<select id="fp_mode" style="width:100%;">'
+      +     '<option value="salarie"' + (r.mode_livraison==='freelance'?'':' selected') + '>Salarié (coût déjà fixe)</option>'
+      +     '<option value="freelance"' + (r.mode_livraison==='freelance'?' selected':'') + '>Freelance / sous-traitance</option>'
+      +   '</select></label>'
+      +   '<label class="field-label">Coût sous-traitance estimé (\u20ac) <span class="sub-cell">si freelance</span><input id="fp_cout" type="number" step="100" value="' + esc(r.cout) + '" placeholder="jours \u00d7 TJM freelance" style="width:100%;"></label>'
       +   '<label class="field-label">Notes<input id="fp_notes" type="text" value="' + esc(r.notes) + '" style="width:100%;"></label>'
       + '</div>'
       + '<div style="margin-top:12px;">'
@@ -4970,6 +4976,8 @@ function kwLifecycleSyncBtn(){
       probabilite: g('fp_proba') || 'signe',
       statut: (g('fp_statut')||'').trim(),
       notes: (g('fp_notes')||'').trim(),
+      mode_livraison: g('fp_mode')==='freelance' ? 'freelance' : 'salarie',
+      cout: g('fp_cout')!=='' ? Number(g('fp_cout')) : null,
       annee: annee()
     };
     if(!row.intitule){ alert('Intitulé requis.'); return; }
