@@ -4754,5 +4754,254 @@ function kwLifecycleSyncBtn(){
   try{ kwHeaderIdentity(); }catch(e){}
 })();
 </script>
+
+<script>
+/* ============================================================
+   COCKPIT KW - PILOTAGE FINANCIER (brique 1)
+   Atterrissage CA (reel Evoliz + carnet) vs objectif, 3 scenarios,
+   greffe sur loadFinance(). Additif : conteneur #finProjZone auto-insere.
+   ============================================================ */
+/* COCKPIT KW — PILOTAGE FINANCIER (brique 1) — bloc additif */
+(function(){
+  'use strict';
+
+  window.FINANCE_OBJECTIF = window.FINANCE_OBJECTIF || 2000000;      // objectif annuel CA (éditable)
+  window.FIN_PROJ_SCENARIO = window.FIN_PROJ_SCENARIO || 'signe';    // 'signe' | 'p75' | 'p50'
+  window.FIN_PROJ_ROWS = window.FIN_PROJ_ROWS || [];
+  window.FIN_CA_REALISE = (window.FIN_CA_REALISE !== undefined) ? window.FIN_CA_REALISE : null;
+  window.FIN_PROJ_ERR = window.FIN_PROJ_ERR || '';
+
+  var PROBA_LABEL = { signe:'Signé', p75:'Pondéré 75%', p50:'Pondéré 50%' };
+  var PROBA_PILL  = { signe:'p-green', p75:'p-blue', p50:'p-amber' };
+
+  function euro(n){
+    if(typeof fmtEuro === 'function') return fmtEuro(n);
+    n = Number(n)||0;
+    return n.toLocaleString('fr-FR',{style:'currency',currency:'EUR',maximumFractionDigits:0});
+  }
+  function annee(){ return new Date().getFullYear(); }
+  function esc(v){ return v==null ? '' : String(v).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+  function montantLigne(r){
+    if(r.montant != null && r.montant !== '' && !isNaN(Number(r.montant))) return Number(r.montant);
+    return (Number(r.tjm)||0) * (Number(r.jours)||0);
+  }
+  function dansAnnee(r){
+    if(!r.mois_facturation) return true;
+    return String(r.mois_facturation).slice(0,4) === String(annee());
+  }
+  function headers(json){
+    var h = { Authorization: 'Bearer ' + (window.SB_SESSION ? SB_SESSION.access_token : '') };
+    if(json) h['Content-Type'] = 'application/json';
+    return h;
+  }
+  function sommeProba(rows, p){
+    return rows.filter(function(r){ return r.probabilite===p && dansAnnee(r); })
+               .reduce(function(s,r){ return s + montantLigne(r); }, 0);
+  }
+  function ensureZone(){
+    var pz = document.getElementById('finProjZone');
+    if(pz) return pz;
+    var fz = document.getElementById('finZone');
+    if(!fz) return null;
+    pz = document.createElement('div');
+    pz.id = 'finProjZone';
+    pz.style.marginBottom = '18px';
+    fz.parentNode.insertBefore(pz, fz);
+    return pz;
+  }
+
+  // ---------- chargement (CA réalisé Evoliz + carnet) ----------
+  window.loadFinanceProjection = async function(){
+    var pz = ensureZone();
+    if(!pz) return;
+    if(!window.SB_SESSION){ pz.innerHTML = ''; return; }
+    pz.innerHTML = '<div class="panel" style="padding:16px;">Calcul de l\u2019atterrissage\u2026</div>';
+    var caReal = null, err = '';
+    try {
+      var y = annee();
+      var er = await fetch('/api/evoliz?start=' + y + '-01-01', { headers: headers(false) });
+      if(er.ok){ var ed = await er.json(); caReal = Number(ed.ca_ht)||0; }
+    } catch(e){}
+    try {
+      var cr = await fetch('/api/finance-projection?annee=' + annee(), { headers: headers(false) });
+      if(cr.ok){ var cd = await cr.json(); window.FIN_PROJ_ROWS = Array.isArray(cd.rows) ? cd.rows : []; }
+      else { err = 'Carnet indisponible (/api/finance-projection \u2192 ' + cr.status + '). Fonction non déployée ou table absente.'; window.FIN_PROJ_ROWS = []; }
+    } catch(e){ err = 'Carnet injoignable (réseau).'; window.FIN_PROJ_ROWS = []; }
+    window.FIN_CA_REALISE = caReal;
+    window.FIN_PROJ_ERR = err;
+    renderFinanceProjection();
+  };
+
+  // ---------- rendu ----------
+  function renderFinanceProjection(){
+    var pz = document.getElementById('finProjZone');
+    if(!pz) return;
+    var caReal = window.FIN_CA_REALISE;
+    var err = window.FIN_PROJ_ERR || '';
+    var rows = window.FIN_PROJ_ROWS || [];
+
+    var sSigne = sommeProba(rows,'signe');
+    var sP75   = sommeProba(rows,'p75');
+    var sP50   = sommeProba(rows,'p50');
+    var base = caReal || 0;
+    var land = { signe: base + sSigne, p75: base + sSigne + sP75, p50: base + sSigne + sP75 + sP50 };
+
+    var sc = window.FIN_PROJ_SCENARIO;
+    var obj = window.FINANCE_OBJECTIF;
+    var atter = land[sc];
+    var pct = obj>0 ? Math.round(atter/obj*100) : 0;
+    var pctReal = obj>0 ? Math.round(base/obj*100) : 0;
+    var reste = atter - base;
+    var ecart = atter - obj;
+    var caTxt = caReal==null ? '\u2014 (Evoliz indispo)' : euro(caReal);
+
+    function chip(key){
+      var on = key===sc;
+      return '<button class="per-btn" onclick="finProjSetScenario(\''+key+'\')" '
+        + 'style="font-size:12px;padding:5px 13px;border-radius:14px;'
+        + (on ? 'background:#EFB810;color:#560A0F;border-color:#EFB810;font-weight:700;' : 'background:rgba(255,255,255,.08);color:#fff;border-color:rgba(255,255,255,.25);')
+        + '">' + PROBA_LABEL[key] + ' \u00b7 ' + euro(land[key]) + '</button>';
+    }
+
+    var wReal = Math.max(0, Math.min(100, pctReal));
+    var wProj = Math.max(0, Math.min(100 - wReal, pct - pctReal));
+    var over = pct > 100;
+
+    var head =
+      '<div class="panel" style="padding:18px 18px 20px;background:#560A0F;color:#fff;border-color:#560A0F;">'
+      + '<div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;">'
+      +   '<div class="sec-eyebrow" style="color:#EFB810;margin:0;">Atterrissage CA ' + annee() + ' \u00b7 scénario ' + PROBA_LABEL[sc] + '</div>'
+      +   '<div style="font-size:12px;opacity:.85;">Objectif ' + euro(obj) + '</div>'
+      + '</div>'
+      + '<div style="font-size:34px;font-weight:700;line-height:1.1;margin:8px 0 2px;">' + euro(atter) + '</div>'
+      + '<div style="font-size:13px;opacity:.92;">Réalisé ' + caTxt + ' + à venir ' + euro(reste)
+      +   ' \u00b7 <b style="color:#EFB810;">' + pct + '% de l\u2019objectif</b>'
+      +   (ecart>=0 ? ' \u00b7 <span style="color:#9fe6bf;">+' + euro(ecart) + ' vs objectif</span>'
+                    : ' \u00b7 <span style="color:#f4b0ac;">' + euro(ecart) + ' vs objectif</span>')
+      + '</div>'
+      + '<div style="position:relative;height:14px;border-radius:7px;background:rgba(255,255,255,.15);margin-top:12px;overflow:hidden;">'
+      +   '<div style="position:absolute;left:0;top:0;height:100%;width:' + wReal + '%;background:#EFB810;"></div>'
+      +   '<div style="position:absolute;left:' + wReal + '%;top:0;height:100%;width:' + wProj + '%;background:rgba(239,184,16,.42);"></div>'
+      + '</div>'
+      + (over ? '<div style="font-size:11px;color:#EFB810;margin-top:4px;">\u25b2 objectif dépassé</div>' : '')
+      + '<div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;">' + chip('signe') + chip('p75') + chip('p50') + '</div>'
+      + '<div style="font-size:11px;opacity:.72;margin-top:8px;">Signé = engagé ferme \u00b7 Pondéré 75%/50% = ajoute les affaires à cette probabilité (cumulatif) \u00b7 Réalisé = CA HT facturé (Evoliz) de l\u2019année.</div>'
+      + '</div>';
+
+    var body = rows.map(function(r){
+      var m = r.mois_facturation ? String(r.mois_facturation).slice(0,7) : '\u2014';
+      var det = (r.montant!=null && r.montant!=='') ? '' : ((r.tjm||r.jours) ? ' <span class="sub-cell">(' + (Number(r.tjm)||0) + '\u20ac \u00d7 ' + (Number(r.jours)||0) + 'j)</span>' : '');
+      return '<tr>'
+        + '<td>' + esc(r.intitule||'\u2014') + '</td>'
+        + '<td class="val">' + euro(montantLigne(r)) + det + '</td>'
+        + '<td class="sub-cell">' + m + '</td>'
+        + '<td><span class="pill ' + (PROBA_PILL[r.probabilite]||'p-grey') + '">' + (PROBA_LABEL[r.probabilite]||esc(r.probabilite)||'\u2014') + '</span></td>'
+        + '<td class="sub-cell">' + esc(r.statut||'') + '</td>'
+        + '<td><button class="per-btn" style="font-size:11px;padding:2px 8px;" onclick="finProjEdit(\'' + r.id + '\')">éditer</button> '
+        +     '<button class="per-btn" style="font-size:11px;padding:2px 8px;" onclick="finProjDelete(\'' + r.id + '\')">suppr.</button></td>'
+        + '</tr>';
+    }).join('');
+
+    var carnet =
+      '<div class="sec-eyebrow" style="margin-top:16px;">Carnet de projections ' + annee()
+      +   ' <button class="add-btn" style="font-size:11px;padding:2px 10px;margin-left:8px;" onclick="finProjNew()">+ ajouter une ligne</button></div>'
+      + (err ? '<div class="edit-hint" style="color:var(--signal);">' + err + '</div>' : '')
+      + '<div class="panel" style="padding:8px 16px 16px;"><table>'
+      +   '<thead><tr><th>Intitulé (client / mission)</th><th class="val">Montant HT</th><th>Mois</th><th>Probabilité</th><th>Statut</th><th></th></tr></thead>'
+      +   '<tbody>' + (body || '<tr><td colspan="6" class="edit-hint">Aucune ligne. Ajoute tes affaires prévues pour construire l\u2019atterrissage.</td></tr>') + '</tbody>'
+      + '</table></div>'
+      + '<div id="finProjForm"></div>';
+
+    pz.innerHTML = head + carnet;
+  }
+
+  window.finProjSetScenario = function(s){
+    if(!PROBA_LABEL[s]) return;
+    window.FIN_PROJ_SCENARIO = s;
+    renderFinanceProjection();
+  };
+
+  // ---------- formulaire d'ajout / édition ----------
+  window.finProjNew = function(){ finProjRenderForm({}); };
+  window.finProjEdit = function(id){
+    var r = (window.FIN_PROJ_ROWS||[]).find(function(x){ return String(x.id)===String(id); });
+    finProjRenderForm(r || {});
+    var f = document.getElementById('finProjForm');
+    if(f) f.scrollIntoView({ behavior:'smooth', block:'nearest' });
+  };
+  function finProjRenderForm(r){
+    var f = document.getElementById('finProjForm');
+    if(!f) return;
+    var mois = r.mois_facturation ? String(r.mois_facturation).slice(0,7) : '';
+    f.innerHTML =
+      '<div class="panel" style="padding:14px 16px;margin-top:10px;">'
+      + '<input type="hidden" id="fp_id" value="' + esc(r.id) + '">'
+      + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">'
+      +   '<label class="field-label">Intitulé (client / mission)<input id="fp_intitule" type="text" value="' + esc(r.intitule) + '" style="width:100%;"></label>'
+      +   '<label class="field-label">Mois de facturation<input id="fp_mois" type="month" value="' + esc(mois) + '" style="width:100%;"></label>'
+      +   '<label class="field-label">Montant HT (\u20ac)<input id="fp_montant" type="number" step="100" value="' + esc(r.montant) + '" placeholder="ou TJM \u00d7 jours ci-dessous" style="width:100%;"></label>'
+      +   '<label class="field-label">Probabilité<select id="fp_proba" style="width:100%;">'
+      +     '<option value="signe"' + (r.probabilite==='signe'?' selected':'') + '>Signé</option>'
+      +     '<option value="p75"' + (r.probabilite==='p75'?' selected':'') + '>Pondéré 75%</option>'
+      +     '<option value="p50"' + (r.probabilite==='p50'?' selected':'') + '>Pondéré 50%</option>'
+      +   '</select></label>'
+      +   '<label class="field-label">TJM (\u20ac) <span class="sub-cell">optionnel</span><input id="fp_tjm" type="number" step="50" value="' + esc(r.tjm) + '" style="width:100%;"></label>'
+      +   '<label class="field-label">Jours <span class="sub-cell">optionnel</span><input id="fp_jours" type="number" step="0.5" value="' + esc(r.jours) + '" style="width:100%;"></label>'
+      +   '<label class="field-label">Statut<input id="fp_statut" type="text" value="' + esc(r.statut) + '" placeholder="à facturer, en attente\u2026" style="width:100%;"></label>'
+      +   '<label class="field-label">Notes<input id="fp_notes" type="text" value="' + esc(r.notes) + '" style="width:100%;"></label>'
+      + '</div>'
+      + '<div style="margin-top:12px;">'
+      +   '<button class="add-btn" onclick="finProjSaveForm()">Enregistrer</button> '
+      +   '<button class="per-btn" onclick="var f=document.getElementById(\'finProjForm\');if(f)f.innerHTML=\'\';">annuler</button>'
+      + '</div>'
+      + '</div>';
+  }
+
+  window.finProjSaveForm = async function(){
+    var g = function(id){ var el=document.getElementById(id); return el ? el.value : ''; };
+    var mois = g('fp_mois');
+    var row = {
+      id: g('fp_id') || undefined,
+      intitule: (g('fp_intitule')||'').trim(),
+      montant: g('fp_montant')!=='' ? Number(g('fp_montant')) : null,
+      tjm: g('fp_tjm')!=='' ? Number(g('fp_tjm')) : null,
+      jours: g('fp_jours')!=='' ? Number(g('fp_jours')) : null,
+      mois_facturation: mois ? (mois + '-01') : null,
+      probabilite: g('fp_proba') || 'signe',
+      statut: (g('fp_statut')||'').trim(),
+      notes: (g('fp_notes')||'').trim(),
+      annee: annee()
+    };
+    if(!row.intitule){ alert('Intitulé requis.'); return; }
+    if(row.montant==null && !(row.tjm && row.jours)){ alert('Renseigne un montant, ou un TJM ET des jours.'); return; }
+    try {
+      var res = await fetch('/api/finance-projection', { method:'POST', headers: headers(true), body: JSON.stringify({ op:'save', row: row }) });
+      if(!res.ok){ var t=''; try{ t=(await res.json()).error||''; }catch(e){} alert('Échec de l\u2019enregistrement (' + res.status + ') ' + t); return; }
+    } catch(e){ alert('Réseau indisponible.'); return; }
+    var f = document.getElementById('finProjForm'); if(f) f.innerHTML='';
+    await loadFinanceProjection();
+  };
+
+  window.finProjDelete = async function(id){
+    if(!confirm('Supprimer cette ligne du carnet ?')) return;
+    try {
+      var res = await fetch('/api/finance-projection', { method:'POST', headers: headers(true), body: JSON.stringify({ op:'delete', id: id }) });
+      if(!res.ok){ alert('Échec de la suppression (' + res.status + ').'); return; }
+    } catch(e){ alert('Réseau indisponible.'); return; }
+    await loadFinanceProjection();
+  };
+
+  // ---------- greffe : loadFinance() charge aussi l'atterrissage ----------
+  if(typeof window.loadFinance === 'function'){
+    var _lf = window.loadFinance;
+    window.loadFinance = async function(){
+      var r = await _lf.apply(this, arguments);
+      try { await loadFinanceProjection(); } catch(e){}
+      return r;
+    };
+  }
+})();
+
+</script>
 </body>
 </html>
