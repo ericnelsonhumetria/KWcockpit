@@ -5003,5 +5003,112 @@ function kwLifecycleSyncBtn(){
 })();
 
 </script>
+<script>
+/* ============================================================
+   COCKPIT KW - PILOTAGE FINANCIER (brique 1b)
+   Alimente le hero "le cap" (.goal) avec les vraies valeurs :
+   objectif (FINANCE_OBJECTIF), reel (Evoliz) et atterrissage du
+   scenario courant. Neutralise les chiffres codes en dur. Additif :
+   ne touche pas au template, reecrit .goal a la volee.
+   ============================================================ */
+(function(){
+  'use strict';
+
+  function euro(n){
+    if(typeof fmtEuro === 'function') return fmtEuro(n);
+    n = Number(n)||0;
+    return n.toLocaleString('fr-FR',{style:'currency',currency:'EUR',maximumFractionDigits:0});
+  }
+  function annee(){ return new Date().getFullYear(); }
+  var PL = { signe:'Sign\u00e9', p75:'Pond\u00e9r\u00e9 75%', p50:'Pond\u00e9r\u00e9 50%' };
+
+  function mont(r){
+    if(r.montant != null && r.montant !== '' && !isNaN(Number(r.montant))) return Number(r.montant);
+    return (Number(r.tjm)||0) * (Number(r.jours)||0);
+  }
+  function inYear(r){
+    if(!r.mois_facturation) return true;
+    return String(r.mois_facturation).slice(0,4) === String(annee());
+  }
+  function sumP(rows, p){
+    return rows.filter(function(r){ return r.probabilite===p && inYear(r); })
+               .reduce(function(s,r){ return s + mont(r); }, 0);
+  }
+  function landing(){
+    var rows = window.FIN_PROJ_ROWS || [];
+    var base = Number(window.FIN_CA_REALISE) || 0;
+    var sS = sumP(rows,'signe'), s75 = sumP(rows,'p75'), s50 = sumP(rows,'p50');
+    return { signe: base+sS, p75: base+sS+s75, p50: base+sS+s75+s50 };
+  }
+
+  window.finHeroUpdate = function(){
+    var g = document.querySelector('#view .goal');
+    if(!g) return;
+    var obj    = Number(window.FINANCE_OBJECTIF) || 0;
+    var caReal = window.FIN_CA_REALISE;
+    var loaded = (caReal !== null && caReal !== undefined);
+    var sc     = window.FIN_PROJ_SCENARIO || 'signe';
+    var atter  = landing()[sc];
+    var pctReal = (obj>0 && loaded) ? Math.round(caReal/obj*100) : 0;
+    var pct     = (obj>0 && loaded) ? Math.round(atter/obj*100) : 0;
+    var ecart   = atter - obj;
+
+    var realTxt = loaded ? ('\u00b7 r\u00e9alis\u00e9 ' + euro(caReal)) : '\u00b7 r\u00e9alis\u00e9 \u2014';
+    var projVal = loaded ? euro(atter) : '\u2014';
+    var ecTxt;
+    if(loaded){
+      ecTxt = (ecart>=0)
+        ? '<span style="color:#9fe6bf;">+' + euro(ecart) + ' vs objectif</span>'
+        : '<span style="color:#f4b0ac;">' + euro(ecart) + ' vs objectif</span>';
+    } else {
+      ecTxt = 'chargez les donn\u00e9es financi\u00e8res';
+    }
+    var projSub = loaded ? (pct + '% de l\u2019objectif \u00b7 ' + ecTxt) : ecTxt;
+
+    var wReal = Math.max(0, Math.min(100, pctReal));
+    var wProj = Math.max(0, Math.min(100 - wReal, pct - pctReal));
+
+    g.innerHTML =
+      '<div><div class="label">CA \u2014 objectif ' + annee() + '</div>'
+      + '<div class="big">' + euro(obj) + ' <small>' + realTxt + '</small></div></div>'
+      + '<div class="proj"><div class="label">Atterrissage' + (loaded ? (' \u00b7 ' + PL[sc]) : '') + '</div>'
+      +   '<div class="pval">' + projVal + '</div>'
+      +   '<div class="label" style="opacity:.75;font-size:11px;">' + projSub + '</div></div>'
+      + '<div class="bar-track" style="position:relative;">'
+      +   '<div class="bar-fill" id="goalbar" style="position:absolute;left:0;top:0;height:100%;width:0;"></div>'
+      +   ((loaded && wProj>0) ? '<div style="position:absolute;left:' + wReal + '%;top:0;height:100%;width:' + wProj + '%;background:rgba(239,184,16,.42);"></div>' : '')
+      + '</div>';
+
+    var b = document.getElementById('goalbar');
+    if(b) setTimeout(function(){ b.style.width = wReal + '%'; }, 150);
+  };
+
+  // Le hero est peint par le template statique puis animateGoal() ; on
+  // remplace animateGoal pour ecrire les vraies valeurs (et neutraliser la
+  // barre codee en dur 0,74/2,0).
+  if(typeof window.animateGoal === 'function'){
+    window.animateGoal = function(){ try{ window.finHeroUpdate(); }catch(e){} };
+  }
+  // Apres chargement de l'atterrissage : rafraichir le hero.
+  if(typeof window.loadFinanceProjection === 'function'){
+    var _lfp = window.loadFinanceProjection;
+    window.loadFinanceProjection = async function(){
+      var r = await _lfp.apply(this, arguments);
+      try{ window.finHeroUpdate(); }catch(e){}
+      return r;
+    };
+  }
+  // Au changement de scenario : le hero suit le bandeau.
+  if(typeof window.finProjSetScenario === 'function'){
+    var _fss = window.finProjSetScenario;
+    window.finProjSetScenario = function(s){
+      var r = _fss.apply(this, arguments);
+      try{ window.finHeroUpdate(); }catch(e){}
+      return r;
+    };
+  }
+})();
+
+</script>
 </body>
 </html>
