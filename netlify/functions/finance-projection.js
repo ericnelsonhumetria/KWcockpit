@@ -77,6 +77,8 @@ exports.handler = async (event) => {
         probabilite: ['signe', 'p75', 'p50'].includes(r.probabilite) ? r.probabilite : 'signe',
         statut: r.statut || null,
         notes: r.notes || null,
+        mode_livraison: (r.mode_livraison === 'freelance') ? 'freelance' : 'salarie',
+        cout: (r.cout === null || r.cout === '' || r.cout === undefined) ? null : Number(r.cout),
         updated_at: new Date().toISOString(),
       };
 
