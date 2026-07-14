@@ -4780,6 +4780,7 @@ function kwLifecycleSyncBtn(){
     return (Number(r.tjm)||0) * (Number(r.jours)||0);
   }
   function dansAnnee(r){
+    if(typeof window.finAVenir === 'function') return window.finAVenir(r);
     if(!r.mois_facturation) return true;
     return String(r.mois_facturation).slice(0,4) === String(annee());
   }
@@ -5428,7 +5429,7 @@ function kwLifecycleSyncBtn(){
     return (Number(r.tjm) || 0) * (Number(r.jours) || 0);
   }
   function sProba(rows, p){
-    return rows.filter(function(r){ return r.probabilite === p && inYear(r); })
+    return rows.filter(function(r){ return r.probabilite === p && window.finAVenir(r); })
                .reduce(function(s, r){ return s + mLigne(r); }, 0);
   }
   function scenarioIncludes(p, sc){
@@ -5443,11 +5444,48 @@ function kwLifecycleSyncBtn(){
     for(var i = 0; i < cats.length; i++){ if(cats[i].cat === name) return Number(cats[i].total) || 0; }
     return 0;
   }
-  function fractionAnnee(){
-    var now = new Date();
-    var start = new Date(now.getFullYear(), 0, 1);
-    var f = (now - start) / (365.25 * 24 * 3600 * 1000);
+  // horodatage des donnees affichees : pull live (FIN_DATA_TS), sinon
+  // l'instantane sauvegarde. Sert a ancrer le run-rate a la date des donnees.
+  function dataTs(){
+    if(typeof window.FIN_DATA_TS === 'number') return window.FIN_DATA_TS;
+    try {
+      var s = localStorage.getItem('kw:finance:snapshot:v1');
+      if(s){ var o = JSON.parse(s); if(o && o.ts) return o.ts; }
+    } catch(e){}
+    return Date.now();
+  }
+  function fractionAnnee(ts){
+    var d = new Date(ts != null ? ts : dataTs());
+    var start = new Date(d.getFullYear(), 0, 1);
+    var f = (d - start) / (365.25 * 24 * 3600 * 1000);
     return Math.max(0.02, Math.min(1, f));
+  }
+  function ageJours(ts){ return Math.floor((Date.now() - ts) / 86400000); }
+  function dateCourte(ts){
+    try { return new Date(ts).toLocaleDateString('fr-FR', { day:'2-digit', month:'2-digit', year:'numeric' }); }
+    catch(e){ return ''; }
+  }
+  // mois de reference = mois des donnees affichees (YYYY-MM, en local)
+  function refMonth(){
+    var d = new Date(dataTs());
+    return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2);
+  }
+  // Une ligne carnet compte comme "a venir" seulement si son mois de
+  // facturation est STRICTEMENT posterieur au mois des donnees et dans
+  // la meme annee (sinon deja realisee => double compte, ou perdue).
+  // Non datee => presumee a venir. Source unique (brique 1 s'y refere).
+  window.finAVenir = function(r){
+    if(!r || !r.mois_facturation) return true;
+    var ym = String(r.mois_facturation).slice(0, 7);
+    var ref = refMonth();
+    return ym.slice(0, 4) === ref.slice(0, 4) && ym > ref;
+  };
+  // Ligne carnet echue (mois passe ou courant, meme annee) => a recaler
+  function estEnRetard(r){
+    if(!r || !r.mois_facturation) return false;
+    var ym = String(r.mois_facturation).slice(0, 7);
+    var ref = refMonth();
+    return ym.slice(0, 4) === ref.slice(0, 4) && ym <= ref;
   }
 
   // ---- lecture Tresorerie / Encours depuis les tuiles #finZone ----
@@ -5566,18 +5604,24 @@ function kwLifecycleSyncBtn(){
 
     // atterrissage charges / EBITDA / marge (maillon 3, projete)
     var attCharges = null, attEbitda = null, attMarge = null, freelanceFutur = 0, projetable = false;
+    var TS = dataTs();
+    var frac = fractionAnnee(TS);
     if(cats != null && attCA != null){
       var fixeYTD = catTotal(cats, 'opex') + catTotal(cats, 'social');
       var variableYTD = catTotal(cats, 'soustraitance');
-      var frac = fractionAnnee();
       var fixeAnnuel = fixeYTD / frac;
-      freelanceFutur = rows.filter(function(r){ return inYear(r) && scenarioIncludes(r.probabilite, sc) && r.mode_livraison === 'freelance'; })
+      freelanceFutur = rows.filter(function(r){ return window.finAVenir(r) && scenarioIncludes(r.probabilite, sc) && r.mode_livraison === 'freelance'; })
         .reduce(function(s, r){ return s + ((r.cout != null && r.cout !== '') ? (Number(r.cout) || 0) : 0); }, 0);
       attCharges = fixeAnnuel + variableYTD + freelanceFutur;
       attEbitda = attCA - attCharges;
       attMarge = (attCA > 0) ? (attEbitda / attCA * 100) : null;
       projetable = true;
     }
+
+    // lignes carnet echues (mois depasse) desormais exclues de l'atterrissage
+    var retardRows = rows.filter(function(r){ return estEnRetard(r) && scenarioIncludes(r.probabilite, sc); });
+    var retardN = retardRows.length;
+    var retardMt = retardRows.reduce(function(s, r){ return s + mLigne(r); }, 0);
 
     var treso = tileVal('sorerie');
     var encours = tileVal('encours');
@@ -5614,8 +5658,21 @@ function kwLifecycleSyncBtn(){
     }
 
     var fresh = '';
-    if(window.FIN_LAST_UPDATE){
-      try { fresh = ' \u00b7 <span class="sub-cell">\u00e0 jour le ' + new Date(window.FIN_LAST_UPDATE).toLocaleString('fr-FR', { dateStyle:'short', timeStyle:'short' }) + '</span>'; } catch(e){}
+    if(CA != null || diag != null){
+      try {
+        var ad = ageJours(TS);
+        fresh = ' \u00b7 <span class="sub-cell">donn\u00e9es du ' + dateCourte(TS) + '</span>'
+          + (ad > 7 ? ' <span style="color:var(--signal);font-weight:600;">\u26a0 ' + ad + ' j \u2014 recharge</span>' : '');
+      } catch(e){}
+    }
+
+    var caNote = '';
+    if(attCA != null){
+      caNote = '<div class="edit-hint" style="margin-top:6px;">Atterrissage CA = r\u00e9alis\u00e9 Evoliz (au ' + dateCourte(TS) + ') + carnet <b>\u00e0 venir</b> (mois de facturation post\u00e9rieur au mois des donn\u00e9es) \u2014 se recale seul quand le temps passe, pas de double compte avec le r\u00e9alis\u00e9.';
+      if(retardN > 0){
+        caNote += ' <b style="color:var(--signal);">\u26a0 ' + retardN + ' ligne(s) carnet \u00e9chue(s) (' + euro(retardMt) + ') exclue(s) : recale la date, marque factur\u00e9es ou supprime dans le carnet.</b>';
+      }
+      caNote += '</div>';
     }
 
     var reelKpis = '<div class="kpis k4" style="margin-bottom:6px;">'
@@ -5638,8 +5695,12 @@ function kwLifecycleSyncBtn(){
       + tile((encours && encours.indexOf('0,00') < 0 && encours !== '\u2014') ? 'warn' : '', 'Encours clients', encours || '\u2014', 'reste d\u00fb TTC')
       + '</div>';
 
+    var ageD = ageJours(TS);
+    var staleTxt = (projetable && ageD > 7)
+      ? ' <b style="color:var(--signal);">\u26a0 Donn\u00e9es vieilles de ' + ageD + ' j \u2014 recharge pour recaler la projection.</b>'
+      : '';
     var hyp = projetable
-      ? '<div class="edit-hint" style="margin-top:8px;">Atterrissage charges/EBITDA <b>projet\u00e9</b> (hypoth\u00e8ses \u00e0 valider) : charges fixes en run-rate lin\u00e9aire (fixe YTD \u00f7 ' + Math.round(fractionAnnee() * 100) + '% d\u2019ann\u00e9e \u00e9coul\u00e9e), sous-traitance = YTD + freelance futur du carnet (' + euro(freelanceFutur) + '). Les lignes carnet \u00ab salari\u00e9 \u00bb ajoutent 0 co\u00fbt (biais optimiste).'
+      ? '<div class="edit-hint" style="margin-top:8px;">Atterrissage charges/EBITDA <b>projet\u00e9</b>, cal\u00e9 sur les donn\u00e9es du <b>' + dateCourte(TS) + '</b> (' + Math.round(frac * 100) + '% d\u2019ann\u00e9e \u00e0 cette date).' + staleTxt + ' M\u00e9thode : charges fixes en run-rate lin\u00e9aire (fixe YTD \u00f7 fraction \u00e0 la date des donn\u00e9es), sous-traitance = YTD + freelance futur du carnet (' + euro(freelanceFutur) + '). Les lignes carnet \u00ab salari\u00e9 \u00bb ajoutent 0 co\u00fbt (biais optimiste). La projection n\u2019avance qu\u2019au rechargement des donn\u00e9es.'
       : '<div class="edit-hint" style="margin-top:8px;">Atterrissage charges/EBITDA : clique \u00ab Charger les donn\u00e9es financi\u00e8res \u00bb pour activer la projection.'
       ;
     hyp += '</div>';
@@ -5651,7 +5712,7 @@ function kwLifecycleSyncBtn(){
       + errBox
       + '<div class="panel" style="padding:12px 14px;margin-bottom:14px;">' + actionBar + '</div>'
       + '<div class="sec-eyebrow" style="margin:2px 0 4px;">R\u00e9alis\u00e9 \u2014 cumul \u00e0 date</div>' + reelKpis
-      + '<div class="sec-eyebrow" style="margin:14px 0 4px;">Atterrissage \u2014 sc\u00e9nario ' + ({ signe:'Sign\u00e9', p75:'Pond\u00e9r\u00e9 75%', p50:'Pond\u00e9r\u00e9 50%' }[sc]) + '</div>' + attKpis
+      + '<div class="sec-eyebrow" style="margin:14px 0 4px;">Atterrissage \u2014 sc\u00e9nario ' + ({ signe:'Sign\u00e9', p75:'Pond\u00e9r\u00e9 75%', p50:'Pond\u00e9r\u00e9 50%' }[sc]) + '</div>' + attKpis + caNote
       + '<div class="sec-eyebrow" style="margin:14px 0 4px;">Position</div>' + posKpis
       + hyp;
   };
@@ -5681,6 +5742,7 @@ function kwLifecycleSyncBtn(){
       var orig = window[name];
       window[name] = async function(){
         var r = await orig.apply(this, arguments);
+        try { window.FIN_DATA_TS = Date.now(); } catch(e){}
         try { window.finSynthRepaint(); } catch(e){}
         return r;
       };
@@ -5691,7 +5753,7 @@ function kwLifecycleSyncBtn(){
 
   if(typeof window.renderQontoDiag === 'function'){
     var _rq = window.renderQontoDiag;
-    window.renderQontoDiag = function(d){ var r = _rq.apply(this, arguments); try { window.finSynthRepaint(); } catch(e){} return r; };
+    window.renderQontoDiag = function(d){ var r = _rq.apply(this, arguments); try { window.FIN_DATA_TS = Date.now(); } catch(e){} try { window.finSynthRepaint(); } catch(e){} return r; };
   }
   if(typeof window.finProjSetScenario === 'function'){
     var _fss = window.finProjSetScenario;
@@ -5745,6 +5807,27 @@ function kwLifecycleSyncBtn(){
   .tab { padding: 9px 11px; font-size: 12px; }
   /* barre de progression / action : reste pleine largeur */
   #finSynthZone .panel, #finHeroZone .panel { padding-left: 14px; padding-right: 14px; }
+}
+
+/* Header : recomposition compacte sur smartphone (l'avatar/logo etaient
+   a 76px fixes et .head-right force en colonne centree). Ce bloc est en
+   fin de document => surcharge le style injecte du header. */
+@media (max-width: 600px){
+  .head-inner { flex-direction: column; align-items: stretch; gap: 10px; }
+  .head-left { flex-direction: row; align-items: center; justify-content: space-between; gap: 10px; width: 100%; }
+  .brand { gap: 9px; align-items: center; }
+  .kw-logo.sm { width: 46px; height: 46px; border-radius: 8px; }
+  .brand .mark { font-size: 15px; }
+  .brand .sub { display: none; }
+  .head-home { white-space: nowrap; }
+  .head-right { flex-direction: row; align-items: center; justify-content: flex-start; gap: 11px; text-align: left; width: 100%; }
+  .head-id { align-items: flex-start; }
+  .head-func-row { justify-content: flex-start; }
+  .kw-avatar { width: 48px; height: 48px; border-width: 2px; }
+  .kw-avatar-initials { font-size: 17px; }
+  .kw-avatar-edit { width: 16px; height: 16px; line-height: 16px; font-size: 9px; border-width: 1px; }
+  .head-name { font-size: 15px; }
+  .tabs { gap: 4px; }
 }
 
 </style>
