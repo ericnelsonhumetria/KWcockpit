@@ -5384,5 +5384,261 @@ function kwLifecycleSyncBtn(){
   try { restore(); } catch(e){}
 })();
 </script>
+<script>
+/* ============================================================
+   COCKPIT KW - PILOTAGE FINANCIER (affichage simplifie / synthese)
+   Panneau "Synthese" en haut de la vue finance : indicateurs reduits
+   dans l'ordre demande (CA, Charges Expl., EBITDA, %EBITDA,
+   Atterrissage CA/Charges/EBITDA/%, Tresorerie, Encours). Le detail
+   complet (carnet, tresorerie, impayes, charges par poste) passe dans
+   un accordeon replie. Additif : n'edite aucun bloc, lit les globaux
+   (FIN_CA_REALISE, FIN_DIAG, FIN_PROJ_ROWS/SCENARIO, FINANCE_OBJECTIF)
+   et parse Tresorerie/Encours depuis les tuiles #finZone.
+   ============================================================ */
+(function(){
+  'use strict';
+
+  var YEAR = new Date().getFullYear();
+
+  function euro(n){
+    if(typeof fmtEuro === 'function') return fmtEuro(n);
+    n = Number(n) || 0;
+    return n.toLocaleString('fr-FR', { style:'currency', currency:'EUR', maximumFractionDigits:0 });
+  }
+  function num(v){ var n = Number(v); return isNaN(n) ? null : n; }
+  function pct(x){ return (x == null) ? '\u2014' : (Math.round(x) + '%'); }
+  function margeCls(m){ if(m == null) return ''; return m >= 20 ? 'good' : (m >= 10 ? 'warn' : 'ko'); }
+
+  // ---- carnet / atterrissage : replique brique 1 ----
+  function inYear(r){ return !r.mois_facturation || String(r.mois_facturation).slice(0,4) === String(YEAR); }
+  function mLigne(r){
+    if(r.montant != null && r.montant !== '' && !isNaN(Number(r.montant))) return Number(r.montant);
+    return (Number(r.tjm) || 0) * (Number(r.jours) || 0);
+  }
+  function sProba(rows, p){
+    return rows.filter(function(r){ return r.probabilite === p && inYear(r); })
+               .reduce(function(s, r){ return s + mLigne(r); }, 0);
+  }
+  function scenarioIncludes(p, sc){
+    if(sc === 'signe') return p === 'signe';
+    if(sc === 'p75')   return p === 'signe' || p === 'p75';
+    return true; // p50 = tout
+  }
+
+  // ---- charges projetees (maillon 3, formule honnete du doc) ----
+  function catTotal(cats, name){
+    if(!cats) return null;
+    for(var i = 0; i < cats.length; i++){ if(cats[i].cat === name) return Number(cats[i].total) || 0; }
+    return 0;
+  }
+  function fractionAnnee(){
+    var now = new Date();
+    var start = new Date(now.getFullYear(), 0, 1);
+    var f = (now - start) / (365.25 * 24 * 3600 * 1000);
+    return Math.max(0.02, Math.min(1, f));
+  }
+
+  // ---- lecture Tresorerie / Encours depuis les tuiles #finZone ----
+  function tileVal(fragment){
+    var fz = document.getElementById('finZone');
+    if(!fz) return null;
+    var kpis = fz.querySelectorAll('.kpi');
+    for(var i = 0; i < kpis.length; i++){
+      var l = kpis[i].querySelector('.k-label');
+      if(l && l.textContent.toLowerCase().indexOf(fragment) >= 0){
+        var v = kpis[i].querySelector('.k-val');
+        return v ? v.textContent.trim() : null;
+      }
+    }
+    return null;
+  }
+
+  function tile(cls, label, val, sub){
+    return '<div class="kpi ' + (cls || '') + '">'
+      + '<div class="k-label">' + label + '</div>'
+      + '<div class="k-val">' + val + '</div>'
+      + (sub ? '<div class="k-sub">' + sub + '</div>' : '')
+      + '</div>';
+  }
+
+  function chip(land, key, sc){
+    var LBL = { signe:'Sign\u00e9', p75:'Pond\u00e9r\u00e9 75%', p50:'Pond\u00e9r\u00e9 50%' };
+    var on = key === sc;
+    return '<button class="per-btn" onclick="finProjSetScenario(\'' + key + '\')" '
+      + 'style="font-size:11px;padding:4px 11px;border-radius:13px;'
+      + (on ? 'background:#EFB810;color:#560A0F;border-color:#EFB810;font-weight:700;'
+            : 'background:#fff;color:#560A0F;border-color:rgba(86,10,15,.3);')
+      + '">' + LBL[key] + ' \u00b7 ' + euro(land[key]) + '</button>';
+  }
+
+  // ---- construction du layout (une fois par vue finance) ----
+  function ensureLayout(){
+    var fz = document.getElementById('finZone');
+    if(!fz) return false;
+    if(document.getElementById('finSynthZone')) return true;
+    var parent = fz.parentNode;
+    if(!parent) return false;
+
+    var sy = document.createElement('div');
+    sy.id = 'finSynthZone';
+    sy.style.marginBottom = '14px';
+    parent.insertBefore(sy, fz);
+
+    var det = document.createElement('details');
+    det.id = 'finDetailWrap';
+    det.style.cssText = 'margin-top:4px;border:1px solid rgba(86,10,15,.18);border-radius:10px;padding:2px 12px;';
+    var sm = document.createElement('summary');
+    sm.style.cssText = 'cursor:pointer;font-size:13px;font-weight:600;color:#560A0F;padding:9px 2px;list-style:none;';
+    sm.innerHTML = 'D\u00e9tail complet \u2014 carnet, tr\u00e9sorerie, impay\u00e9s, charges par poste';
+    det.appendChild(sm);
+    var body = document.createElement('div');
+    body.id = 'finDetailBody';
+    body.style.paddingBottom = '8px';
+    det.appendChild(body);
+    parent.insertBefore(det, fz);
+
+    // deplace les zones existantes dans l'accordeon, ordre pz -> fz -> cz
+    var pz = document.getElementById('finProjZone');
+    if(pz) body.appendChild(pz);
+    body.appendChild(fz);
+    var cz = document.getElementById('finChargesZone');
+    if(cz) body.appendChild(cz);
+    return true;
+  }
+
+  // ---- rendu du panneau synthese ----
+  window.finSynthRepaint = function(){
+    if(!ensureLayout()) return;
+    var sy = document.getElementById('finSynthZone');
+    if(!sy) return;
+
+    var CA = num(window.FIN_CA_REALISE);
+    var diag = window.FIN_DIAG || null;
+    var cats = (diag && diag.categories) ? diag.categories : null;
+    var charges = diag ? num(diag.opex_ebitda) : null;
+    var ebitda = (CA != null && charges != null) ? (CA - charges) : null;
+    var marge = (ebitda != null && CA > 0) ? (ebitda / CA * 100) : null;
+
+    // atterrissage CA
+    var rows = window.FIN_PROJ_ROWS || [];
+    var sc = window.FIN_PROJ_SCENARIO || 'signe';
+    var base = CA || 0;
+    var land = {
+      signe: base + sProba(rows, 'signe'),
+      p75:   base + sProba(rows, 'signe') + sProba(rows, 'p75'),
+      p50:   base + sProba(rows, 'signe') + sProba(rows, 'p75') + sProba(rows, 'p50')
+    };
+    var attCA = (CA != null) ? land[sc] : null;
+
+    // atterrissage charges / EBITDA / marge (maillon 3, projete)
+    var attCharges = null, attEbitda = null, attMarge = null, freelanceFutur = 0, projetable = false;
+    if(cats != null && attCA != null){
+      var fixeYTD = catTotal(cats, 'opex') + catTotal(cats, 'social');
+      var variableYTD = catTotal(cats, 'soustraitance');
+      var frac = fractionAnnee();
+      var fixeAnnuel = fixeYTD / frac;
+      freelanceFutur = rows.filter(function(r){ return inYear(r) && scenarioIncludes(r.probabilite, sc) && r.mode_livraison === 'freelance'; })
+        .reduce(function(s, r){ return s + ((r.cout != null && r.cout !== '') ? (Number(r.cout) || 0) : 0); }, 0);
+      attCharges = fixeAnnuel + variableYTD + freelanceFutur;
+      attEbitda = attCA - attCharges;
+      attMarge = (attCA > 0) ? (attEbitda / attCA * 100) : null;
+      projetable = true;
+    }
+
+    var treso = tileVal('sorerie');
+    var encours = tileVal('encours');
+    var hasFinData = !!document.querySelector('#finZone .kpis');
+
+    // boutons de chargement contextuels
+    var loadBtns = '';
+    if(!hasFinData){
+      loadBtns = '<button class="add-btn" onclick="loadFinance()">\u27f1 Charger les donn\u00e9es financi\u00e8res</button>';
+    } else if(diag == null){
+      loadBtns = '<button class="add-btn" onclick="loadQontoDiag()">+ Analyser les charges (EBITDA)</button>'
+        + '<span class="edit-hint" style="margin-left:8px;">2\u1d49 appel Qonto \u2014 quelques secondes.</span>';
+    } else {
+      loadBtns = '<button class="per-btn" style="font-size:11px;padding:3px 10px;" onclick="loadFinance()">\u21bb Actualiser</button>';
+    }
+
+    var fresh = '';
+    if(window.FIN_LAST_UPDATE){
+      try { fresh = ' \u00b7 <span class="sub-cell">\u00e0 jour le ' + new Date(window.FIN_LAST_UPDATE).toLocaleString('fr-FR', { dateStyle:'short', timeStyle:'short' }) + '</span>'; } catch(e){}
+    }
+
+    var reelKpis = '<div class="kpis k4" style="margin-bottom:6px;">'
+      + tile('accent', 'CA HT (Evoliz)', CA != null ? euro(CA) : '\u2014')
+      + tile('good', 'Charges Expl.', charges != null ? euro(charges) : '\u2014', 'expl. + URSSAF + sous-trait.')
+      + tile(margeCls(marge), 'EBITDA', ebitda != null ? euro(ebitda) : '\u2014', 'CA HT \u2212 charges expl.')
+      + tile(margeCls(marge), '% EBITDA', pct(marge), 'r\u00e9f. 2025 ~26%')
+      + '</div>';
+
+    var attSub = 'projet\u00e9 \u00b7 run-rate';
+    var attKpis = '<div class="kpis k4" style="margin-bottom:6px;">'
+      + tile('accent', 'Atterrissage CA', attCA != null ? euro(attCA) : '\u2014', 'r\u00e9alis\u00e9 + carnet')
+      + tile('', 'Atterr. Charges Expl.', projetable ? euro(attCharges) : '\u2014', attSub)
+      + tile(margeCls(attMarge), 'Atterr. EBITDA', projetable ? euro(attEbitda) : '\u2014', attSub)
+      + tile(margeCls(attMarge), 'Atterr. % EBITDA', projetable ? pct(attMarge) : '\u2014', attSub)
+      + '</div>'
+      + '<div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:4px;">' + chip(land, 'signe', sc) + chip(land, 'p75', sc) + chip(land, 'p50', sc) + '</div>';
+
+    var posKpis = '<div class="kpis k2" style="margin-bottom:2px;">'
+      + tile('good', 'Tr\u00e9sorerie (Qonto)', treso || '\u2014')
+      + tile((encours && encours.indexOf('0,00') < 0 && encours !== '\u2014') ? 'warn' : '', 'Encours clients', encours || '\u2014', 'reste d\u00fb TTC')
+      + '</div>';
+
+    var hyp = projetable
+      ? '<div class="edit-hint" style="margin-top:8px;">Atterrissage charges/EBITDA <b>projet\u00e9</b> (hypoth\u00e8ses \u00e0 valider) : charges fixes en run-rate lin\u00e9aire (fixe YTD \u00f7 ' + Math.round(fractionAnnee() * 100) + '% d\u2019ann\u00e9e \u00e9coul\u00e9e), sous-traitance = YTD + freelance futur du carnet (' + euro(freelanceFutur) + '). Les lignes carnet \u00ab salari\u00e9 \u00bb ajoutent 0 co\u00fbt (biais optimiste).'
+      : '<div class="edit-hint" style="margin-top:8px;">Atterrissage charges/EBITDA : charge d\u2019abord les donn\u00e9es puis \u00ab Analyser les charges \u00bb pour activer la projection.'
+      ;
+    hyp += '</div>';
+
+    sy.innerHTML =
+      '<div class="sec-eyebrow">Synth\u00e8se financi\u00e8re ' + YEAR + fresh + '</div>'
+      + '<div class="sec-title" style="margin-bottom:2px;">Indicateurs cl\u00e9s</div>'
+      + '<div class="sec-note" style="margin-bottom:10px;">R\u00e9alis\u00e9 YTD, atterrissage (sc\u00e9nario) et position de tr\u00e9sorerie. Tout le d\u00e9tail est dans l\u2019accord\u00e9on ci-dessous.</div>'
+      + '<div class="sec-eyebrow" style="margin:2px 0 4px;">R\u00e9alis\u00e9 \u2014 cumul \u00e0 date</div>' + reelKpis
+      + '<div class="sec-eyebrow" style="margin:12px 0 4px;">Atterrissage \u2014 sc\u00e9nario ' + ({ signe:'Sign\u00e9', p75:'Pond\u00e9r\u00e9 75%', p50:'Pond\u00e9r\u00e9 50%' }[sc]) + '</div>' + attKpis
+      + '<div class="sec-eyebrow" style="margin:12px 0 4px;">Position</div>' + posKpis
+      + hyp
+      + '<div class="panel" style="padding:12px 14px;margin-top:10px;">' + loadBtns + '</div>';
+  };
+
+  // ---- greffes : repaint apres chaque rendu finance ----
+  function hook(name){
+    if(typeof window[name] === 'function'){
+      var orig = window[name];
+      window[name] = async function(){
+        var r = await orig.apply(this, arguments);
+        try { window.finSynthRepaint(); } catch(e){}
+        return r;
+      };
+    }
+  }
+  hook('loadFinance');
+  hook('loadFinanceProjection');
+
+  if(typeof window.renderQontoDiag === 'function'){
+    var _rq = window.renderQontoDiag;
+    window.renderQontoDiag = function(d){ var r = _rq.apply(this, arguments); try { window.finSynthRepaint(); } catch(e){} return r; };
+  }
+  if(typeof window.finProjSetScenario === 'function'){
+    var _fss = window.finProjSetScenario;
+    window.finProjSetScenario = function(s){ var r = _fss.apply(this, arguments); try { window.finSynthRepaint(); } catch(e){} return r; };
+  }
+
+  // ---- restauration / changement de vue : observateur #view ----
+  var view = document.getElementById('view');
+  if(view && window.MutationObserver){
+    var t = null;
+    var obs = new MutationObserver(function(){
+      if(t) clearTimeout(t);
+      t = setTimeout(function(){ try { if(document.getElementById('finZone')) window.finSynthRepaint(); } catch(e){} }, 140);
+    });
+    obs.observe(view, { childList:true, subtree:true });
+  }
+  try { if(document.getElementById('finZone')) window.finSynthRepaint(); } catch(e){}
+})();
+
+</script>
 </body>
 </html>
