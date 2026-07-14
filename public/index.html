@@ -4790,7 +4790,7 @@ function kwLifecycleSyncBtn(){
     return String(r.mois_facturation).slice(0,4) === String(annee());
   }
   function headers(json){
-    var h = { Authorization: 'Bearer ' + (window.SB_SESSION ? SB_SESSION.access_token : '') };
+    var h = { Authorization: 'Bearer ' + ((typeof SB_SESSION !== 'undefined' && SB_SESSION) ? SB_SESSION.access_token : '') };
     if(json) h['Content-Type'] = 'application/json';
     return h;
   }
@@ -4814,7 +4814,7 @@ function kwLifecycleSyncBtn(){
   window.loadFinanceProjection = async function(){
     var pz = ensureZone();
     if(!pz) return;
-    if(!window.SB_SESSION){ pz.innerHTML = ''; return; }
+    if(typeof SB_SESSION === 'undefined' || !SB_SESSION){ pz.innerHTML = ''; return; }
     pz.innerHTML = '<div class="panel" style="padding:16px;">Calcul de l\u2019atterrissage\u2026</div>';
     var caReal = null, err = '';
     try {
