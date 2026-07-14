@@ -5399,6 +5399,7 @@ function kwLifecycleSyncBtn(){
   'use strict';
 
   var YEAR = new Date().getFullYear();
+  var LOADING = false;
 
   function euro(n){
     if(typeof fmtEuro === 'function') return fmtEuro(n);
@@ -5549,15 +5550,31 @@ function kwLifecycleSyncBtn(){
     var encours = tileVal('encours');
     var hasFinData = !!document.querySelector('#finZone .kpis');
 
-    // boutons de chargement contextuels
-    var loadBtns = '';
+    // remonte l'erreur/le statut ecrit par loadFinance (sinon cache dans l'accordeon)
+    var statusErr = '';
     if(!hasFinData){
-      loadBtns = '<button class="add-btn" onclick="loadFinance()">\u27f1 Charger les donn\u00e9es financi\u00e8res</button>';
-    } else if(diag == null){
-      loadBtns = '<button class="add-btn" onclick="loadQontoDiag()">+ Analyser les charges (EBITDA)</button>'
-        + '<span class="edit-hint" style="margin-left:8px;">2\u1d49 appel Qonto \u2014 quelques secondes.</span>';
+      var fzEl = document.getElementById('finZone');
+      var fzText = fzEl ? (fzEl.textContent || '').replace(/\s+/g, ' ').trim() : '';
+      var markers = ['Erreur de chargement', 'Acc\u00e8s refus\u00e9', 'Connexion impossible', 'Session expir\u00e9e', 'non d\u00e9ploy\u00e9', 'V\u00e9rifiez les cl\u00e9s'];
+      for(var mi = 0; mi < markers.length; mi++){
+        if(fzText.indexOf(markers[mi]) >= 0){ statusErr = fzText.slice(0, 260); break; }
+      }
+    }
+    var errBox = statusErr
+      ? '<div class="panel" style="padding:10px 14px;margin-bottom:12px;background:rgba(178,34,34,.07);border:1px solid var(--signal);color:var(--signal);font-size:12.5px;line-height:1.4;">\u26a0 Chargement finance \u2014 ' + statusErr + ' <span class="sub-cell" style="color:var(--signal);">(d\u00e9plie \u00ab D\u00e9tail complet \u00bb pour le contexte)</span></div>'
+      : '';
+
+    // barre d'action unique (place EN TETE) : un seul chargement pour tout
+    var actionBar;
+    if(LOADING){
+      actionBar = '<button class="add-btn" disabled style="opacity:.65;cursor:default;">\u23f3 Chargement en cours\u2026</button>'
+        + '<span class="edit-hint" style="margin-left:10px;">Qonto + Evoliz + charges \u2014 quelques secondes.</span>';
+    } else if(hasFinData && diag != null){
+      actionBar = '<button class="per-btn" style="font-size:12px;padding:5px 13px;" onclick="finSynthLoadAll(this)">\u21bb Actualiser</button>'
+        + '<span class="edit-hint" style="margin-left:10px;">Recharge tr\u00e9sorerie, CA, atterrissage et charges/EBITDA en un clic.</span>';
     } else {
-      loadBtns = '<button class="per-btn" style="font-size:11px;padding:3px 10px;" onclick="loadFinance()">\u21bb Actualiser</button>';
+      actionBar = '<button class="add-btn" onclick="finSynthLoadAll(this)">\u27f1 Charger les donn\u00e9es financi\u00e8res</button>'
+        + '<span class="edit-hint" style="margin-left:10px;">Charge tout en une fois : tr\u00e9sorerie, CA, atterrissage et charges/EBITDA (Qonto + Evoliz).</span>';
     }
 
     var fresh = '';
@@ -5573,13 +5590,13 @@ function kwLifecycleSyncBtn(){
       + '</div>';
 
     var attSub = 'projet\u00e9 \u00b7 run-rate';
+    var attChips = '<div style="display:flex;gap:7px;flex-wrap:wrap;margin:0 0 7px;">' + chip(land, 'signe', sc) + chip(land, 'p75', sc) + chip(land, 'p50', sc) + '</div>';
     var attKpis = '<div class="kpis k4" style="margin-bottom:6px;">'
       + tile('accent', 'Atterrissage CA', attCA != null ? euro(attCA) : '\u2014', 'r\u00e9alis\u00e9 + carnet')
       + tile('', 'Atterr. Charges Expl.', projetable ? euro(attCharges) : '\u2014', attSub)
       + tile(margeCls(attMarge), 'Atterr. EBITDA', projetable ? euro(attEbitda) : '\u2014', attSub)
       + tile(margeCls(attMarge), 'Atterr. % EBITDA', projetable ? pct(attMarge) : '\u2014', attSub)
-      + '</div>'
-      + '<div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:4px;">' + chip(land, 'signe', sc) + chip(land, 'p75', sc) + chip(land, 'p50', sc) + '</div>';
+      + '</div>';
 
     var posKpis = '<div class="kpis k2" style="margin-bottom:2px;">'
       + tile('good', 'Tr\u00e9sorerie (Qonto)', treso || '\u2014')
@@ -5588,7 +5605,7 @@ function kwLifecycleSyncBtn(){
 
     var hyp = projetable
       ? '<div class="edit-hint" style="margin-top:8px;">Atterrissage charges/EBITDA <b>projet\u00e9</b> (hypoth\u00e8ses \u00e0 valider) : charges fixes en run-rate lin\u00e9aire (fixe YTD \u00f7 ' + Math.round(fractionAnnee() * 100) + '% d\u2019ann\u00e9e \u00e9coul\u00e9e), sous-traitance = YTD + freelance futur du carnet (' + euro(freelanceFutur) + '). Les lignes carnet \u00ab salari\u00e9 \u00bb ajoutent 0 co\u00fbt (biais optimiste).'
-      : '<div class="edit-hint" style="margin-top:8px;">Atterrissage charges/EBITDA : charge d\u2019abord les donn\u00e9es puis \u00ab Analyser les charges \u00bb pour activer la projection.'
+      : '<div class="edit-hint" style="margin-top:8px;">Atterrissage charges/EBITDA : clique \u00ab Charger les donn\u00e9es financi\u00e8res \u00bb pour activer la projection.'
       ;
     hyp += '</div>';
 
@@ -5596,11 +5613,23 @@ function kwLifecycleSyncBtn(){
       '<div class="sec-eyebrow">Synth\u00e8se financi\u00e8re ' + YEAR + fresh + '</div>'
       + '<div class="sec-title" style="margin-bottom:2px;">Indicateurs cl\u00e9s</div>'
       + '<div class="sec-note" style="margin-bottom:10px;">R\u00e9alis\u00e9 YTD, atterrissage (sc\u00e9nario) et position de tr\u00e9sorerie. Tout le d\u00e9tail est dans l\u2019accord\u00e9on ci-dessous.</div>'
+      + errBox
+      + '<div class="panel" style="padding:12px 14px;margin-bottom:14px;">' + actionBar + '</div>'
       + '<div class="sec-eyebrow" style="margin:2px 0 4px;">R\u00e9alis\u00e9 \u2014 cumul \u00e0 date</div>' + reelKpis
-      + '<div class="sec-eyebrow" style="margin:12px 0 4px;">Atterrissage \u2014 sc\u00e9nario ' + ({ signe:'Sign\u00e9', p75:'Pond\u00e9r\u00e9 75%', p50:'Pond\u00e9r\u00e9 50%' }[sc]) + '</div>' + attKpis
-      + '<div class="sec-eyebrow" style="margin:12px 0 4px;">Position</div>' + posKpis
-      + hyp
-      + '<div class="panel" style="padding:12px 14px;margin-top:10px;">' + loadBtns + '</div>';
+      + '<div class="sec-eyebrow" style="margin:14px 0 4px;">Atterrissage \u2014 sc\u00e9nario ' + ({ signe:'Sign\u00e9', p75:'Pond\u00e9r\u00e9 75%', p50:'Pond\u00e9r\u00e9 50%' }[sc]) + '</div>' + attChips + attKpis
+      + '<div class="sec-eyebrow" style="margin:14px 0 4px;">Position</div>' + posKpis
+      + hyp;
+  };
+
+  // chargement unifie : finance + charges/EBITDA en une action
+  window.finSynthLoadAll = async function(){
+    if(LOADING) return;
+    LOADING = true;
+    try { window.finSynthRepaint(); } catch(e){}
+    try { if(typeof window.loadFinance === 'function') await window.loadFinance(); } catch(e){}
+    try { if(typeof window.loadQontoDiag === 'function') await window.loadQontoDiag(); } catch(e){}
+    LOADING = false;
+    try { window.finSynthRepaint(); } catch(e){}
   };
 
   // ---- greffes : repaint apres chaque rendu finance ----
