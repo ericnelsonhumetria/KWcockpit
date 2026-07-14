@@ -8,6 +8,10 @@
   to = "/.netlify/functions/qonto"
   status = 200
 [[redirects]]
+  from = "/api/qonto-diag"
+  to = "/.netlify/functions/qonto-diag"
+  status = 200
+[[redirects]]
   from = "/api/evoliz"
   to = "/.netlify/functions/evoliz"
   status = 200
