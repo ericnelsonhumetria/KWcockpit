@@ -39,3 +39,7 @@
   from = "/api/pdc-conseil"
   to = "/.netlify/functions/pdc-conseil"
   status = 200
+[[redirects]]
+  from = "/api/finance-projection"
+  to = "/.netlify/functions/finance-projection"
+  status = 200
