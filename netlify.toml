@@ -52,3 +52,8 @@
   from = "/api/finance-analyse"
   to = "/.netlify/functions/finance-analyse"
   status = 200
+
+[[redirects]]
+  from = "/api/finance-charges-proj"
+  to = "/.netlify/functions/finance-charges-proj"
+  status = 200
