@@ -5494,9 +5494,13 @@ function kwLifecycleSyncBtn(){
   var CP_KEY = 'kw:finance:chargesproj:v1';
   var MOIS = ['janv.','f\u00e9vr.','mars','avr.','mai','juin','juil.','ao\u00fbt','sept.','oct.','nov.','d\u00e9c.'];
   var CP_OPEN = false;
+  // Hypothese de projection : facteur d'annualisation de la base run-rate.
+  // 1,00 = run-rate lineaire pur (comportement historique). Bornes [0,50 ; 2,00].
+  function cpAnnuClean(v){ var n = parseFloat(String(v).replace(',', '.')); if(!isFinite(n) || n <= 0) return 1; return Math.max(0.5, Math.min(2, Math.round(n * 100) / 100)); }
+  function cpAnnu(){ return cpAnnuClean(CP && CP.annualisation); }
   function cpLoadLocal(){
-    try { var s = localStorage.getItem(CP_KEY); if(s){ var o = JSON.parse(s); return { salaires:o.salaires||[], soustraitants:o.soustraitants||[], reste:o.reste||[] }; } } catch(e){}
-    return { salaires:[], soustraitants:[], reste:[] };
+    try { var s = localStorage.getItem(CP_KEY); if(s){ var o = JSON.parse(s); return { salaires:o.salaires||[], soustraitants:o.soustraitants||[], reste:o.reste||[], annualisation:cpAnnuClean(o.annualisation) }; } } catch(e){}
+    return { salaires:[], soustraitants:[], reste:[], annualisation:1 };
   }
   function cpSaveLocal(){ try { localStorage.setItem(CP_KEY, JSON.stringify(CP)); } catch(e){} }
   var CP = cpLoadLocal();
@@ -5515,7 +5519,7 @@ function kwLifecycleSyncBtn(){
   async function cpFetchSave(){
     var t = cpToken(); if(!t) return;
     var sc = (typeof window.FIN_PROJ_SCENARIO !== 'undefined' && window.FIN_PROJ_SCENARIO) ? window.FIN_PROJ_SCENARIO : 'signe';
-    var payload = { salaires: CP.salaires, soustraitants: CP.soustraitants, reste: CP.reste, scenario: sc };
+    var payload = { salaires: CP.salaires, soustraitants: CP.soustraitants, reste: CP.reste, scenario: sc, annualisation: cpAnnu() };
     try {
       await fetch('/api/finance-charges-proj', { method:'POST', headers:{ Authorization:'Bearer ' + t, 'Content-Type':'application/json' }, body: JSON.stringify({ annee: YEAR, data: payload }) });
     } catch(e){}
@@ -5527,7 +5531,7 @@ function kwLifecycleSyncBtn(){
     var res = await cpFetchLoad();
     if(!res.ok) { cpSynced = false; return; } // serveur injoignable : garde le cache local, reessaie
     if(res.data !== null){
-      CP = { salaires: res.data.salaires || [], soustraitants: res.data.soustraitants || [], reste: res.data.reste || [] };
+      CP = { salaires: res.data.salaires || [], soustraitants: res.data.soustraitants || [], reste: res.data.reste || [], annualisation: cpAnnuClean(res.data.annualisation) };
       cpSaveLocal();
       var sc = res.data.scenario;
       if(sc && ['facture','signe','p75','p50'].indexOf(sc) >= 0 && window.FIN_PROJ_SCENARIO !== sc){
@@ -5708,11 +5712,11 @@ function kwLifecycleSyncBtn(){
     var baseAnnuel = null, stProj = null, stPct = null;
     if(cats != null && attCA != null){
       var baseYTD = catTotal(cats, 'opex') + catTotal(cats, 'social') + catTotal(cats, 'soustraitance');
-      baseAnnuel = baseYTD / frac;
+      baseAnnuel = baseYTD / frac * cpAnnu();
       attCharges = baseAnnuel + leviersTot;
       attEbitda = attCA - attCharges;
       attMarge = (attCA > 0) ? (attEbitda / attCA * 100) : null;
-      stProj = catTotal(cats, 'soustraitance') / frac + levSt;
+      stProj = catTotal(cats, 'soustraitance') / frac * cpAnnu() + levSt;
       stPct = (attCA > 0) ? (stProj / attCA * 100) : null;
       projetable = true;
     }
@@ -5800,8 +5804,9 @@ function kwLifecycleSyncBtn(){
       : '';
     var levTxt = (leviersTot !== 0) ? ' \u00b7 leviers ' + (leviersTot > 0 ? '+' : '') + euro(leviersTot) : ' \u00b7 aucun levier';
     var ratioTxt = (stPct != null) ? ' \u00b7 sous-traitance projet\u00e9e ' + pct(stPct) + ' du CA (rep\u00e8re 2025 ~14%)' + (stPct > 22 ? ' \u26a0' : '') : '';
+    var annuTxt = (cpAnnu() !== 1) ? ' \u00d7 facteur d\u2019annualisation ' + cpAnnu().toLocaleString('fr-FR', { minimumFractionDigits: 2 }) : '';
     var hyp = projetable
-      ? '<div class="edit-hint" style="margin-top:8px;">Atterrissage charges/EBITDA <b>projet\u00e9</b>, cal\u00e9 sur les donn\u00e9es du <b>' + dateCourte(TS) + '</b> (' + Math.round(frac * 100) + '% d\u2019ann\u00e9e).' + staleTxt + ' Base = run-rate de l\u2019existant (opex + URSSAF + sous-traitance) \u00f7 fraction' + levTxt + ratioTxt + '. Ajuste via les 3 leviers ci-dessous (\u00e9carts uniquement). La projection n\u2019avance qu\u2019au rechargement.'
+      ? '<div class="edit-hint" style="margin-top:8px;">Atterrissage charges/EBITDA <b>projet\u00e9</b>, cal\u00e9 sur les donn\u00e9es du <b>' + dateCourte(TS) + '</b> (' + Math.round(frac * 100) + '% d\u2019ann\u00e9e).' + staleTxt + ' Base = run-rate de l\u2019existant (opex + URSSAF + sous-traitance) \u00f7 fraction' + annuTxt + levTxt + ratioTxt + '. Ajuste via les 3 leviers ci-dessous (\u00e9carts uniquement). La projection n\u2019avance qu\u2019au rechargement.'
       : '<div class="edit-hint" style="margin-top:8px;">Atterrissage charges/EBITDA : clique \u00ab Charger les donn\u00e9es financi\u00e8res \u00bb pour activer la projection. Tu peux d\u00e9j\u00e0 saisir les 3 leviers ci-dessous.'
       ;
     hyp += '</div>';
@@ -5905,7 +5910,7 @@ function kwLifecycleSyncBtn(){
     if(ctx.projetable){
       var col = ctx.attMarge >= 20 ? '#2e7d32' : (ctx.attMarge >= 10 ? '#b8860b' : '#b23');
       recap = '<div class="panel" style="padding:11px 13px;margin-top:12px;background:rgba(86,10,15,.04);">'
-        + '<div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:3px;"><span>Base run-rate (existant)</span><b style="font-family:monospace;">' + euro(ctx.baseAnnuel) + '</b></div>'
+        + '<div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:3px;"><span>Base run-rate' + (cpAnnu() !== 1 ? ' \u00d7 ' + cpAnnu().toLocaleString('fr-FR', { minimumFractionDigits: 2 }) : '') + ' (existant)</span><b style="font-family:monospace;">' + euro(ctx.baseAnnuel) + '</b></div>'
         + '<div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:3px;"><span>Leviers</span><b style="font-family:monospace;color:' + (tot < 0 ? '#2e7d32' : '#560A0F') + ';">' + (tot >= 0 ? '+' : '') + euro(tot) + '</b></div>'
         + '<div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;border-top:1px solid rgba(86,10,15,.15);padding-top:5px;margin-top:3px;"><span>Charges projet\u00e9es</span><b style="font-family:monospace;">' + euro(ctx.attCharges) + '</b></div>'
         + '<div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;margin-top:4px;"><span>EBITDA projet\u00e9 \u00b7 marge</span><b style="font-family:monospace;color:' + col + ';">' + euro(ctx.attEbitda) + ' \u00b7 ' + pct(ctx.attMarge) + '</b></div>'
@@ -5920,6 +5925,16 @@ function kwLifecycleSyncBtn(){
       + '<summary style="cursor:pointer;font-size:13px;font-weight:600;color:#560A0F;padding:10px 2px;list-style:none;">Projection des charges \u2014 3 leviers' + (nItems ? ' (' + nItems + ') \u00b7 ' + (tot >= 0 ? '+' : '') + euro(tot) : '') + '</summary>'
       + '<div style="padding-bottom:12px;">'
       + '<div class="edit-hint" style="margin:2px 0 12px;">Ne saisis que les <b>\u00e9carts</b> par rapport \u00e0 aujourd\u2019hui. Seuls les <b>mois \u00e0 venir</b> de chaque levier comptent : au fil des mois (et des rechargements), ce qui est d\u00e9j\u00e0 pay\u00e9 bascule dans la base et n\u2019est <b>plus compt\u00e9 deux fois</b>.</div>'
+      + '<div class="panel" style="padding:10px 13px;margin-bottom:14px;background:rgba(239,184,16,.07);border:1px solid rgba(86,10,15,.15);">'
+      +   '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">'
+      +     '<div style="font-size:12.5px;font-weight:600;color:#560A0F;">Hypoth\u00e8se \u2014 facteur d\u2019annualisation de la base</div>'
+      +     '<div style="display:flex;align-items:center;gap:6px;">'
+      +       '<input id="cp_annu" inputmode="decimal" value="' + cpAnnu().toLocaleString('fr-FR', { minimumFractionDigits: 2 }) + '" onchange="cpSetAnnu(this.value)" style="width:64px;background:#fff;border:1px solid rgba(86,10,15,.3);border-radius:7px;padding:8px 6px;font-size:13px;text-align:center;font-family:monospace;">'
+      +       (cpAnnu() !== 1 ? '<button onclick="cpSetAnnu(1)" class="per-btn" style="font-size:11px;padding:6px 9px;white-space:nowrap;">r\u00e9init 1,00</button>' : '')
+      +     '</div>'
+      +   '</div>'
+      +   '<div class="sub-cell" style="font-size:11px;margin-top:6px;line-height:1.45;">La base des charges est le <b>run-rate</b> : charges pay\u00e9es \u00e0 date \u00f7 fraction d\u2019ann\u00e9e \u00e9coul\u00e9e, puis <b>\u00d7 ce facteur</b>. <b>1,00</b> = le reste de l\u2019ann\u00e9e reproduit le rythme actuel. <b>&lt;1</b> = ralentissement attendu (ex. 0,95), <b>&gt;1</b> = acc\u00e9l\u00e9ration/rattrapage. N\u2019affecte <b>pas</b> les 3 leviers.</div>'
+      + '</div>'
       + sectionHead('Salaires charg\u00e9s', levSal, 'Ajout/d\u00e9part de RH \u00b7 co\u00fbt mensuel charg\u00e9 \u00d7 mois \u00e0 venir de la p\u00e9riode.') + salItems + salForm
       + '<div style="height:14px;"></div>'
       + sectionHead('Sous-traitants productifs', levSt, 'TJ \u00d7 volume, <b>prorat\u00e9 au mois</b> : seuls les mois \u00e0 venir de la p\u00e9riode comptent.') + stItems + stForm
@@ -5930,6 +5945,12 @@ function kwLifecycleSyncBtn(){
   };
 
   window.cpToggle = function(v){ CP_OPEN = !!v; };
+  window.cpSetAnnu = function(v){
+    CP.annualisation = cpAnnuClean(v);
+    cpSave();
+    try { window.finSynthRepaint(); } catch(e){}
+    window.renderChargesProj(true);
+  };
   window.cpBrut = function(){
     var b = parseFloat((document.getElementById('sal_brut') || {}).value) || 0;
     var c = parseFloat((document.getElementById('sal_coef') || {}).value) || 1.42;
