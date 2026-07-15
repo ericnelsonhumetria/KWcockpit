@@ -3720,9 +3720,6 @@ consultant: () => renderPdc(),
 
 /* ---------- ERIC : DIRECTION ---------- */
 eric: () => `
-  <div class="sec-eyebrow">Poste de pilotage</div>
-  <div class="sec-title">Vue direction — le cap</div>
-  <div class="sec-note">Lecture transverse du système de management · synthèse des 6 modules</div>
 
   <div class="sec-eyebrow">Objectifs de l'équipe</div>
   <div class="sec-title">Indicateurs — objectifs validés</div>
@@ -5626,6 +5623,11 @@ function kwLifecycleSyncBtn(){
     hz.style.marginBottom = '14px';
     parent.insertBefore(hz, fz);
 
+    var az = document.createElement('div');
+    az.id = 'finAnalyseZone';
+    az.style.marginBottom = '14px';
+    parent.insertBefore(az, fz);
+
     var sy = document.createElement('div');
     sy.id = 'finSynthZone';
     sy.style.marginBottom = '14px';
@@ -5635,11 +5637,6 @@ function kwLifecycleSyncBtn(){
     cp.id = 'finChargesProj';
     cp.style.marginBottom = '14px';
     parent.insertBefore(cp, fz);
-
-    var az = document.createElement('div');
-    az.id = 'finAnalyseZone';
-    az.style.marginBottom = '14px';
-    parent.insertBefore(az, fz);
 
     var det = document.createElement('details');
     det.id = 'finDetailWrap';
@@ -5994,6 +5991,10 @@ function kwLifecycleSyncBtn(){
   var FA_KEY = 'kw:finance:analyse:v1';
   var FA_LOADING = false, FA_ERR = '', FA_RESULT = null;
   try { var _fs = localStorage.getItem(FA_KEY); if(_fs) FA_RESULT = JSON.parse(_fs); } catch(e){}
+  var FA_PROGRESS = 0, faCreep = null;
+  function faSetProg(pv){ FA_PROGRESS = Math.max(0, Math.min(100, pv)); var f = document.getElementById('faLoadFill'); if(f) f.style.width = FA_PROGRESS + '%'; }
+  function faStopCreep(){ if(faCreep){ clearInterval(faCreep); faCreep = null; } }
+  function faStartCreep(){ faStopCreep(); faCreep = setInterval(function(){ if(FA_PROGRESS < 90) faSetProg(FA_PROGRESS + Math.max(0.5, (90 - FA_PROGRESS) * 0.04)); }, 240); }
   function faToken(){ return (typeof SB_SESSION !== 'undefined' && SB_SESSION) ? SB_SESSION.access_token : ''; }
   function esc(x){ return String(x == null ? '' : x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
   function gatherFinCtx(){
@@ -6031,7 +6032,8 @@ function kwLifecycleSyncBtn(){
     if(FA_LOADING) return;
     var ctx = window.__finCtx || {};
     if(!ctx.projetable){ FA_ERR = 'Charge d\u2019abord les donn\u00e9es financi\u00e8res (bouton en t\u00eate).'; try { window.renderFinAnalyse(); } catch(e){} return; }
-    FA_LOADING = true; FA_ERR = ''; try { window.renderFinAnalyse(); } catch(e){}
+    FA_LOADING = true; FA_ERR = ''; faSetProg(8); try { window.renderFinAnalyse(); } catch(e){}
+    faStartCreep();
     var snap = gatherFinCtx();
     try {
       var r = await fetch('/api/finance-analyse', { method:'POST', headers:{ 'Content-Type':'application/json', Authorization:'Bearer ' + faToken() }, body: JSON.stringify({ contexte: snap }) });
@@ -6041,7 +6043,7 @@ function kwLifecycleSyncBtn(){
       FA_RESULT = { data: j.analyse, ts: Date.now(), date_donnees: snap.date_donnees, scenario: snap.atterrissage.scenario };
       try { localStorage.setItem(FA_KEY, JSON.stringify(FA_RESULT)); } catch(e){}
     } catch(e){ FA_ERR = 'Analyse impossible \u2014 ' + ((e && e.message) ? e.message : 'erreur'); }
-    finally { FA_LOADING = false; try { window.renderFinAnalyse(); } catch(e){} }
+    finally { faStopCreep(); faSetProg(100); FA_LOADING = false; try { window.renderFinAnalyse(); } catch(e){} }
   };
   function faImpactCol(x){ x = String(x || '').toLowerCase(); return x.indexOf('fort') >= 0 ? '#b23' : (x.indexOf('moyen') >= 0 ? '#b8860b' : '#2e7d32'); }
   window.renderFinAnalyse = function(){
@@ -6054,7 +6056,11 @@ function kwLifecycleSyncBtn(){
       + '<div class="sec-eyebrow" style="margin:0;">Analyse IA \u2014 leviers de la situation & actions</div>' + btn + '</div>';
     var b;
     if(FA_LOADING){
-      b = '<div class="edit-hint">L\u2019IA lit le r\u00e9alis\u00e9, l\u2019atterrissage et les rep\u00e8res 2025\u2026 quelques secondes.</div>';
+      b = '<div style="font-size:12.5px;color:#560A0F;font-weight:600;margin-bottom:7px;">L\u2019IA lit le r\u00e9alis\u00e9, l\u2019atterrissage et les rep\u00e8res 2025\u2026</div>'
+        + '<div style="position:relative;height:10px;border-radius:6px;background:rgba(86,10,15,.10);overflow:hidden;">'
+        +   '<div id="faLoadFill" style="position:absolute;left:0;top:0;height:100%;width:' + FA_PROGRESS + '%;background:linear-gradient(90deg,#560A0F,#EFB810);border-radius:6px;transition:width .35s ease;"></div>'
+        + '</div>'
+        + '<div class="edit-hint" style="margin-top:6px;">Quelques secondes.</div>';
     } else if(FA_ERR){
       b = '<div class="edit-hint" style="color:var(--signal,#b23);">' + esc(FA_ERR) + '</div>';
     } else if(FA_RESULT && FA_RESULT.data){
