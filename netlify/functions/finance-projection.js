@@ -1,7 +1,9 @@
-// netlify/functions/finance-projection.js
-// CRUD du carnet de projections (atterrissage CA). Accès direction / finance.
-// Stockage : table public.finance_projection (clé service ; RLS fermée, tout passe par ici).
-// Aligné sur evoliz.js / qonto.js : SUPABASE_URL + SUPABASE_SERVICE_KEY, garde requireDirection.
+// netlify/functions/finance-charges-proj.js
+// Persistance de la projection des charges (3 leviers) — cross-device.
+// Stockage : table public.finance_charges_proj (clé service ; RLS fermée, tout passe par ici).
+// Aligné sur finance-projection.js : SUPABASE_URL + SUPABASE_SERVICE_KEY, garde requireDirection.
+// GET  ?annee=YYYY            -> { data: <jsonb|null> }
+// POST { annee, data:{...} }  -> { ok:true }
 
 const { createClient } = require('@supabase/supabase-js');
 
@@ -38,60 +40,38 @@ exports.handler = async (event) => {
   const jsonHeaders = { ...cors, 'Content-Type': 'application/json' };
 
   try {
-    // -------- Lecture du carnet --------
+    // -------- Lecture --------
     if (event.httpMethod === 'GET') {
       const params = event.queryStringParameters || {};
       const annee = Number(params.annee) || new Date().getFullYear();
       const { data, error } = await db
-        .from('finance_projection')
-        .select('*')
+        .from('finance_charges_proj')
+        .select('data')
         .eq('annee', annee)
-        .order('mois_facturation', { ascending: true, nullsFirst: false });
+        .maybeSingle();
       if (error) throw error;
-      return { statusCode: 200, headers: jsonHeaders, body: JSON.stringify({ rows: data || [] }) };
+      return { statusCode: 200, headers: jsonHeaders, body: JSON.stringify({ data: data ? data.data : null }) };
     }
 
-    // -------- Écriture (save / delete) --------
+    // -------- Écriture (upsert par année) --------
     if (event.httpMethod === 'POST') {
       let payload = {};
       try { payload = JSON.parse(event.body || '{}'); } catch (e) { payload = {}; }
-      const op = payload.op || 'save';
-
-      if (op === 'delete') {
-        if (!payload.id) return { statusCode: 400, headers: jsonHeaders, body: JSON.stringify({ error: 'id manquant' }) };
-        const { error } = await db.from('finance_projection').delete().eq('id', payload.id);
-        if (error) throw error;
-        return { statusCode: 200, headers: jsonHeaders, body: JSON.stringify({ ok: true }) };
-      }
-
-      const r = payload.row || {};
-      if (!r.intitule) return { statusCode: 400, headers: jsonHeaders, body: JSON.stringify({ error: 'intitulé requis' }) };
-
+      const annee = Number(payload.annee) || new Date().getFullYear();
+      const src = (payload.data && typeof payload.data === 'object') ? payload.data : {};
+      const VALID_SC = ['facture', 'signe', 'p75', 'p50'];
+      // whiteliste : les 3 leviers + le scénario d'atterrissage
       const clean = {
-        annee: Number(r.annee) || new Date().getFullYear(),
-        intitule: String(r.intitule),
-        montant: (r.montant === null || r.montant === '' || r.montant === undefined) ? null : Number(r.montant),
-        tjm: (r.tjm === null || r.tjm === '' || r.tjm === undefined) ? null : Number(r.tjm),
-        jours: (r.jours === null || r.jours === '' || r.jours === undefined) ? null : Number(r.jours),
-        mois_facturation: r.mois_facturation || null,
-        probabilite: ['signe', 'p75', 'p50'].includes(r.probabilite) ? r.probabilite : 'signe',
-        statut: r.statut || null,
-        notes: r.notes || null,
-        mode_livraison: (r.mode_livraison === 'freelance') ? 'freelance' : 'salarie',
-        cout: (r.cout === null || r.cout === '' || r.cout === undefined) ? null : Number(r.cout),
-        updated_at: new Date().toISOString(),
+        salaires: Array.isArray(src.salaires) ? src.salaires : [],
+        soustraitants: Array.isArray(src.soustraitants) ? src.soustraitants : [],
+        reste: Array.isArray(src.reste) ? src.reste : [],
+        scenario: VALID_SC.includes(src.scenario) ? src.scenario : 'signe',
       };
-
-      if (r.id) {
-        const { data, error } = await db.from('finance_projection').update(clean).eq('id', r.id).select().single();
-        if (error) throw error;
-        return { statusCode: 200, headers: jsonHeaders, body: JSON.stringify({ row: data }) };
-      } else {
-        clean.created_by = guard.email;
-        const { data, error } = await db.from('finance_projection').insert(clean).select().single();
-        if (error) throw error;
-        return { statusCode: 200, headers: jsonHeaders, body: JSON.stringify({ row: data }) };
-      }
+      const { error } = await db
+        .from('finance_charges_proj')
+        .upsert({ annee, data: clean, updated_at: new Date().toISOString(), updated_by: guard.email }, { onConflict: 'annee' });
+      if (error) throw error;
+      return { statusCode: 200, headers: jsonHeaders, body: JSON.stringify({ ok: true }) };
     }
 
     return { statusCode: 405, headers: jsonHeaders, body: JSON.stringify({ error: 'Méthode non supportée' }) };
