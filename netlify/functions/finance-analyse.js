@@ -5,6 +5,10 @@
 //
 // Modèle : par défaut le même Haiku que dojo-claude (rapide, éprouvé dans ce compte).
 // Pour une analyse plus fine, définir la variable d'env FINANCE_ANALYSE_MODEL (ex. un Sonnet).
+//
+// Robustesse JSON : Haiku tronque/malforme parfois sa sortie (cf. §9#4). parseAnalyse
+// tente d'abord un parse strict, puis répare un JSON tronqué (closeTruncatedJSON, porté
+// de humetria-radar.jsx) au lieu de renvoyer « Analyse illisible ».
 
 const { createClient } = require('@supabase/supabase-js');
 
@@ -43,16 +47,50 @@ GARDE-FOUS ABSOLUS :
 - N'invente AUCUN chiffre. Appuie-toi seulement sur les données fournies ; chiffre tes constats en comparant aux repères 2025 et à l'objectif quand c'est possible.
 - Ce que les données NE montrent PAS (taux d'occupation par consultant, TJM par mission, pipeline commercial R1/R2, masse salariale isolée du reste de l'opex, saisonnalité fine) → mets-le en "angles_morts". Ne le devine pas, ne le présente pas comme un fait.
 
-Réponds UNIQUEMENT en JSON valide, sans texte ni Markdown autour, structure EXACTE :
-{"constat":"2 à 4 phrases","leviers_situation":[{"levier":"nom court","constat":"1-2 phrases chiffrées si possible","impact":"fort|moyen|faible"}],"leviers_action":[{"levier":"nom court","action":"quoi faire, concret","effet_attendu":"sur CA/marge","horizon":"court terme|moyen terme"}],"angles_morts":["≤4 éléments non visibles dans les données"]}`;
+FORMAT DE SORTIE (impératif) :
+- Réponds UNIQUEMENT en JSON valide, sans texte ni Markdown autour.
+- JSON strict : pas de virgule finale, guillemets doubles, guillemets internes échappés.
+- Sois concis : AU PLUS 4 éléments dans "leviers_situation", AU PLUS 4 dans "leviers_action", AU PLUS 4 dans "angles_morts". Chaque texte reste court.
+- Structure EXACTE :
+{"constat":"2 à 4 phrases","leviers_situation":[{"levier":"nom court","constat":"1-2 phrases chiffrées si possible","impact":"fort|moyen|faible"}],"leviers_action":[{"levier":"nom court","action":"quoi faire, concret","effet_attendu":"sur CA/marge","horizon":"court terme|moyen terme"}],"angles_morts":["éléments non visibles dans les données"]}`;
+}
+
+// Répare un JSON tronqué (coupé à max_tokens) : coupe au dernier séparateur sûr hors
+// chaîne, retire une virgule finale, puis referme les structures restées ouvertes.
+// Porté de humetria-radar.jsx (closeTruncatedJSON) — éprouvé sur Haiku.
+function closeTruncatedJSON(t) {
+  let inStr = false, esc = false, cut = -1;
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i];
+    if (inStr) { if (esc) esc = false; else if (c === '\\') esc = true; else if (c === '"') inStr = false; continue; }
+    if (c === '"') inStr = true;
+    else if (c === ',' || c === '}' || c === ']') cut = i;
+  }
+  if (cut < 0) throw new Error('JSON irrécupérable');
+  let out = t.slice(0, t[cut] === ',' ? cut : cut + 1); // si le point de coupe est une virgule, on l'enlève
+  const st = []; inStr = false; esc = false;
+  for (let i = 0; i < out.length; i++) {
+    const c = out[i];
+    if (inStr) { if (esc) esc = false; else if (c === '\\') esc = true; else if (c === '"') inStr = false; continue; }
+    if (c === '"') inStr = true;
+    else if (c === '{') st.push('}');
+    else if (c === '[') st.push(']');
+    else if (c === '}' || c === ']') st.pop();
+  }
+  while (st.length) out += st.pop(); // ferme { et [ restés ouverts
+  return out;
 }
 
 function parseAnalyse(text) {
   let t = String(text || '').replace(/```json/gi, '').replace(/```/g, '').trim();
   const s = t.indexOf('{');
+  if (s < 0) throw new Error('JSON introuvable dans la réponse du modèle');
+  t = t.slice(s);
+  // 1) tentative stricte sur le plus grand bloc {...}
   const e = t.lastIndexOf('}');
-  if (s < 0 || e <= s) throw new Error('JSON introuvable dans la réponse du modèle');
-  return JSON.parse(t.slice(s, e + 1));
+  if (e > 0) { try { return JSON.parse(t.slice(0, e + 1)); } catch (_) {} }
+  // 2) JSON tronqué (coupé à max_tokens) : on répare puis on reparse
+  return JSON.parse(closeTruncatedJSON(t));
 }
 
 exports.handler = async (event) => {
@@ -80,7 +118,7 @@ exports.handler = async (event) => {
 
   const payload = {
     model: process.env.FINANCE_ANALYSE_MODEL || 'claude-haiku-4-5-20251001',
-    max_tokens: 1800,
+    max_tokens: 3000,
     system: systemPrompt(),
     messages: [{
       role: 'user',
