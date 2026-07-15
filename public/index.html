@@ -5514,8 +5514,10 @@ function kwLifecycleSyncBtn(){
   }
   async function cpFetchSave(){
     var t = cpToken(); if(!t) return;
+    var sc = (typeof window.FIN_PROJ_SCENARIO !== 'undefined' && window.FIN_PROJ_SCENARIO) ? window.FIN_PROJ_SCENARIO : 'signe';
+    var payload = { salaires: CP.salaires, soustraitants: CP.soustraitants, reste: CP.reste, scenario: sc };
     try {
-      await fetch('/api/finance-charges-proj', { method:'POST', headers:{ Authorization:'Bearer ' + t, 'Content-Type':'application/json' }, body: JSON.stringify({ annee: YEAR, data: CP }) });
+      await fetch('/api/finance-charges-proj', { method:'POST', headers:{ Authorization:'Bearer ' + t, 'Content-Type':'application/json' }, body: JSON.stringify({ annee: YEAR, data: payload }) });
     } catch(e){}
   }
   function cpSave(){ cpSaveLocal(); cpFetchSave(); } // local (instantan\u00e9) + serveur (cross-device)
@@ -5527,6 +5529,11 @@ function kwLifecycleSyncBtn(){
     if(res.data !== null){
       CP = { salaires: res.data.salaires || [], soustraitants: res.data.soustraitants || [], reste: res.data.reste || [] };
       cpSaveLocal();
+      var sc = res.data.scenario;
+      if(sc && ['facture','signe','p75','p50'].indexOf(sc) >= 0 && window.FIN_PROJ_SCENARIO !== sc){
+        if(typeof window.finProjSetScenario === 'function') window.finProjSetScenario(sc); // maj bandeau + pav\u00e9s
+        else window.FIN_PROJ_SCENARIO = sc;
+      }
       try { window.finSynthRepaint(); } catch(e){}
       try { window.renderChargesProj(true); } catch(e){}
     } else if(CP.salaires.length || CP.soustraitants.length || CP.reste.length){
@@ -5996,7 +6003,7 @@ function kwLifecycleSyncBtn(){
   }
   if(typeof window.finProjSetScenario === 'function'){
     var _fss = window.finProjSetScenario;
-    window.finProjSetScenario = function(s){ var r = _fss.apply(this, arguments); try { window.finSynthRepaint(); } catch(e){} return r; };
+    window.finProjSetScenario = function(s){ var r = _fss.apply(this, arguments); try { window.finSynthRepaint(); } catch(e){} try { cpSave(); } catch(e){} return r; };
   }
 
   // ---- restauration / changement de vue : observateur #view ----
