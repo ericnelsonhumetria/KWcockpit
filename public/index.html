@@ -4765,7 +4765,8 @@ function kwLifecycleSyncBtn(){
   window.FIN_CA_REALISE = (window.FIN_CA_REALISE !== undefined) ? window.FIN_CA_REALISE : null;
   window.FIN_PROJ_ERR = window.FIN_PROJ_ERR || '';
 
-  var PROBA_LABEL = { signe:'Signé', p75:'Pondéré 75%', p50:'Pondéré 50%' };
+  var PROBA_LABEL = { signe:'Commandé', p75:'Pondéré 75%', p50:'Pondéré 50%' };
+  var SCEN_LABEL = { facture:'Facturé', signe:'Commandé', p75:'Pondéré 75%', p50:'Pondéré 50%' };
   var PROBA_PILL  = { signe:'p-green', p75:'p-blue', p50:'p-amber' };
 
   function euro(n){
@@ -4839,7 +4840,7 @@ function kwLifecycleSyncBtn(){
     var sP75   = sommeProba(rows,'p75');
     var sP50   = sommeProba(rows,'p50');
     var base = caReal || 0;
-    var land = { signe: base + sSigne, p75: base + sSigne + sP75, p50: base + sSigne + sP75 + sP50 };
+    var land = { facture: base, signe: base + sSigne, p75: base + sSigne + sP75, p50: base + sSigne + sP75 + sP50 };
 
     var sc = window.FIN_PROJ_SCENARIO;
     var obj = window.FINANCE_OBJECTIF;
@@ -4855,7 +4856,7 @@ function kwLifecycleSyncBtn(){
       return '<button class="per-btn" onclick="finProjSetScenario(\''+key+'\')" '
         + 'style="font-size:12px;padding:5px 13px;border-radius:14px;'
         + (on ? 'background:#EFB810;color:#560A0F;border-color:#EFB810;font-weight:700;' : 'background:rgba(255,255,255,.08);color:#fff;border-color:rgba(255,255,255,.25);')
-        + '">' + PROBA_LABEL[key] + ' \u00b7 ' + euro(land[key]) + '</button>';
+        + '">' + SCEN_LABEL[key] + ' \u00b7 ' + euro(land[key]) + '</button>';
     }
 
     var wReal = Math.max(0, Math.min(100, pctReal));
@@ -4865,7 +4866,7 @@ function kwLifecycleSyncBtn(){
     var head =
       '<div class="panel" style="padding:18px 18px 20px;background:#560A0F;color:#fff;border-color:#560A0F;">'
       + '<div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;">'
-      +   '<div class="sec-eyebrow" style="color:#EFB810;margin:0;">Atterrissage CA ' + annee() + ' \u00b7 scénario ' + PROBA_LABEL[sc] + '</div>'
+      +   '<div class="sec-eyebrow" style="color:#EFB810;margin:0;">Atterrissage CA ' + annee() + ' \u00b7 scénario ' + SCEN_LABEL[sc] + '</div>'
       +   '<div style="font-size:12px;opacity:.85;">Objectif ' + euro(obj) + '</div>'
       + '</div>'
       + '<div style="font-size:34px;font-weight:700;line-height:1.1;margin:8px 0 2px;">' + euro(atter) + '</div>'
@@ -4879,8 +4880,8 @@ function kwLifecycleSyncBtn(){
       +   '<div style="position:absolute;left:' + wReal + '%;top:0;height:100%;width:' + wProj + '%;background:rgba(239,184,16,.42);"></div>'
       + '</div>'
       + (over ? '<div style="font-size:11px;color:#EFB810;margin-top:4px;">\u25b2 objectif dépassé</div>' : '')
-      + '<div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;">' + chip('signe') + chip('p75') + chip('p50') + '</div>'
-      + '<div style="font-size:11px;opacity:.72;margin-top:8px;">Signé = engagé ferme \u00b7 Pondéré 75%/50% = ajoute les affaires à cette probabilité (cumulatif) \u00b7 Réalisé = CA HT facturé (Evoliz) de l\u2019année.</div>'
+      + '<div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;">' + chip('facture') + chip('signe') + chip('p75') + chip('p50') + '</div>'
+      + '<div style="font-size:11px;opacity:.72;margin-top:8px;">Facturé = CA HT Evoliz \u00b7 Commandé = + carnet engagé ferme \u00b7 Pondéré 75%/50% = + affaires à cette probabilité (cumulatif).</div>'
       + '</div>';
 
     var body = rows.map(function(r){
@@ -4912,7 +4913,7 @@ function kwLifecycleSyncBtn(){
   }
 
   window.finProjSetScenario = function(s){
-    if(!PROBA_LABEL[s]) return;
+    if(!SCEN_LABEL[s]) return;
     window.FIN_PROJ_SCENARIO = s;
     renderFinanceProjection();
   };
@@ -4937,7 +4938,7 @@ function kwLifecycleSyncBtn(){
       +   '<label class="field-label">Mois de facturation<input id="fp_mois" type="month" value="' + esc(mois) + '" style="width:100%;"></label>'
       +   '<label class="field-label">Montant HT (\u20ac)<input id="fp_montant" type="number" step="100" value="' + esc(r.montant) + '" placeholder="ou TJM \u00d7 jours ci-dessous" style="width:100%;"></label>'
       +   '<label class="field-label">Probabilité<select id="fp_proba" style="width:100%;">'
-      +     '<option value="signe"' + (r.probabilite==='signe'?' selected':'') + '>Signé</option>'
+      +     '<option value="signe"' + (r.probabilite==='signe'?' selected':'') + '>Commandé</option>'
       +     '<option value="p75"' + (r.probabilite==='p75'?' selected':'') + '>Pondéré 75%</option>'
       +     '<option value="p50"' + (r.probabilite==='p50'?' selected':'') + '>Pondéré 50%</option>'
       +   '</select></label>'
@@ -5433,6 +5434,7 @@ function kwLifecycleSyncBtn(){
                .reduce(function(s, r){ return s + mLigne(r); }, 0);
   }
   function scenarioIncludes(p, sc){
+    if(sc === 'facture') return false; // Facture = realise seul
     if(sc === 'signe') return p === 'signe';
     if(sc === 'p75')   return p === 'signe' || p === 'p75';
     return true; // p50 = tout
@@ -5488,6 +5490,85 @@ function kwLifecycleSyncBtn(){
     return ym.slice(0, 4) === ref.slice(0, 4) && ym <= ref;
   }
 
+  // ---- Projection des charges : 3 leviers (localStorage + Supabase) ----
+  var CP_KEY = 'kw:finance:chargesproj:v1';
+  var MOIS = ['janv.','f\u00e9vr.','mars','avr.','mai','juin','juil.','ao\u00fbt','sept.','oct.','nov.','d\u00e9c.'];
+  var CP_OPEN = false;
+  function cpLoadLocal(){
+    try { var s = localStorage.getItem(CP_KEY); if(s){ var o = JSON.parse(s); return { salaires:o.salaires||[], soustraitants:o.soustraitants||[], reste:o.reste||[] }; } } catch(e){}
+    return { salaires:[], soustraitants:[], reste:[] };
+  }
+  function cpSaveLocal(){ try { localStorage.setItem(CP_KEY, JSON.stringify(CP)); } catch(e){} }
+  var CP = cpLoadLocal();
+
+  // --- persistance Supabase (via fonction Netlify garde direction) ---
+  function cpToken(){ return (typeof SB_SESSION !== 'undefined' && SB_SESSION) ? SB_SESSION.access_token : ''; }
+  async function cpFetchLoad(){
+    var t = cpToken(); if(!t) return { ok:false };
+    try {
+      var r = await fetch('/api/finance-charges-proj?annee=' + YEAR, { headers:{ Authorization:'Bearer ' + t } });
+      if(!r.ok) return { ok:false };
+      var j = await r.json();
+      return { ok:true, data: (j && j.data !== undefined) ? j.data : null };
+    } catch(e){ return { ok:false }; }
+  }
+  async function cpFetchSave(){
+    var t = cpToken(); if(!t) return;
+    try {
+      await fetch('/api/finance-charges-proj', { method:'POST', headers:{ Authorization:'Bearer ' + t, 'Content-Type':'application/json' }, body: JSON.stringify({ annee: YEAR, data: CP }) });
+    } catch(e){}
+  }
+  function cpSave(){ cpSaveLocal(); cpFetchSave(); } // local (instantan\u00e9) + serveur (cross-device)
+  var cpSynced = false;
+  async function cpSyncOnce(){
+    if(cpSynced) return; cpSynced = true;
+    var res = await cpFetchLoad();
+    if(!res.ok) { cpSynced = false; return; } // serveur injoignable : garde le cache local, reessaie
+    if(res.data !== null){
+      CP = { salaires: res.data.salaires || [], soustraitants: res.data.soustraitants || [], reste: res.data.reste || [] };
+      cpSaveLocal();
+      try { window.finSynthRepaint(); } catch(e){}
+      try { window.renderChargesProj(true); } catch(e){}
+    } else if(CP.salaires.length || CP.soustraitants.length || CP.reste.length){
+      cpFetchSave(); // 1re synchro : migre le cache local vers le serveur
+    }
+  }
+
+  function moisNb(a, b){ a = Math.max(1, Math.min(12, +a || 1)); b = Math.max(1, Math.min(12, +b || 12)); return Math.max(0, b - a + 1); }
+  // Nb de mois d'un intervalle [a..b] STRICTEMENT posterieurs au mois des
+  // donnees (ce qui est deja passe est dans le YTD => dans la base run-rate).
+  function moisFuturs(a, b){
+    var cur = +refMonth().slice(5, 7);
+    var A = Math.max(1, Math.min(12, +a || 1));
+    var B = Math.max(1, Math.min(12, +b || 12));
+    var lo = Math.max(A, cur + 1), hi = Math.min(B, 12);
+    return Math.max(0, hi - lo + 1);
+  }
+  function impSal(it){ var m = (+it.mensuel || 0) * moisFuturs(it.debut, it.fin); return it.sens === 'remove' ? -m : m; }
+  // Sous-traitants : proration mensuelle fine. Le volume est reparti sur
+  // [debut..fin] ; on ne retient que les mois A VENIR (strictement apres la
+  // date des donnees), le reste ayant deja bascule dans le YTD.
+  function stWindow(it){
+    var a = Math.max(1, Math.min(12, +it.debut || 1));
+    var b = Math.max(1, Math.min(12, +it.fin || 12));
+    var totalM = Math.max(1, b - a + 1);
+    var countedM = moisFuturs(it.debut, it.fin);
+    return { totalM: totalM, countedM: countedM };
+  }
+  function stJours(it){ var w = stWindow(it); return (+it.volume || 0) * (w.countedM / w.totalM); }
+  function impSt(it){ var v = (+it.tj || 0) * stJours(it); return it.sens === 'remove' ? -v : v; }
+  // Reste : montant ponctuel date. Une fois le mois passe (<= mois des
+  // donnees), la charge est reputee payee (dans le YTD) => 0, plus de double compte.
+  function impRe(it){
+    var cur = +refMonth().slice(5, 7);
+    if(it.mois && (+it.mois) <= cur) return 0;
+    var v = (+it.montant || 0); return it.sens === 'remove' ? -v : v;
+  }
+  function resteEchu(it){ var cur = +refMonth().slice(5, 7); return !!(it.mois && (+it.mois) <= cur); }
+  function sumImp(arr, fn){ return (arr || []).reduce(function(s, it){ return s + fn(it); }, 0); }
+  function moisProchain(){ var m = +refMonth().slice(5, 7); return Math.min(12, m + 1); }
+  function uid(){ return 'c' + Date.now().toString(36) + Math.floor(Math.random() * 1000); }
+
   // ---- lecture Tresorerie / Encours depuis les tuiles #finZone ----
   function tileVal(fragment){
     var fz = document.getElementById('finZone');
@@ -5539,6 +5620,11 @@ function kwLifecycleSyncBtn(){
     sy.style.marginBottom = '14px';
     parent.insertBefore(sy, fz);
 
+    var cp = document.createElement('div');
+    cp.id = 'finChargesProj';
+    cp.style.marginBottom = '14px';
+    parent.insertBefore(cp, fz);
+
     var det = document.createElement('details');
     det.id = 'finDetailWrap';
     det.style.cssText = 'margin-top:4px;border:1px solid rgba(86,10,15,.18);border-radius:10px;padding:2px 12px;';
@@ -5580,6 +5666,7 @@ function kwLifecycleSyncBtn(){
   // ---- rendu du panneau synthese ----
   window.finSynthRepaint = function(){
     if(!ensureLayout()) return;
+    if(!cpSynced) { try { cpSyncOnce(); } catch(e){} }
     relocateHero();
     var sy = document.getElementById('finSynthZone');
     if(!sy) return;
@@ -5596,25 +5683,30 @@ function kwLifecycleSyncBtn(){
     var sc = window.FIN_PROJ_SCENARIO || 'signe';
     var base = CA || 0;
     var land = {
+      facture: base,
       signe: base + sProba(rows, 'signe'),
       p75:   base + sProba(rows, 'signe') + sProba(rows, 'p75'),
       p50:   base + sProba(rows, 'signe') + sProba(rows, 'p75') + sProba(rows, 'p50')
     };
     var attCA = (CA != null) ? land[sc] : null;
 
-    // atterrissage charges / EBITDA / marge (maillon 3, projete)
-    var attCharges = null, attEbitda = null, attMarge = null, freelanceFutur = 0, projetable = false;
+    // atterrissage charges / EBITDA / marge : base run-rate + 3 leviers
+    var attCharges = null, attEbitda = null, attMarge = null, projetable = false;
     var TS = dataTs();
     var frac = fractionAnnee(TS);
+    var levSal = sumImp(CP.salaires, impSal);
+    var levSt  = sumImp(CP.soustraitants, impSt);
+    var levRe  = sumImp(CP.reste, impRe);
+    var leviersTot = levSal + levSt + levRe;
+    var baseAnnuel = null, stProj = null, stPct = null;
     if(cats != null && attCA != null){
-      var fixeYTD = catTotal(cats, 'opex') + catTotal(cats, 'social');
-      var variableYTD = catTotal(cats, 'soustraitance');
-      var fixeAnnuel = fixeYTD / frac;
-      freelanceFutur = rows.filter(function(r){ return window.finAVenir(r) && scenarioIncludes(r.probabilite, sc) && r.mode_livraison === 'freelance'; })
-        .reduce(function(s, r){ return s + ((r.cout != null && r.cout !== '') ? (Number(r.cout) || 0) : 0); }, 0);
-      attCharges = fixeAnnuel + variableYTD + freelanceFutur;
+      var baseYTD = catTotal(cats, 'opex') + catTotal(cats, 'social') + catTotal(cats, 'soustraitance');
+      baseAnnuel = baseYTD / frac;
+      attCharges = baseAnnuel + leviersTot;
       attEbitda = attCA - attCharges;
       attMarge = (attCA > 0) ? (attEbitda / attCA * 100) : null;
+      stProj = catTotal(cats, 'soustraitance') / frac + levSt;
+      stPct = (attCA > 0) ? (stProj / attCA * 100) : null;
       projetable = true;
     }
 
@@ -5697,11 +5789,13 @@ function kwLifecycleSyncBtn(){
 
     var ageD = ageJours(TS);
     var staleTxt = (projetable && ageD > 7)
-      ? ' <b style="color:var(--signal);">\u26a0 Donn\u00e9es vieilles de ' + ageD + ' j \u2014 recharge pour recaler la projection.</b>'
+      ? ' <b style="color:var(--signal);">\u26a0 Donn\u00e9es vieilles de ' + ageD + ' j \u2014 recharge pour recaler.</b>'
       : '';
+    var levTxt = (leviersTot !== 0) ? ' \u00b7 leviers ' + (leviersTot > 0 ? '+' : '') + euro(leviersTot) : ' \u00b7 aucun levier';
+    var ratioTxt = (stPct != null) ? ' \u00b7 sous-traitance projet\u00e9e ' + pct(stPct) + ' du CA (rep\u00e8re 2025 ~14%)' + (stPct > 22 ? ' \u26a0' : '') : '';
     var hyp = projetable
-      ? '<div class="edit-hint" style="margin-top:8px;">Atterrissage charges/EBITDA <b>projet\u00e9</b>, cal\u00e9 sur les donn\u00e9es du <b>' + dateCourte(TS) + '</b> (' + Math.round(frac * 100) + '% d\u2019ann\u00e9e \u00e0 cette date).' + staleTxt + ' M\u00e9thode : charges fixes en run-rate lin\u00e9aire (fixe YTD \u00f7 fraction \u00e0 la date des donn\u00e9es), sous-traitance = YTD + freelance futur du carnet (' + euro(freelanceFutur) + '). Les lignes carnet \u00ab salari\u00e9 \u00bb ajoutent 0 co\u00fbt (biais optimiste). La projection n\u2019avance qu\u2019au rechargement des donn\u00e9es.'
-      : '<div class="edit-hint" style="margin-top:8px;">Atterrissage charges/EBITDA : clique \u00ab Charger les donn\u00e9es financi\u00e8res \u00bb pour activer la projection.'
+      ? '<div class="edit-hint" style="margin-top:8px;">Atterrissage charges/EBITDA <b>projet\u00e9</b>, cal\u00e9 sur les donn\u00e9es du <b>' + dateCourte(TS) + '</b> (' + Math.round(frac * 100) + '% d\u2019ann\u00e9e).' + staleTxt + ' Base = run-rate de l\u2019existant (opex + URSSAF + sous-traitance) \u00f7 fraction' + levTxt + ratioTxt + '. Ajuste via les 3 leviers ci-dessous (\u00e9carts uniquement). La projection n\u2019avance qu\u2019au rechargement.'
+      : '<div class="edit-hint" style="margin-top:8px;">Atterrissage charges/EBITDA : clique \u00ab Charger les donn\u00e9es financi\u00e8res \u00bb pour activer la projection. Tu peux d\u00e9j\u00e0 saisir les 3 leviers ci-dessous.'
       ;
     hyp += '</div>';
 
@@ -5712,9 +5806,154 @@ function kwLifecycleSyncBtn(){
       + errBox
       + '<div class="panel" style="padding:12px 14px;margin-bottom:14px;">' + actionBar + '</div>'
       + '<div class="sec-eyebrow" style="margin:2px 0 4px;">R\u00e9alis\u00e9 \u2014 cumul \u00e0 date</div>' + reelKpis
-      + '<div class="sec-eyebrow" style="margin:14px 0 4px;">Atterrissage \u2014 sc\u00e9nario ' + ({ signe:'Sign\u00e9', p75:'Pond\u00e9r\u00e9 75%', p50:'Pond\u00e9r\u00e9 50%' }[sc]) + '</div>' + attKpis + caNote
+      + '<div class="sec-eyebrow" style="margin:14px 0 4px;">Atterrissage \u2014 sc\u00e9nario ' + ({ facture:'Factur\u00e9', signe:'Command\u00e9', p75:'Pond\u00e9r\u00e9 75%', p50:'Pond\u00e9r\u00e9 50%' }[sc] || sc) + '</div>' + attKpis + caNote
       + '<div class="sec-eyebrow" style="margin:14px 0 4px;">Position</div>' + posKpis
       + hyp;
+
+    window.__finCtx = { baseAnnuel:baseAnnuel, attCharges:attCharges, attCA:attCA, attEbitda:attEbitda, attMarge:attMarge, stPct:stPct, projetable:projetable, levSal:levSal, levSt:levSt, levRe:levRe, sc:sc };
+    if(window.renderChargesProj) window.renderChargesProj(false);
+  };
+
+  // ---- Panneau des 3 leviers de charges ----
+  function fld(id, ph, extra){
+    return '<input id="' + id + '" placeholder="' + ph + '" ' + (extra || '') + ' style="width:100%;background:#fff;border:1px solid rgba(86,10,15,.25);border-radius:7px;padding:8px 9px;font-size:13px;margin-bottom:6px;">';
+  }
+  function moisSel(id, def){
+    var o = '';
+    for(var m = 1; m <= 12; m++) o += '<option value="' + m + '"' + (m === def ? ' selected' : '') + '>' + MOIS[m - 1] + '</option>';
+    return '<select id="' + id + '" style="flex:1;background:#fff;border:1px solid rgba(86,10,15,.25);border-radius:7px;padding:8px 9px;font-size:13px;">' + o + '</select>';
+  }
+  function itemRow(cat, it, detail, impact){
+    var col = impact < 0 ? '#2e7d32' : '#560A0F';
+    return '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px solid rgba(86,10,15,.08);">'
+      + '<div style="flex:1;min-width:0;"><div style="font-size:13px;font-weight:600;color:#1a1416;word-break:break-word;">' + (it.libelle || '(sans libell\u00e9)') + '</div>'
+      + '<div class="sub-cell" style="font-size:11px;">' + detail + '</div></div>'
+      + '<div style="font-family:monospace;font-size:13px;font-weight:600;color:' + col + ';white-space:nowrap;">' + (impact >= 0 ? '+' : '') + euro(impact) + '</div>'
+      + '<button onclick="cpDel(\'' + cat + '\',\'' + it.id + '\')" title="Retirer" style="background:none;border:none;color:#b23;font-size:17px;cursor:pointer;line-height:1;padding:0 2px;">\u00d7</button>'
+      + '</div>';
+  }
+  function sectionHead(titre, solde, sub){
+    var col = solde < 0 ? '#2e7d32' : (solde > 0 ? '#560A0F' : '#7a6f6f');
+    return '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin:2px 0 2px;">'
+      + '<div class="sec-eyebrow" style="margin:0;">' + titre + '</div>'
+      + '<div style="font-family:monospace;font-size:13px;font-weight:700;color:' + col + ';">' + (solde >= 0 ? '+' : '') + euro(solde) + '</div></div>'
+      + (sub ? '<div class="sub-cell" style="font-size:11px;margin-bottom:6px;">' + sub + '</div>' : '');
+  }
+
+  window.renderChargesProj = function(force){
+    var box = document.getElementById('finChargesProj');
+    if(!box) return;
+    if(!force && box.contains(document.activeElement)) return; // ne pas casser la saisie
+    var ctx = window.__finCtx || {};
+    var mp = moisProchain();
+
+    // --- Salaires chargés ---
+    var salItems = CP.salaires.map(function(it){
+      var mf = moisFuturs(it.debut, it.fin);
+      var cal = MOIS[(Math.max(1, Math.min(12, +it.debut || 1))) - 1] + '\u2192' + MOIS[(Math.max(1, Math.min(12, +it.fin || 12))) - 1];
+      var ret = mf > 0 ? (mf + ' mois \u00e0 venir') : '\u00e9chu (dans le r\u00e9alis\u00e9)';
+      return itemRow('salaires', it, (it.sens === 'remove' ? 'D\u00e9part' : 'Ajout') + ' \u00b7 ' + euro(+it.mensuel || 0) + '/mois \u00b7 ' + cal + ' \u00b7 ' + ret, impSal(it));
+    }).join('');
+    var salForm = '<div style="margin-top:8px;">'
+      + fld('sal_lib', 'Libell\u00e9 (ex : Ing\u00e9nieur CDI)')
+      + '<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;"><input id="sal_brut" inputmode="numeric" placeholder="brut/mois" style="flex:1;min-width:0;background:#fff;border:1px solid rgba(86,10,15,.2);border-radius:7px;padding:8px 9px;font-size:12px;"><span class="sub-cell" style="font-size:11px;">\u00d7</span><input id="sal_coef" value="1.42" style="width:52px;background:#fff;border:1px solid rgba(86,10,15,.2);border-radius:7px;padding:8px 6px;font-size:12px;text-align:center;"><button onclick="cpBrut()" class="per-btn" style="font-size:11px;padding:7px 9px;white-space:nowrap;">= charg\u00e9</button></div>'
+      + fld('sal_mensuel', 'Co\u00fbt mensuel charg\u00e9 (\u20ac)', 'inputmode="numeric"')
+      + '<div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;"><span class="sub-cell" style="font-size:11px;">de</span>' + moisSel('sal_debut', mp) + '<span class="sub-cell" style="font-size:11px;">\u00e0</span>' + moisSel('sal_fin', 12) + '</div>'
+      + '<div style="display:flex;gap:8px;"><button onclick="cpAdd(\'salaires\',\'add\')" class="add-btn" style="flex:1;">+ Ajout RH</button><button onclick="cpAdd(\'salaires\',\'remove\')" class="per-btn" style="flex:1;">\u2212 D\u00e9part</button></div>'
+      + '</div>';
+
+    // --- Sous-traitants productifs ---
+    var stItems = CP.soustraitants.map(function(it){
+      var w = stWindow(it); var jr = Math.round(stJours(it));
+      var cal = MOIS[(Math.max(1, Math.min(12, +it.debut || 1))) - 1] + '\u2192' + MOIS[(Math.max(1, Math.min(12, +it.fin || 12))) - 1];
+      var ret = (w.countedM <= 0) ? '\u00e9chu, 0 j retenu' : (jr + ' j retenus / ' + (+it.volume || 0));
+      return itemRow('soustraitants', it, (it.sens === 'remove' ? 'Retrait' : 'Ajout') + ' \u00b7 ' + euro(+it.tj || 0) + '/j \u00b7 ' + cal + ' \u00b7 ' + ret, impSt(it));
+    }).join('');
+    var stForm = '<div style="margin-top:8px;">'
+      + fld('st_lib', 'Libell\u00e9 (ex : Consultant lean)')
+      + '<div style="display:flex;gap:6px;margin-bottom:6px;"><input id="st_tj" inputmode="numeric" placeholder="TJ (\u20ac)" style="flex:1;min-width:0;background:#fff;border:1px solid rgba(86,10,15,.25);border-radius:7px;padding:8px 9px;font-size:13px;"><input id="st_vol" inputmode="numeric" placeholder="volume (j)" style="flex:1;min-width:0;background:#fff;border:1px solid rgba(86,10,15,.25);border-radius:7px;padding:8px 9px;font-size:13px;"></div>'
+      + '<div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;"><span class="sub-cell" style="font-size:11px;">de</span>' + moisSel('st_debut', mp) + '<span class="sub-cell" style="font-size:11px;">\u00e0</span>' + moisSel('st_fin', 12) + '</div>'
+      + '<div style="display:flex;gap:8px;"><button onclick="cpAdd(\'soustraitants\',\'add\')" class="add-btn" style="flex:1;">+ Ajout</button><button onclick="cpAdd(\'soustraitants\',\'remove\')" class="per-btn" style="flex:1;">\u2212 Retrait</button></div>'
+      + '</div>';
+
+    // --- Reste des charges ---
+    var reItems = CP.reste.map(function(it){
+      var ech = resteEchu(it);
+      var moisTxt = it.mois ? ' \u00b7 ' + MOIS[(Math.max(1, Math.min(12, +it.mois))) - 1] : ' \u00b7 (sans mois)';
+      return itemRow('reste', it, (it.sens === 'remove' ? 'Retrait' : 'Ajout ponctuel') + ' \u00b7 ' + euro(+it.montant || 0) + moisTxt + (ech ? ' \u00b7 \u00e9chu (dans le r\u00e9alis\u00e9)' : ''), impRe(it));
+    }).join('');
+    var reForm = '<div style="margin-top:8px;">'
+      + fld('re_lib', 'Libell\u00e9 (ex : r\u00e9gul URSSAF, 13e mois, taxe)')
+      + fld('re_montant', 'Montant (\u20ac)', 'inputmode="numeric"')
+      + '<div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;"><span class="sub-cell" style="font-size:11px;">mois de la charge</span>' + moisSel('re_mois', mp) + '</div>'
+      + '<div style="display:flex;gap:8px;"><button onclick="cpAdd(\'reste\',\'add\')" class="add-btn" style="flex:1;">+ Ajout charge</button><button onclick="cpAdd(\'reste\',\'remove\')" class="per-btn" style="flex:1;">\u2212 Retrait</button></div>'
+      + '</div>';
+
+    var levSal = sumImp(CP.salaires, impSal), levSt = sumImp(CP.soustraitants, impSt), levRe = sumImp(CP.reste, impRe);
+    var tot = levSal + levSt + levRe;
+    var nItems = CP.salaires.length + CP.soustraitants.length + CP.reste.length;
+
+    // synthèse chiffrée
+    var recap = '';
+    if(ctx.projetable){
+      var col = ctx.attMarge >= 20 ? '#2e7d32' : (ctx.attMarge >= 10 ? '#b8860b' : '#b23');
+      recap = '<div class="panel" style="padding:11px 13px;margin-top:12px;background:rgba(86,10,15,.04);">'
+        + '<div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:3px;"><span>Base run-rate (existant)</span><b style="font-family:monospace;">' + euro(ctx.baseAnnuel) + '</b></div>'
+        + '<div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:3px;"><span>Leviers</span><b style="font-family:monospace;color:' + (tot < 0 ? '#2e7d32' : '#560A0F') + ';">' + (tot >= 0 ? '+' : '') + euro(tot) + '</b></div>'
+        + '<div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;border-top:1px solid rgba(86,10,15,.15);padding-top:5px;margin-top:3px;"><span>Charges projet\u00e9es</span><b style="font-family:monospace;">' + euro(ctx.attCharges) + '</b></div>'
+        + '<div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;margin-top:4px;"><span>EBITDA projet\u00e9 \u00b7 marge</span><b style="font-family:monospace;color:' + col + ';">' + euro(ctx.attEbitda) + ' \u00b7 ' + pct(ctx.attMarge) + '</b></div>'
+        + (ctx.stPct != null ? '<div class="sub-cell" style="font-size:11px;margin-top:6px;">Sous-traitance projet\u00e9e : ' + pct(ctx.stPct) + ' du CA (rep\u00e8re 2025 ~14%)' + (ctx.stPct > 22 ? ' \u2014 <b style="color:var(--signal,#b23);">\u26a0 capacit\u00e9 de delivery \u00e0 v\u00e9rifier</b>' : '') + '</div>' : '')
+        + '</div>';
+    } else {
+      recap = '<div class="edit-hint" style="margin-top:10px;">Charge les donn\u00e9es financi\u00e8res pour voir l\u2019effet des leviers sur l\u2019EBITDA projet\u00e9.</div>';
+    }
+
+    box.innerHTML =
+      '<details id="finCPDetails"' + (CP_OPEN ? ' open' : '') + ' ontoggle="cpToggle(this.open)" style="border:1px solid rgba(86,10,15,.18);border-radius:10px;padding:2px 14px;">'
+      + '<summary style="cursor:pointer;font-size:13px;font-weight:600;color:#560A0F;padding:10px 2px;list-style:none;">Projection des charges \u2014 3 leviers' + (nItems ? ' (' + nItems + ') \u00b7 ' + (tot >= 0 ? '+' : '') + euro(tot) : '') + '</summary>'
+      + '<div style="padding-bottom:12px;">'
+      + '<div class="edit-hint" style="margin:2px 0 12px;">Ne saisis que les <b>\u00e9carts</b> par rapport \u00e0 aujourd\u2019hui. Seuls les <b>mois \u00e0 venir</b> de chaque levier comptent : au fil des mois (et des rechargements), ce qui est d\u00e9j\u00e0 pay\u00e9 bascule dans la base et n\u2019est <b>plus compt\u00e9 deux fois</b>.</div>'
+      + sectionHead('Salaires charg\u00e9s', levSal, 'Ajout/d\u00e9part de RH \u00b7 co\u00fbt mensuel charg\u00e9 \u00d7 mois \u00e0 venir de la p\u00e9riode.') + salItems + salForm
+      + '<div style="height:14px;"></div>'
+      + sectionHead('Sous-traitants productifs', levSt, 'TJ \u00d7 volume, <b>prorat\u00e9 au mois</b> : seuls les mois \u00e0 venir de la p\u00e9riode comptent.') + stItems + stForm
+      + '<div style="height:14px;"></div>'
+      + sectionHead('Reste des charges', levRe, 'Charges ponctuelles dat\u00e9es (r\u00e9gul, prime, taxe) \u2014 retir\u00e9es de la projection une fois le mois pass\u00e9.') + reItems + reForm
+      + recap
+      + '</div></details>';
+  };
+
+  window.cpToggle = function(v){ CP_OPEN = !!v; };
+  window.cpBrut = function(){
+    var b = parseFloat((document.getElementById('sal_brut') || {}).value) || 0;
+    var c = parseFloat((document.getElementById('sal_coef') || {}).value) || 1.42;
+    var f = document.getElementById('sal_mensuel');
+    if(f) f.value = Math.round(b * c);
+  };
+  function val(id){ var e = document.getElementById(id); return e ? e.value : ''; }
+  window.cpAdd = function(cat, sens){
+    CP_OPEN = true;
+    if(cat === 'salaires'){
+      var m = parseFloat(val('sal_mensuel')) || 0;
+      if(!m) return;
+      CP.salaires.push({ id:uid(), libelle:(val('sal_lib') || '').trim(), mensuel:m, debut:+val('sal_debut') || moisProchain(), fin:+val('sal_fin') || 12, sens:sens });
+    } else if(cat === 'soustraitants'){
+      var tj = parseFloat(val('st_tj')) || 0, vol = parseFloat(val('st_vol')) || 0;
+      if(!tj || !vol) return;
+      CP.soustraitants.push({ id:uid(), libelle:(val('st_lib') || '').trim(), tj:tj, volume:vol, debut:+val('st_debut') || moisProchain(), fin:+val('st_fin') || 12, sens:sens });
+    } else if(cat === 'reste'){
+      var mt = parseFloat(val('re_montant')) || 0;
+      if(!mt) return;
+      CP.reste.push({ id:uid(), libelle:(val('re_lib') || '').trim(), montant:mt, mois:+val('re_mois') || moisProchain(), sens:sens });
+    }
+    cpSave();
+    try { window.finSynthRepaint(); } catch(e){}
+    window.renderChargesProj(true);
+  };
+  window.cpDel = function(cat, id){
+    CP[cat] = (CP[cat] || []).filter(function(it){ return it.id !== id; });
+    cpSave();
+    try { window.finSynthRepaint(); } catch(e){}
+    window.renderChargesProj(true);
   };
 
   // chargement unifie : finance + charges/EBITDA en une action, avec barre de progression
