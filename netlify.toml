@@ -47,3 +47,8 @@
   from = "/api/finance-projection"
   to = "/.netlify/functions/finance-projection"
   status = 200
+
+[[redirects]]
+  from = "/api/finance-analyse"
+  to = "/.netlify/functions/finance-analyse"
+  status = 200
