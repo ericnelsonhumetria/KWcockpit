@@ -5636,6 +5636,11 @@ function kwLifecycleSyncBtn(){
     cp.style.marginBottom = '14px';
     parent.insertBefore(cp, fz);
 
+    var az = document.createElement('div');
+    az.id = 'finAnalyseZone';
+    az.style.marginBottom = '14px';
+    parent.insertBefore(az, fz);
+
     var det = document.createElement('details');
     det.id = 'finDetailWrap';
     det.style.cssText = 'margin-top:4px;border:1px solid rgba(86,10,15,.18);border-radius:10px;padding:2px 12px;';
@@ -5824,6 +5829,7 @@ function kwLifecycleSyncBtn(){
 
     window.__finCtx = { baseAnnuel:baseAnnuel, attCharges:attCharges, attCA:attCA, attEbitda:attEbitda, attMarge:attMarge, stPct:stPct, projetable:projetable, levSal:levSal, levSt:levSt, levRe:levRe, sc:sc };
     if(window.renderChargesProj) window.renderChargesProj(false);
+    if(window.renderFinAnalyse) window.renderFinAnalyse();
   };
 
   // ---- Panneau des 3 leviers de charges ----
@@ -5982,6 +5988,105 @@ function kwLifecycleSyncBtn(){
     cpSave();
     try { window.finSynthRepaint(); } catch(e){}
     window.renderChargesProj(true);
+  };
+
+  // ---- Analyse IA des resultats financiers (proxy garde direction) ----
+  var FA_KEY = 'kw:finance:analyse:v1';
+  var FA_LOADING = false, FA_ERR = '', FA_RESULT = null;
+  try { var _fs = localStorage.getItem(FA_KEY); if(_fs) FA_RESULT = JSON.parse(_fs); } catch(e){}
+  function faToken(){ return (typeof SB_SESSION !== 'undefined' && SB_SESSION) ? SB_SESSION.access_token : ''; }
+  function esc(x){ return String(x == null ? '' : x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function gatherFinCtx(){
+    var ctx = window.__finCtx || {};
+    var CA = num(window.FIN_CA_REALISE);
+    var diag = window.FIN_DIAG || null;
+    var cats = (diag && diag.categories) ? diag.categories : null;
+    var charges = diag ? num(diag.opex_ebitda) : null;
+    var ebitda = (CA != null && charges != null) ? (CA - charges) : null;
+    var marge = (ebitda != null && CA > 0) ? Math.round(ebitda / CA * 1000) / 10 : null;
+    var TS = dataTs();
+    return {
+      annee: YEAR,
+      date_donnees: dateCourte(TS),
+      fraction_annee_ecoulee: Math.round(fractionAnnee(TS) * 100) / 100,
+      objectif_ca_2026: (typeof window.FINANCE_OBJECTIF !== 'undefined' && window.FINANCE_OBJECTIF) ? num(window.FINANCE_OBJECTIF) : 1800000,
+      realise_ytd: { ca_ht: CA, charges_expl: charges, ebitda: ebitda, marge_pct: marge },
+      categories_charges: cats ? { opex_dont_salaires: catTotal(cats, 'opex'), social_urssaf: catTotal(cats, 'social'), soustraitance: catTotal(cats, 'soustraitance') } : null,
+      atterrissage: {
+        scenario: ctx.sc || null,
+        ca: ctx.attCA != null ? Math.round(ctx.attCA) : null,
+        charges: ctx.attCharges != null ? Math.round(ctx.attCharges) : null,
+        ebitda: ctx.attEbitda != null ? Math.round(ctx.attEbitda) : null,
+        marge_pct: ctx.attMarge != null ? Math.round(ctx.attMarge * 10) / 10 : null,
+        soustraitance_pct: ctx.stPct != null ? Math.round(ctx.stPct * 10) / 10 : null,
+        base_run_rate: ctx.baseAnnuel != null ? Math.round(ctx.baseAnnuel) : null,
+        facteur_annualisation: cpAnnu(),
+        leviers_ecarts: { salaires: Math.round(ctx.levSal || 0), soustraitants: Math.round(ctx.levSt || 0), reste: Math.round(ctx.levRe || 0) }
+      },
+      position: { tresorerie: tileVal('sorerie'), encours_clients: tileVal('encours') },
+      reference_2025: { ca: 1302999.76, ebitda: 181663.66, marge_pct: 26.1, soustraitance_pct: 14 }
+    };
+  }
+  window.runFinAnalyse = async function(){
+    if(FA_LOADING) return;
+    var ctx = window.__finCtx || {};
+    if(!ctx.projetable){ FA_ERR = 'Charge d\u2019abord les donn\u00e9es financi\u00e8res (bouton en t\u00eate).'; try { window.renderFinAnalyse(); } catch(e){} return; }
+    FA_LOADING = true; FA_ERR = ''; try { window.renderFinAnalyse(); } catch(e){}
+    var snap = gatherFinCtx();
+    try {
+      var r = await fetch('/api/finance-analyse', { method:'POST', headers:{ 'Content-Type':'application/json', Authorization:'Bearer ' + faToken() }, body: JSON.stringify({ contexte: snap }) });
+      var j = null; try { j = await r.json(); } catch(e){}
+      if(!r.ok) throw new Error((j && j.error) ? j.error : ('HTTP ' + r.status));
+      if(!j || !j.analyse) throw new Error('r\u00e9ponse vide');
+      FA_RESULT = { data: j.analyse, ts: Date.now(), date_donnees: snap.date_donnees, scenario: snap.atterrissage.scenario };
+      try { localStorage.setItem(FA_KEY, JSON.stringify(FA_RESULT)); } catch(e){}
+    } catch(e){ FA_ERR = 'Analyse impossible \u2014 ' + ((e && e.message) ? e.message : 'erreur'); }
+    finally { FA_LOADING = false; try { window.renderFinAnalyse(); } catch(e){} }
+  };
+  function faImpactCol(x){ x = String(x || '').toLowerCase(); return x.indexOf('fort') >= 0 ? '#b23' : (x.indexOf('moyen') >= 0 ? '#b8860b' : '#2e7d32'); }
+  window.renderFinAnalyse = function(){
+    var box = document.getElementById('finAnalyseZone');
+    if(!box) return;
+    var ctx = window.__finCtx || {};
+    var btn = '<button class="per-btn" style="font-size:12px;padding:6px 13px;" onclick="runFinAnalyse()"' + (FA_LOADING ? ' disabled' : '') + '>'
+      + (FA_LOADING ? 'Analyse en cours\u2026' : (FA_RESULT ? '\u21bb R\u00e9analyser' : '\u2728 Analyser')) + '</button>';
+    var head = '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px;">'
+      + '<div class="sec-eyebrow" style="margin:0;">Analyse IA \u2014 leviers de la situation & actions</div>' + btn + '</div>';
+    var b;
+    if(FA_LOADING){
+      b = '<div class="edit-hint">L\u2019IA lit le r\u00e9alis\u00e9, l\u2019atterrissage et les rep\u00e8res 2025\u2026 quelques secondes.</div>';
+    } else if(FA_ERR){
+      b = '<div class="edit-hint" style="color:var(--signal,#b23);">' + esc(FA_ERR) + '</div>';
+    } else if(FA_RESULT && FA_RESULT.data){
+      var a = FA_RESULT.data, parts = '';
+      if(a.constat) parts += '<div style="font-size:13px;line-height:1.5;margin-bottom:12px;">' + esc(a.constat) + '</div>';
+      if(Array.isArray(a.leviers_situation) && a.leviers_situation.length){
+        parts += '<div class="sec-eyebrow" style="margin:10px 0 6px;">Ce qui m\u00e8ne \u00e0 la situation actuelle</div>';
+        parts += a.leviers_situation.map(function(l){
+          return '<div style="border-left:3px solid ' + faImpactCol(l.impact) + ';padding:1px 0 1px 10px;margin-bottom:9px;">'
+            + '<div style="font-size:12.5px;font-weight:600;color:#560A0F;">' + esc(l.levier) + (l.impact ? ' <span class="sub-cell" style="font-weight:400;">\u00b7 impact ' + esc(l.impact) + '</span>' : '') + '</div>'
+            + (l.constat ? '<div style="font-size:12.5px;line-height:1.45;margin-top:2px;">' + esc(l.constat) + '</div>' : '') + '</div>';
+        }).join('');
+      }
+      if(Array.isArray(a.leviers_action) && a.leviers_action.length){
+        parts += '<div class="sec-eyebrow" style="margin:12px 0 6px;">Leviers d\u2019action recommand\u00e9s</div>';
+        parts += a.leviers_action.map(function(l){
+          return '<div style="background:rgba(239,184,16,.08);border:1px solid rgba(86,10,15,.12);border-radius:8px;padding:9px 11px;margin-bottom:8px;">'
+            + '<div style="font-size:12.5px;font-weight:600;color:#560A0F;">' + esc(l.levier) + (l.horizon ? ' <span class="sub-cell" style="font-weight:400;">\u00b7 ' + esc(l.horizon) + '</span>' : '') + '</div>'
+            + (l.action ? '<div style="font-size:12.5px;line-height:1.45;margin-top:2px;">' + esc(l.action) + '</div>' : '')
+            + (l.effet_attendu ? '<div class="sub-cell" style="font-size:11px;margin-top:3px;">Effet attendu : ' + esc(l.effet_attendu) + '</div>' : '') + '</div>';
+        }).join('');
+      }
+      if(Array.isArray(a.angles_morts) && a.angles_morts.length){
+        parts += '<div class="edit-hint" style="margin-top:10px;"><b>Angles morts</b> (non visibles c\u00f4t\u00e9 finance, \u00e0 ne pas surinterpr\u00e9ter) : ' + a.angles_morts.map(esc).join(' \u00b7 ') + '</div>';
+      }
+      parts += '<div class="sub-cell" style="font-size:10.5px;margin-top:10px;">G\u00e9n\u00e9r\u00e9 par IA' + (FA_RESULT.date_donnees ? ' \u00b7 donn\u00e9es du ' + esc(FA_RESULT.date_donnees) : '') + (FA_RESULT.scenario ? ' \u00b7 sc\u00e9nario ' + esc(FA_RESULT.scenario) : '') + ' \u2014 aide \u00e0 la d\u00e9cision, \u00e0 valider par la direction. \u00ab L\u2019humain avant toute chose. \u00bb</div>';
+      b = parts;
+    } else {
+      b = '<div class="edit-hint">Analyse d\u00e9taill\u00e9e : ce qui explique le CA / la marge actuels (charge des \u00e9quipes, prix de vente, sous-traitance\u2026) et les leviers d\u2019action pour am\u00e9liorer.'
+        + (!ctx.projetable ? ' <b>Charge d\u2019abord les donn\u00e9es financi\u00e8res.</b>' : '') + '</div>';
+    }
+    box.innerHTML = '<div class="panel" style="padding:14px 16px;">' + head + b + '</div>';
   };
 
   // chargement unifie : finance + charges/EBITDA en une action, avec barre de progression
