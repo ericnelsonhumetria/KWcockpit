@@ -3922,7 +3922,7 @@ najoua: () => `
 };
 
 function footer(txt){
-  return `<div class="footer-note"><span class="ic">↳</span><span>Prototype à données fictives. ${txt}</span></div>`;
+  return `<div class="footer-note"><span class="ic">↳</span><span>${txt}</span></div>`;
 }
 
 // Enter key on password
@@ -6332,12 +6332,25 @@ function kwLifecycleSyncBtn(){
 
   // roster = union affectations + capacite (+ soi)
   async function pdcActRoster(){
-    if(PDC_ACT.roster) return PDC_ACT.roster;
+    // Recharge a chaque appel (pas de cache fige) : un consultant ajoute ou
+    // affecte apparait des le prochain affichage du selecteur.
     var set = {};
     try {
       var r = await Promise.all([ SB.from('pdc_affectations').select('email'), SB.from('pdc_capacite').select('email') ]);
       (r[0].data || []).forEach(function(x){ if(x.email) set[x.email] = 1; });
       (r[1].data || []).forEach(function(x){ if(x.email) set[x.email] = 1; });
+    } catch(e){}
+    // Ajoute les comptes de role "consultant" (meme sans affectation ni capacite),
+    // pour pouvoir saisir le plan d'un nouvel arrivant. Necessite l'acces admin
+    // (direction / SI) : pour Audrey, repli silencieux sur affectations+capacites.
+    try {
+      if(typeof SB_SESSION !== 'undefined' && SB_SESSION){
+        var ar = await fetch('/api/admin', { method:'POST', headers:{ Authorization:'Bearer '+SB_SESSION.access_token, 'Content-Type':'application/json' }, body: JSON.stringify({ action:'list' }) });
+        if(ar.ok){
+          var aj = await ar.json();
+          (aj.users || []).forEach(function(u){ if(u && u.email && u.role === 'consultant') set[u.email] = 1; });
+        }
+      }
     } catch(e){}
     if(typeof CURRENT_EMAIL !== 'undefined' && CURRENT_EMAIL) set[CURRENT_EMAIL] = 1;
     PDC_ACT.roster = Object.keys(set).sort();
