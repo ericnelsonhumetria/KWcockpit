@@ -3726,60 +3726,6 @@ eric: () => `
   <div class="sec-note">Synthèse de tous les objectifs validés · vert = tenu / à l'objectif · rouge = en retard / sous l'objectif</div>
   <div id="indicZone">${renderIndicateursDirection()}</div>
 
-  <div class="sec-eyebrow">Tableau de bord financier</div>
-  <div class="sec-title">Synthèse Qonto + Evoliz</div>
-  <div class="sec-note">Données réelles via connexions sécurisées · réservé à la direction · <span class="src fin"><span class="sdot"></span>Qonto + Evoliz</span></div>
-  <div id="finZone">
-    <div class="panel" style="padding:18px 16px;">
-      <div style="margin-bottom:12px;">
-        <span class="field-label" style="display:block;">Période : <b>année fiscale en cours</b> (1er janvier → 31 décembre)</span>
-      </div>
-      <button class="add-btn" onclick="loadFinance()">⟱ Charger les données financières</button>
-      <span class="edit-hint" style="margin-left:10px;">Qonto (trésorerie) et Evoliz (CA, encours), lecture seule. Le solde de trésorerie est toujours le solde actuel ; le CA, le flux et les impayés portent sur l'année en cours.</span>
-    </div>
-  </div>
-
-  <div class="sec-eyebrow">Objectifs (OKR)</div>
-  <div class="sec-title">Où en est-on</div>
-  <div class="sec-note">Suivi des cibles du Module 1</div>
-  <div class="panel" style="padding:8px 16px 16px;">
-    <table>
-      <thead><tr><th>Objectif</th><th>Cible</th><th>Avancement</th><th>Statut</th></tr></thead>
-      <tbody>
-        <tr><td>CA 2027</td><td>2,0 M€</td><td><div class="prog"><div style="width:37%"></div></div></td><td><span class="pill p-blue">37 % · en cours</span></td></tr>
-        <tr><td>R1 / semaine</td><td>8/sem</td><td><div class="prog"><div style="width:100%"></div></div></td><td><span class="pill p-green">tenu</span></td></tr>
-        <tr><td>Transfo R1→R2</td><td>33 %</td><td><div class="prog"><div style="width:100%"></div></div></td><td><span class="pill p-green">34 %</span></td></tr>
-        <tr><td>Transfo R2→prop.</td><td>50 %</td><td><div class="prog"><div style="width:96%"></div></div></td><td><span class="pill p-amber">48 %</span></td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <div class="sec-eyebrow">Module 6 — Amélioration</div>
-  <div class="sec-title">Plan d'action consolidé</div>
-  <div class="sec-note">Alimenté par les rituels Copil & CODIR (Notion), le commerce (HubSpot) et la finance (Qonto)</div>
-  <div class="kpis k4">
-    <div class="kpi accent"><div class="k-label">Actions ouvertes</div><div class="k-val">23</div><div class="k-trend">tous porteurs</div></div>
-    <div class="kpi warn"><div class="k-label">En retard</div><div class="k-val">4</div><div class="k-trend down">▲ à arbitrer</div></div>
-    <div class="kpi good"><div class="k-label">Clôturées (30 j)</div><div class="k-val">17</div><div class="k-trend up">▲ bon rythme</div></div>
-    <div class="kpi"><div class="k-label">Délai moyen</div><div class="k-val">9 <small>j</small></div><div class="k-trend">stable</div></div>
-  </div>
-
-  <div class="sec-eyebrow">Module 2 — Risques</div>
-  <div class="sec-title">Registre sous surveillance</div>
-  <div class="sec-note">Revu en CODIR</div>
-  <div class="panel" style="padding:8px 16px 16px;">
-    <table>
-      <thead><tr><th>Risque / Opportunité</th><th>Type</th><th>Impact</th><th>Parade</th></tr></thead>
-      <tbody>
-        <tr><td>Concentration client (grands comptes)</td><td><span class="pill p-signal">Risque</span></td><td>Élevé</td><td class="sub-cell">Diversification pipeline</td></tr>
-        <tr><td>Tréso KW → Humetria</td><td><span class="pill p-signal">Risque</span></td><td>Élevé</td><td class="sub-cell">Suivi dédié · backup Eric</td></tr>
-        <tr><td>Cannibalisation par Humetria</td><td><span class="pill p-signal">Risque</span></td><td>Moyen (borné)</td><td class="sub-cell">Conduite du changement</td></tr>
-        <tr><td>Réputation grands projets (Andros)</td><td><span class="pill p-green">Opportunité</span></td><td>Élevé</td><td class="sub-cell">Capitaliser en com</td></tr>
-        <tr><td>Humetria = accès client accéléré</td><td><span class="pill p-green">Opportunité</span></td><td>Élevé</td><td class="sub-cell">Porte d'entrée KW</td></tr>
-      </tbody>
-    </table>
-  </div>
-
   <div class="sec-eyebrow">État des fonctions</div>
   <div class="sec-title">Vue par responsable</div>
   <div class="sec-note">Synthèse remontée de chaque fonction · RH et Finance ouvrables (accès direction)</div>
@@ -3795,6 +3741,51 @@ eric: () => `
       </tbody>
     </table>
   </div>
+
+  <div class="sec-eyebrow">Tableau de bord financier</div>
+  <div class="sec-title">Synthèse Qonto + Evoliz</div>
+  <div class="sec-note">Données réelles via connexions sécurisées · réservé à la direction · <span class="src fin"><span class="sdot"></span>Qonto + Evoliz</span></div>
+  <div id="finZone">
+    <div class="panel" style="padding:18px 16px;">
+      <div style="margin-bottom:12px;">
+        <span class="field-label" style="display:block;">Période : <b>année fiscale en cours</b> (1er janvier → 31 décembre)</span>
+      </div>
+      <button class="add-btn" onclick="loadFinance()">⟱ Charger les données financières</button>
+      <span class="edit-hint" style="margin-left:10px;">Qonto (trésorerie) et Evoliz (CA, encours), lecture seule. Le solde de trésorerie est toujours le solde actuel ; le CA, le flux et les impayés portent sur l'année en cours.</span>
+    </div>
+  </div>
+
+  <details style="border:1px solid rgba(86,10,15,.15);border-radius:12px;padding:0 16px;margin-top:18px;">
+    <summary style="cursor:pointer;list-style:none;display:flex;align-items:center;gap:10px;padding:13px 2px;font-size:15px;font-weight:600;color:#560A0F;">Plan d'action <span class="pill p-amber">à connecter</span><span class="edit-hint" style="margin-left:auto;font-weight:400;">déplier ▸</span></summary>
+    <div style="padding:0 0 14px;">
+      <div class="sec-note" style="margin-top:0;">Alimenté par les rituels Copil & CODIR (Notion), le commerce (HubSpot) et la finance (Qonto) — <b>données indicatives, à connecter</b>.</div>
+      <div class="kpis k4">
+    <div class="kpi accent"><div class="k-label">Actions ouvertes</div><div class="k-val">23</div><div class="k-trend">tous porteurs</div></div>
+    <div class="kpi warn"><div class="k-label">En retard</div><div class="k-val">4</div><div class="k-trend down">▲ à arbitrer</div></div>
+    <div class="kpi good"><div class="k-label">Clôturées (30 j)</div><div class="k-val">17</div><div class="k-trend up">▲ bon rythme</div></div>
+    <div class="kpi"><div class="k-label">Délai moyen</div><div class="k-val">9 <small>j</small></div><div class="k-trend">stable</div></div>
+  </div>
+    </div>
+  </details>
+
+  <details style="border:1px solid rgba(86,10,15,.15);border-radius:12px;padding:0 16px;margin-top:18px;">
+    <summary style="cursor:pointer;list-style:none;display:flex;align-items:center;gap:10px;padding:13px 2px;font-size:15px;font-weight:600;color:#560A0F;">Risques & opportunités <span class="pill p-grey">référence</span><span class="edit-hint" style="margin-left:auto;font-weight:400;">déplier ▸</span></summary>
+    <div style="padding:0 0 14px;">
+      <div class="sec-note" style="margin-top:0;">Registre du système de management, revu en CODIR — référence.</div>
+      <div class="panel" style="padding:8px 16px 16px;">
+    <table>
+      <thead><tr><th>Risque / Opportunité</th><th>Type</th><th>Impact</th><th>Parade</th></tr></thead>
+      <tbody>
+        <tr><td>Concentration client (grands comptes)</td><td><span class="pill p-signal">Risque</span></td><td>Élevé</td><td class="sub-cell">Diversification pipeline</td></tr>
+        <tr><td>Tréso KW → Humetria</td><td><span class="pill p-signal">Risque</span></td><td>Élevé</td><td class="sub-cell">Suivi dédié · backup Eric</td></tr>
+        <tr><td>Cannibalisation par Humetria</td><td><span class="pill p-signal">Risque</span></td><td>Moyen (borné)</td><td class="sub-cell">Conduite du changement</td></tr>
+        <tr><td>Réputation grands projets (Andros)</td><td><span class="pill p-green">Opportunité</span></td><td>Élevé</td><td class="sub-cell">Capitaliser en com</td></tr>
+        <tr><td>Humetria = accès client accéléré</td><td><span class="pill p-green">Opportunité</span></td><td>Élevé</td><td class="sub-cell">Porte d'entrée KW</td></tr>
+      </tbody>
+    </table>
+  </div>
+    </div>
+  </details>
 
   ${footer("Vue direction : agrège HubSpot (commerce), Trello (RH), Qonto (finance) et Notion (système & plan d'action). RH et Finance sont sous accès direction pour le moment. Cockpit KW rend lisible — il ne remplace aucun de ces outils.")}
 `,
@@ -5940,7 +5931,7 @@ function kwLifecycleSyncBtn(){
       + '</div>'
       + sectionHead('Salaires charg\u00e9s', levSal, 'Ajout/d\u00e9part de RH \u00b7 co\u00fbt mensuel charg\u00e9 \u00d7 mois \u00e0 venir de la p\u00e9riode.') + salItems + salForm
       + '<div style="height:14px;"></div>'
-      + sectionHead('Sous-traitants productifs', levSt, 'TJ \u00d7 volume, <b>prorat\u00e9 au mois</b> : seuls les mois \u00e0 venir de la p\u00e9riode comptent.') + stItems + stForm
+      + sectionHead('Sous-traitants productifs', levSt, 'TJ \u00d7 volume, <b>prorat\u00e9 au mois</b> : seuls les mois \u00e0 venir de la p\u00e9riode comptent.') + stItems + stForm + plBlock()
       + '<div style="height:14px;"></div>'
       + sectionHead('Reste des charges', levRe, 'Charges ponctuelles dat\u00e9es (r\u00e9gul, prime, taxe) \u2014 retir\u00e9es de la projection une fois le mois pass\u00e9.') + reItems + reForm
       + recap
@@ -5986,6 +5977,114 @@ function kwLifecycleSyncBtn(){
     try { window.finSynthRepaint(); } catch(e){}
     window.renderChargesProj(true);
   };
+
+  // ---- Lien plan de charge -> levier sous-traitants (freelances uniquement) ----
+  var PL_OPEN = false, PL_LOADING = false, PL_ERR = '', PL_READY = false;
+  var PL_COST = {}, PL_ROSTER = [], PL_PROPOSAL = null;
+  function plName(email){
+    var s = String(email || '').split('@')[0].replace(/[._-]+/g, ' ').trim();
+    return s ? s.replace(/\b\w/g, function(c){ return c.toUpperCase(); }) : (email || '?');
+  }
+  window.plToggle = function(){ PL_OPEN = !PL_OPEN; if(PL_OPEN && !PL_READY){ window.plLoad(); } else { window.renderChargesProj(true); } };
+  window.plLoad = async function(){
+    if(PL_LOADING) return;
+    if(typeof SB === 'undefined' || !SB){ PL_ERR = 'Session non disponible.'; window.renderChargesProj(true); return; }
+    PL_LOADING = true; PL_ERR = ''; PL_PROPOSAL = null; window.renderChargesProj(true);
+    try {
+      var y = YEAR;
+      var res = await SB.from('pdc_charge').select('email,date_jour,etat,jours');
+      if(res.error) throw res.error;
+      var sal = await loadShared('pdc_salaries'); sal = Array.isArray(sal) ? sal : [];
+      var cost = await loadShared('pdc_cout_freelance'); PL_COST = (cost && typeof cost === 'object') ? cost : {};
+      var isSal = function(e){ return sal.indexOf(e) >= 0; };
+      var agg = {};
+      (res.data || []).forEach(function(r){
+        if(r.etat !== 'planifie') return;
+        if(String(r.date_jour).slice(0, 4) !== String(y)) return;
+        if(isSal(r.email)) return;
+        var mo = +String(r.date_jour).slice(5, 7);
+        agg[r.email] = agg[r.email] || {}; agg[r.email][mo] = (agg[r.email][mo] || 0) + (+r.jours || 0);
+      });
+      PL_ROSTER = Object.keys(agg).map(function(email){
+        var bm = agg[email], total = 0, mois = [];
+        for(var m = 1; m <= 12; m++){ if(bm[m]){ total += bm[m]; mois.push(m); } }
+        return { email: email, name: plName(email), total: Math.round(total * 10) / 10, debut: mois.length ? mois[0] : moisProchain(), fin: mois.length ? mois[mois.length - 1] : 12 };
+      }).filter(function(x){ return x.total > 0; }).sort(function(a, b){ return b.total - a.total; });
+      PL_READY = true;
+    } catch(e){ PL_ERR = 'Lecture du plan de charge impossible \u2014 ' + ((e && e.message) ? e.message : 'erreur'); }
+    finally { PL_LOADING = false; window.renderChargesProj(true); }
+  };
+  window.plSetCost = function(email, v){
+    var n = parseFloat(String(v).replace(',', '.'));
+    PL_COST[email] = (isFinite(n) && n > 0) ? Math.round(n) : 0;
+    PL_PROPOSAL = null; saveShared('pdc_cout_freelance', PL_COST); window.renderChargesProj(true);
+  };
+  window.plCompute = function(){
+    var items = PL_ROSTER.filter(function(r){ return r.total > 0 && (+PL_COST[r.email] || 0) > 0; }).map(function(r){
+      return { id: uid(), libelle: 'PDC \u00b7 ' + r.name, tj: +PL_COST[r.email] || 0, volume: r.total, debut: r.debut, fin: r.fin, sens: 'add', src: 'pdc' };
+    });
+    var keep = (CP.soustraitants || []).filter(function(it){ return it.src !== 'pdc'; });
+    var oldPdc = (CP.soustraitants || []).filter(function(it){ return it.src === 'pdc'; });
+    PL_PROPOSAL = { items: items, keep: keep, oldImpact: sumImp(oldPdc, impSt), newImpact: sumImp(items, impSt), oldCount: oldPdc.length };
+    window.renderChargesProj(true);
+  };
+  window.plApply = function(){
+    if(!PL_PROPOSAL) return;
+    CP.soustraitants = PL_PROPOSAL.keep.concat(PL_PROPOSAL.items);
+    cpSave(); try { window.finSynthRepaint(); } catch(e){}
+    PL_PROPOSAL = null; window.renderChargesProj(true);
+  };
+  window.plCancel = function(){ PL_PROPOSAL = null; window.renderChargesProj(true); };
+  function plBlock(){
+    var head = '<div style="border:1px dashed rgba(86,10,15,.3);border-radius:9px;padding:10px 12px;margin:6px 0 12px;background:rgba(239,184,16,.06);">'
+      + '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">'
+      + '<span style="font-size:12px;font-weight:600;color:#560A0F;">\u25b1 Lier au plan de charge (freelances)</span>'
+      + '<button style="background:none;border:none;color:#560A0F;font-size:12px;cursor:pointer;text-decoration:underline;" onclick="plToggle()">' + (PL_OPEN ? 'masquer' : 'ouvrir \u25b8') + '</button>'
+      + '</div>';
+    if(!PL_OPEN) return head + '</div>';
+    var body = '';
+    if(PL_LOADING){
+      body = '<div class="edit-hint" style="margin-top:8px;">Lecture du plan de charge\u2026</div>';
+    } else if(PL_ERR){
+      body = '<div class="edit-hint" style="margin-top:8px;color:#b23;">' + esc(PL_ERR) + ' <button style="background:none;border:none;color:#560A0F;text-decoration:underline;cursor:pointer;font-size:12px;" onclick="plLoad()">r\u00e9essayer</button></div>';
+    } else if(!PL_ROSTER.length){
+      body = '<div class="edit-hint" style="margin-top:8px;">Aucun freelance avec des jours <b>planifi\u00e9s</b> en ' + YEAR + ' dans le plan de charge. (Les salari\u00e9s sont exclus : co\u00fbt fixe.)</div>';
+    } else {
+      body = '<div class="edit-hint" style="margin:8px 0;">Renseigne le <b>co\u00fbt journalier</b> de chaque freelance. Jours = total <b>planifi\u00e9</b> ' + YEAR + ' (salari\u00e9s exclus).</div>';
+      body += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12.5px;">';
+      body += '<tr style="color:#8a6d3b;text-align:left;"><th style="padding:3px 6px;">Freelance</th><th style="padding:3px 6px;text-align:right;">Jours PDC</th><th style="padding:3px 6px;text-align:right;">Co\u00fbt/j</th><th style="padding:3px 6px;text-align:right;">= projection</th></tr>';
+      PL_ROSTER.forEach(function(r){
+        var c = +PL_COST[r.email] || 0, proj = c * r.total;
+        body += '<tr style="border-top:1px solid rgba(86,10,15,.1);">'
+          + '<td style="padding:4px 6px;">' + esc(r.name) + ' <span class="sub-cell" style="font-size:10px;">m' + r.debut + '\u2192m' + r.fin + '</span></td>'
+          + '<td style="padding:4px 6px;text-align:right;font-family:monospace;">' + r.total + '</td>'
+          + '<td style="padding:4px 6px;text-align:right;"><input inputmode="numeric" value="' + (c || '') + '" onchange="plSetCost(\'' + r.email + '\',this.value)" style="width:68px;text-align:right;background:#fff;border:1px solid rgba(86,10,15,.25);border-radius:6px;padding:5px 6px;font-size:12px;font-family:monospace;"></td>'
+          + '<td style="padding:4px 6px;text-align:right;font-family:monospace;color:#560A0F;">' + (proj ? euro(proj) : '\u2014') + '</td>'
+          + '</tr>';
+      });
+      body += '</table></div>';
+      body += '<button class="per-btn" style="margin-top:10px;font-size:12px;padding:7px 13px;" onclick="plCompute()">Pr\u00e9parer le remplacement \u25b8</button>';
+      if(PL_PROPOSAL){
+        var pp = PL_PROPOSAL, delta = pp.newImpact - pp.oldImpact;
+        body += '<div style="border:1px solid rgba(86,10,15,.25);border-radius:8px;padding:10px 12px;margin-top:12px;background:#fff;">';
+        body += '<div style="font-size:12px;font-weight:600;color:#560A0F;margin-bottom:6px;">Modifications \u00e0 valider</div>';
+        if(!pp.items.length){
+          body += '<div class="edit-hint">Aucun item g\u00e9n\u00e9r\u00e9 : renseigne au moins un co\u00fbt/j.</div>';
+        } else {
+          body += '<div class="edit-hint" style="margin-bottom:6px;">Les items <b>PDC</b> existants seront remplac\u00e9s ; tes saisies manuelles (hors PDC) sont conserv\u00e9es' + (pp.oldCount ? ' (' + pp.oldCount + ' item(s) PDC actuel(s) remplac\u00e9(s))' : '') + '.</div>';
+          body += '<ul style="margin:0 0 6px;padding-left:16px;">' + pp.items.map(function(it){ return '<li style="font-size:12px;line-height:1.5;">' + esc(it.libelle) + ' : ' + it.tj + '\u20ac \u00d7 ' + it.volume + 'j \u2192 <b>' + euro(impSt(it)) + '</b> <span class="sub-cell">(mois \u00e0 venir)</span></li>'; }).join('') + '</ul>';
+          body += '<div style="font-size:12.5px;margin:6px 0;">Impact sous-traitance \u00e0 venir : ' + euro(pp.oldImpact) + ' \u2192 <b>' + euro(pp.newImpact) + '</b> (' + (delta >= 0 ? '+' : '') + euro(delta) + ')</div>';
+          body += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">'
+            + '<button style="font-size:12px;padding:7px 14px;background:#560A0F;color:#fff;border:none;border-radius:7px;cursor:pointer;" onclick="plApply()">Valider et remplacer</button>'
+            + '<button style="background:none;border:none;color:#560A0F;font-size:12px;cursor:pointer;text-decoration:underline;" onclick="plCancel()">Annuler</button>'
+            + '</div>';
+        }
+        body += '</div>';
+      }
+      body += '<div class="edit-hint" style="margin-top:10px;font-size:10.5px;">Instantan\u00e9 du plan de charge (\u00e9tat <b>planifi\u00e9</b>) : refais la reprise si le plan bouge. Volume prorat\u00e9 au mois comme un levier manuel. Salari\u00e9s exclus (co\u00fbt fixe, \u00e0 ajuster \u00e0 la main).</div>';
+    }
+    return head + body + '</div>';
+  }
 
   // ---- Analyse IA des resultats financiers (proxy garde direction) ----
   var FA_KEY = 'kw:finance:analyse:v1';
@@ -6045,7 +6144,7 @@ function kwLifecycleSyncBtn(){
     } catch(e){ FA_ERR = 'Analyse impossible \u2014 ' + ((e && e.message) ? e.message : 'erreur'); }
     finally { faStopCreep(); faSetProg(100); FA_LOADING = false; try { window.renderFinAnalyse(); } catch(e){} }
   };
-  function faImpactCol(x){ x = String(x || '').toLowerCase(); return x.indexOf('fort') >= 0 ? '#b23' : (x.indexOf('moyen') >= 0 ? '#b8860b' : '#2e7d32'); }
+  function faImpactCol(x){ x = String(x || '').toLowerCase(); return x.indexOf('fort') >= 0 ? '#560A0F' : (x.indexOf('moyen') >= 0 ? 'rgba(86,10,15,.55)' : 'rgba(86,10,15,.28)'); }
   window.renderFinAnalyse = function(){
     var box = document.getElementById('finAnalyseZone');
     if(!box) return;
@@ -6066,6 +6165,10 @@ function kwLifecycleSyncBtn(){
     } else if(FA_RESULT && FA_RESULT.data){
       var a = FA_RESULT.data, parts = '';
       if(a.constat) parts += '<div style="font-size:13px;line-height:1.5;margin-bottom:12px;">' + esc(a.constat) + '</div>';
+      if(Array.isArray(a.points_forts) && a.points_forts.length){
+        parts += '<div class="sec-eyebrow" style="margin:10px 0 6px;">Points forts</div>';
+        parts += '<ul style="margin:0 0 8px;padding-left:18px;">' + a.points_forts.map(function(f){ return '<li style="font-size:12.5px;line-height:1.5;margin-bottom:3px;color:#2e7d32;">' + esc(f) + '</li>'; }).join('') + '</ul>';
+      }
       if(Array.isArray(a.leviers_situation) && a.leviers_situation.length){
         parts += '<div class="sec-eyebrow" style="margin:10px 0 6px;">Ce qui m\u00e8ne \u00e0 la situation actuelle</div>';
         parts += a.leviers_situation.map(function(l){
