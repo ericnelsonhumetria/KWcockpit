@@ -6312,5 +6312,201 @@ function kwLifecycleSyncBtn(){
 }
 
 </style>
+<script>
+/* ============================================================
+   COCKPIT KW - PLAN DE CHARGE : gestion pour un consultant tiers
+   (Eric / Audrey). Bloc additif : n'edite pas le script principal,
+   reassigne les fonctions pdc globales pour cibler un consultant
+   choisi (defaut = soi). Saisie/import ecrits AU NOM du consultant
+   (email), l'operateur reste trace via saisi_par. A coller tel quel
+   juste avant </body>.
+   ============================================================ */
+(function(){
+  'use strict';
+
+  var PDC_ACT = { email:null, roster:null };
+
+  function pdcMgr(){ return typeof CURRENT_ROLE !== 'undefined' && ['eric','audrey','direction'].indexOf(CURRENT_ROLE) >= 0; }
+  function pdcTarget(){ return (pdcMgr() && PDC_ACT.email) ? PDC_ACT.email : (typeof CURRENT_EMAIL !== 'undefined' ? CURRENT_EMAIL : ''); }
+  function pdcNm(e){ return (typeof pdccName === 'function') ? pdccName(e) : String(e || ''); }
+
+  // roster = union affectations + capacite (+ soi)
+  async function pdcActRoster(){
+    if(PDC_ACT.roster) return PDC_ACT.roster;
+    var set = {};
+    try {
+      var r = await Promise.all([ SB.from('pdc_affectations').select('email'), SB.from('pdc_capacite').select('email') ]);
+      (r[0].data || []).forEach(function(x){ if(x.email) set[x.email] = 1; });
+      (r[1].data || []).forEach(function(x){ if(x.email) set[x.email] = 1; });
+    } catch(e){}
+    if(typeof CURRENT_EMAIL !== 'undefined' && CURRENT_EMAIL) set[CURRENT_EMAIL] = 1;
+    PDC_ACT.roster = Object.keys(set).sort();
+    return PDC_ACT.roster;
+  }
+
+  window.renderPdcActBar = async function(){
+    var bar = document.getElementById('pdcActBar');
+    if(!bar) return;
+    var roster = await pdcActRoster();
+    var cur = pdcTarget();
+    var opts = roster.map(function(e){
+      return '<option value="' + e + '"' + (e === cur ? ' selected' : '') + '>' + pdcNm(e) + (e === CURRENT_EMAIL ? ' (moi)' : '') + ' \u2014 ' + e + '</option>';
+    }).join('');
+    var acting = (cur !== CURRENT_EMAIL);
+    var banner = acting
+      ? '<div style="margin-top:10px;padding:8px 12px;border-radius:8px;background:rgba(239,184,16,.14);border:1px solid #EFB810;color:#8a6a00;font-size:12.5px;">\u270e Vous \u00e9ditez le plan de <b>' + pdcNm(cur) + '</b>. Les saisies et imports sont enregistr\u00e9s en son nom (vous restez trac\u00e9 comme saisisseur).</div>'
+      : '';
+    bar.innerHTML = '<div class="panel" style="padding:12px 16px;">'
+      + '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">'
+      +   '<span class="field-label" style="margin:0;">Consultant</span>'
+      +   '<select class="obj-sel" style="min-width:280px;" onchange="pdcSelectActing(this.value)">' + opts + '</select>'
+      +   '<button class="add-btn" onclick="loadPdc()">\u27f1 Charger son plan de charge</button>'
+      + '</div>' + banner + '</div>';
+  };
+
+  window.pdcSelectActing = function(email){
+    PDC_ACT.email = (email === CURRENT_EMAIL) ? null : email;
+    loadPdc();
+  };
+
+  // --- shell de l'onglet : sur-titre + barre de selection (managers) ---
+  if(typeof renderPdc === 'function'){
+    var _renderPdc = renderPdc;
+    renderPdc = function(){
+      if(!pdcMgr()) return _renderPdc();
+      setTimeout(function(){ try { renderPdcActBar(); } catch(e){} }, 0);
+      return ''
+        + '<div class="sec-eyebrow">Plan de charge</div>'
+        + '<div class="sec-title">Plan de charge des consultants</div>'
+        + '<div class="sec-note">Choisissez un consultant pour charger, saisir ou importer son planning. La saisie est enregistr\u00e9e en son nom ; vous restez trac\u00e9 comme saisisseur.</div>'
+        + '<div id="pdcActBar"><div class="panel" style="padding:12px 16px;color:var(--muted);font-size:13px;">Chargement de la liste des consultants\u2026</div></div>'
+        + '<div id="pdcZone"><div class="panel" style="padding:18px 16px;color:var(--muted);font-size:13px;">S\u00e9lectionnez un consultant ci-dessus, puis \u00ab Charger \u00bb.</div></div>'
+        + footer("R\u00e9serv\u00e9 \u00e0 la direction et \u00e0 Audrey : g\u00e9rez le plan de charge de chaque consultant. Les affectations de missions se d\u00e9finissent dans \u00ab Charge equipe \u00bb.");
+    };
+  }
+
+  // --- chargement cible ---
+  if(typeof loadPdc === 'function'){
+    loadPdc = async function(){
+      var zone = document.getElementById('pdcZone');
+      if(!zone) return;
+      if(pdcMgr()){ try { renderPdcActBar(); } catch(e){} }
+      var TGT = pdcTarget();
+      if(!SB || !TGT){ zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Session expiree \u2014 reconnectez-vous.</div>'; return; }
+      zone.innerHTML = '<div class="panel" style="padding:18px 16px;">Chargement\u2026</div>';
+      if(!PDC.weekStart) PDC.weekStart = pdcMonday(new Date());
+      var y = PDC.weekStart.getFullYear(), m = PDC.weekStart.getMonth();
+      var monthStart = new Date(y, m, 1), monthEnd = new Date(y, m + 1, 0);
+      try {
+        var r = await Promise.all([
+          SB.from('pdc_affectations').select('mission_code, pdc_missions(intitule, client)').eq('email', TGT),
+          SB.from('pdc_activite').select('code, libelle').order('ordre'),
+          SB.from('pdc_charge').select('mission_code, date_jour, etat, jours, activite').eq('email', TGT).gte('date_jour', pdcISO(monthStart)).lte('date_jour', pdcISO(monthEnd)),
+          SB.from('pdc_capacite').select('jours_dispo, type_ressource').eq('email', TGT).eq('annee', y).eq('mois', m + 1).maybeSingle()
+        ]);
+        var aff = r[0], act = r[1], ch = r[2], cap = r[3];
+        PDC.affectations = (aff.data || []).map(function(x){
+          return { mission_code:x.mission_code, intitule:(x.pdc_missions && x.pdc_missions.intitule) || x.mission_code, client:(x.pdc_missions && x.pdc_missions.client) || '' };
+        });
+        PDC.activites = act.data || [];
+        PDC.charge = {}; PDC.rowAct = {};
+        (ch.data || []).forEach(function(x){
+          PDC.charge[x.mission_code + '|' + x.date_jour + '|' + x.etat] = x.jours;
+          if(x.activite && !PDC.rowAct[x.mission_code]) PDC.rowAct[x.mission_code] = x.activite;
+        });
+        PDC.capacite = cap.data || null;
+        renderPdcGrid();
+      } catch(e){
+        zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Erreur : ' + ((e && e.message) || e) + '</div>';
+      }
+    };
+  }
+
+  // --- saisie manuelle (cycle case) au nom de la cible ---
+  if(typeof pdcCycle === 'function'){
+    pdcCycle = async function(mission, iso){
+      var TGT = pdcTarget();
+      if(!SB || !TGT){ flashSync('\u26a0 session expiree'); return; }
+      var key = mission + '|' + iso + '|' + PDC.etat;
+      var cur = PDC.charge[key] || 0;
+      var next = cur === 0 ? 0.5 : (cur === 0.5 ? 1 : 0);
+      var activite = PDC.rowAct[mission] || null;
+      try {
+        if(next === 0){
+          var d = await SB.from('pdc_charge').delete().eq('email', TGT).eq('mission_code', mission).eq('date_jour', iso).eq('etat', PDC.etat);
+          if(d.error) throw d.error;
+          delete PDC.charge[key];
+        } else {
+          var u = await SB.from('pdc_charge').upsert(
+            { email: TGT, mission_code: mission, date_jour: iso, etat: PDC.etat, jours: next, activite: activite, saisi_par: CURRENT_EMAIL, updated_at: new Date().toISOString() },
+            { onConflict: 'email,date_jour,mission_code,etat' });
+          if(u.error) throw u.error;
+          PDC.charge[key] = next;
+        }
+        renderPdcGrid();
+        flashSync('\u2713 enregistre' + (TGT !== CURRENT_EMAIL ? ' (' + pdcNm(TGT) + ')' : ''));
+      } catch(e){ flashSync('\u26a0 ' + ((e && e.message) || 'refus')); }
+    };
+  }
+
+  // --- import IA : comparaison a l'existant de la cible ---
+  if(typeof pdcBuildReview === 'function'){
+    pdcBuildReview = async function(entries){
+      var TGT = pdcTarget();
+      var codes = new Set(PDC.affectations.map(function(m){ return m.mission_code; }));
+      var actCodes = new Set(PDC.activites.map(function(a){ return a.code; }));
+      var valid = [], unmatched = [];
+      entries.forEach(function(e){
+        var date = String(e.date || '').slice(0, 10);
+        var j = pdcNormJours(e.jours);
+        var etat = ['planifie','realise','revise'].indexOf(e.etat) >= 0 ? e.etat : 'planifie';
+        var act = actCodes.has(e.activite) ? e.activite : null;
+        if(!/^\d{4}-\d{2}-\d{2}$/.test(date) || j <= 0) return;
+        if(!codes.has(e.mission_code)){ unmatched.push(e); return; }
+        valid.push({ date: date, mission_code: e.mission_code, activite: act, etat: etat, jours: j });
+      });
+      if(!valid.length){
+        pdcOpenModal('<div style="padding:22px 20px;">Aucune ligne exploitable extraite du planning.' + (unmatched.length ? ' (' + unmatched.length + ' ligne(s) non rattachable(s) aux missions de ce consultant)' : '') + '<div style="margin-top:14px;text-align:right;"><button class="per-btn" onclick="pdcCloseImport()">Fermer</button></div></div>');
+        return;
+      }
+      var dates = valid.map(function(v){ return v.date; }).sort();
+      var existing = {};
+      try {
+        var q = await SB.from('pdc_charge').select('mission_code,date_jour,etat,jours,activite').eq('email', TGT).gte('date_jour', dates[0]).lte('date_jour', dates[dates.length - 1]);
+        (q.data || []).forEach(function(r){ existing[r.mission_code + '|' + r.date_jour + '|' + r.etat] = { jours: r.jours, activite: r.activite }; });
+      } catch(e){}
+      var newE = [], conf = [], sameN = 0;
+      valid.forEach(function(v){
+        var ex = existing[v.mission_code + '|' + v.date + '|' + v.etat];
+        if(!ex) newE.push(v);
+        else if(ex.jours === v.jours && (ex.activite || null) === (v.activite || null)) sameN++;
+        else conf.push({ date:v.date, mission_code:v.mission_code, activite:v.activite, etat:v.etat, jours:v.jours, ex: ex });
+      });
+      PDC._imp = { newE: newE, conf: conf };
+      pdcRenderReview(newE, conf, sameN, unmatched.length);
+    };
+  }
+
+  // --- import IA : ecriture au nom de la cible ---
+  if(typeof pdcApplyImport === 'function'){
+    pdcApplyImport = async function(){
+      var TGT = pdcTarget();
+      var imp = PDC._imp || { newE: [], conf: [] };
+      var rows = [];
+      imp.newE.forEach(function(v, i){ var c = document.getElementById('add_' + i); if(c && c.checked) rows.push(v); });
+      imp.conf.forEach(function(c, i){ var sel = document.querySelector('input[name="cf_' + i + '"]:checked'); if(sel && sel.value === 'ia') rows.push({ date:c.date, mission_code:c.mission_code, activite:c.activite, etat:c.etat, jours:c.jours }); });
+      if(!rows.length){ pdcCloseImport(); flashSync('rien a appliquer'); return; }
+      var now = new Date().toISOString();
+      var payload = rows.map(function(v){ return { email: TGT, mission_code: v.mission_code, date_jour: v.date, etat: v.etat, jours: v.jours, activite: v.activite, saisi_par: CURRENT_EMAIL, updated_at: now }; });
+      try {
+        var res = await SB.from('pdc_charge').upsert(payload, { onConflict: 'email,date_jour,mission_code,etat' });
+        if(res.error) throw res.error;
+        pdcCloseImport();
+        flashSync('\u2713 ' + rows.length + ' ligne(s) importee(s)' + (TGT !== CURRENT_EMAIL ? ' (' + pdcNm(TGT) + ')' : ''));
+        loadPdc();
+      } catch(e){ flashSync('\u26a0 ' + ((e && e.message) || 'refus')); }
+    };
+  }
+})();
 </body>
 </html>
