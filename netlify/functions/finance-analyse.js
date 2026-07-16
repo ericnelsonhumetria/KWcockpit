@@ -58,12 +58,38 @@ Sois CONCIS pour rester rapide : au plus 4 items par liste, phrases courtes (1-2
 {"constat":"3 à 5 phrases, lecture de gestion équilibrée","points_forts":["≤4 forces réelles et chiffrées"],"leviers_situation":[{"levier":"nom court","constat":"analyse chiffrée, 1-3 phrases","impact":"fort|moyen|faible"}],"leviers_action":[{"levier":"nom court","action":"recommandation concrète","effet_attendu":"sur CA/marge, chiffré si possible","horizon":"court terme|moyen terme"}],"angles_morts":["≤4 éléments non visibles dans les données"]}`;
 }
 
+function closeTruncatedJSON(t) {
+  // Trouve le dernier separateur/fermeture hors chaine = point de coupe sur,
+  // puis referme les structures ouvertes. Recupere un JSON tronque ou malforme.
+  let inStr = false, esc = false, cut = -1;
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i];
+    if (inStr) { if (esc) esc = false; else if (c === '\\') esc = true; else if (c === '"') inStr = false; continue; }
+    if (c === '"') inStr = true;
+    else if (c === ',' || c === '}' || c === ']') cut = i;
+  }
+  if (cut < 0) throw new Error('JSON irrécupérable');
+  let out = t.slice(0, t[cut] === ',' ? cut : cut + 1);
+  const st = []; inStr = false; esc = false;
+  for (let j = 0; j < out.length; j++) {
+    const d = out[j];
+    if (inStr) { if (esc) esc = false; else if (d === '\\') esc = true; else if (d === '"') inStr = false; continue; }
+    if (d === '"') inStr = true;
+    else if (d === '{') st.push('}');
+    else if (d === '[') st.push(']');
+    else if (d === '}' || d === ']') st.pop();
+  }
+  while (st.length) out += st.pop();
+  return out;
+}
 function parseAnalyse(text) {
   let t = String(text || '').replace(/```json/gi, '').replace(/```/g, '').trim();
   const s = t.indexOf('{');
+  if (s < 0) throw new Error('JSON introuvable dans la réponse du modèle');
+  t = t.slice(s);
   const e = t.lastIndexOf('}');
-  if (s < 0 || e <= s) throw new Error('JSON introuvable dans la réponse du modèle');
-  return JSON.parse(t.slice(s, e + 1));
+  if (e > 0) { try { return JSON.parse(t.slice(0, e + 1)); } catch (_) {} }
+  return JSON.parse(closeTruncatedJSON(t));
 }
 
 exports.handler = async (event) => {
@@ -91,7 +117,7 @@ exports.handler = async (event) => {
 
   const payload = {
     model: process.env.FINANCE_ANALYSE_MODEL || 'claude-haiku-4-5-20251001',
-    max_tokens: 1400,
+    max_tokens: 1600,
     system: systemPrompt(),
     messages: [{
       role: 'user',
