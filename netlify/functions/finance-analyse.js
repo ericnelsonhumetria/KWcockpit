@@ -54,7 +54,7 @@ GARDE-FOUS ABSOLUS :
 - Non visible dans les données (taux d'occupation par consultant, TJM par mission, pipeline R1/R2, masse salariale isolée de l'opex, détail du BFR, saisonnalité fine) -> angles_morts, sans deviner.
 - Mesuré : pas de superlatifs, pas de dramatisation, pas de fausse urgence.
 
-Réponds UNIQUEMENT en JSON valide, sans texte ni Markdown, structure EXACTE :
+Sois CONCIS pour rester rapide : au plus 4 items par liste, phrases courtes (1-2 phrases). Réponds UNIQUEMENT en JSON valide, sans texte ni Markdown, structure EXACTE :
 {"constat":"3 à 5 phrases, lecture de gestion équilibrée","points_forts":["≤4 forces réelles et chiffrées"],"leviers_situation":[{"levier":"nom court","constat":"analyse chiffrée, 1-3 phrases","impact":"fort|moyen|faible"}],"leviers_action":[{"levier":"nom court","action":"recommandation concrète","effet_attendu":"sur CA/marge, chiffré si possible","horizon":"court terme|moyen terme"}],"angles_morts":["≤4 éléments non visibles dans les données"]}`;
 }
 
@@ -91,7 +91,7 @@ exports.handler = async (event) => {
 
   const payload = {
     model: process.env.FINANCE_ANALYSE_MODEL || 'claude-haiku-4-5-20251001',
-    max_tokens: 2600,
+    max_tokens: 1400,
     system: systemPrompt(),
     messages: [{
       role: 'user',
@@ -100,7 +100,7 @@ exports.handler = async (event) => {
   };
 
   const controller = new AbortController();
-  const tid = setTimeout(() => controller.abort(), 24000);
+  const tid = setTimeout(() => controller.abort(), 25000);
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
