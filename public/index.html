@@ -6618,6 +6618,83 @@ function kwLifecycleSyncBtn(){
       } catch(e){ flashSync('\u26a0 ' + ((e && e.message) || 'refus')); }
     };
   }
+
+  // --- vue annuelle : selecteur de periode des indicateurs (mois / exercice civil / 12 mois glissants) ---
+  function pdcMoisAn(d){ return ('0' + (d.getMonth() + 1)).slice(-2) + '/' + d.getFullYear(); }
+  function pdcPeriodKpiHtml(agg){
+    var cap = agg.cap || 0;
+    var tauxR = cap ? Math.round(agg.realise / cap * 100) : null;
+    var tauxP = cap ? Math.round(agg.planifie / cap * 100) : null;
+    var clsR = tauxR === null ? 'neutre' : (tauxR > 100 ? 'ko' : (tauxR >= 70 ? 'ok' : ''));
+    var capSub = cap ? (agg.capMonths + '/' + agg.monthsN + ' mois renseignes') : 'capacite non definie sur la periode';
+    return ''
+      + '<div class="kpi ' + clsR + '"><div class="k-label">Taux realise \u00b7 ' + agg.label + '</div><div class="k-val">' + (tauxR === null ? '\u2014' : tauxR + '%') + '</div><div class="k-sub">' + (cap ? agg.realise + ' / ' + cap + ' j' : 'capacite non definie') + '</div></div>'
+      + '<div class="kpi"><div class="k-label">Planifie \u00b7 ' + agg.label + '</div><div class="k-val">' + (tauxP === null ? agg.planifie + ' j' : tauxP + '%') + '</div><div class="k-sub">' + agg.planifie + ' j planifies</div></div>'
+      + '<div class="kpi"><div class="k-label">Realise \u00b7 ' + agg.label + '</div><div class="k-val">' + agg.realise + ' <small>j</small></div><div class="k-sub">' + agg.planifie + ' j planifies</div></div>'
+      + '<div class="kpi"><div class="k-label">Capacite \u00b7 ' + agg.label + '</div><div class="k-val">' + (cap ? cap + ' j' : '\u2014') + '</div><div class="k-sub">' + capSub + '</div></div>';
+  }
+  async function pdcLoadPeriodAgg(mode){
+    var TGT = pdcTarget();
+    var fyYear = (PDC.weekStart || new Date()).getFullYear();
+    PDC.periodAgg = { mode: mode, tgt: TGT, fyYear: fyYear, loading: true };
+    var start, end, label, months = [];
+    if(mode === 'exercice'){
+      start = new Date(fyYear, 0, 1); end = new Date(fyYear, 11, 31);
+      label = 'Exercice ' + fyYear;
+      for(var mo = 1; mo <= 12; mo++) months.push(fyYear + '|' + mo);
+    } else {
+      var now = new Date(); var sy = now.getFullYear(), sm = now.getMonth();
+      start = new Date(sy, sm, 1); end = new Date(sy, sm + 12, 0);
+      label = '12 mois : ' + pdcMoisAn(start) + ' \u2192 ' + pdcMoisAn(new Date(sy, sm + 11, 1));
+      for(var k = 0; k < 12; k++){ var d = new Date(sy, sm + k, 1); months.push(d.getFullYear() + '|' + (d.getMonth() + 1)); }
+    }
+    try {
+      var r = await Promise.all([
+        SB.from('pdc_charge').select('etat,jours,date_jour').eq('email', TGT).gte('date_jour', pdcISO(start)).lte('date_jour', pdcISO(end)),
+        SB.from('pdc_capacite').select('annee,mois,jours_dispo').eq('email', TGT)
+      ]);
+      var planifie = 0, realise = 0, revise = 0;
+      (r[0].data || []).forEach(function(x){ var v = x.jours || 0; if(x.etat === 'planifie') planifie += v; else if(x.etat === 'realise') realise += v; else if(x.etat === 'revise') revise += v; });
+      var mset = {}; months.forEach(function(kk){ mset[kk] = true; });
+      var cap = 0, capMonths = 0;
+      (r[1].data || []).forEach(function(x){ var key = x.annee + '|' + x.mois; if(mset[key]){ cap += (x.jours_dispo || 0); capMonths++; } });
+      PDC.periodAgg = { mode: mode, tgt: TGT, fyYear: fyYear, label: label, planifie: planifie, realise: realise, revise: revise, cap: cap, capMonths: capMonths, monthsN: months.length, loading: false };
+    } catch(e){
+      PDC.periodAgg = { mode: mode, tgt: TGT, fyYear: fyYear, label: label, planifie: 0, realise: 0, revise: 0, cap: 0, capMonths: 0, monthsN: months.length, loading: false, err: (e && e.message) || 'erreur' };
+    }
+    renderPdcGrid();
+  }
+  window.pdcSetKpiPeriod = function(mode){ PDC.kpiPeriod = mode; renderPdcGrid(); };
+  if(typeof renderPdcGrid === 'function'){
+    var _pdcOrigGrid = renderPdcGrid;
+    renderPdcGrid = function(){
+      _pdcOrigGrid();
+      var zone = document.getElementById('pdcZone');
+      if(!zone) return;
+      var kpis = zone.querySelector('.kpis');
+      if(!kpis) return;
+      if(!PDC.kpiPeriod) PDC.kpiPeriod = 'mois';
+      var fyY = (PDC.weekStart || new Date()).getFullYear();
+      var segWrap = document.createElement('div');
+      segWrap.style.cssText = 'display:flex;align-items:center;gap:10px;margin:0 0 10px;flex-wrap:wrap;';
+      segWrap.innerHTML = '<span class="edit-hint">Periode des indicateurs :</span><div class="seg">'
+        + [['mois','Mois'],['exercice','Exercice ' + fyY],['glissant','12 mois glissants']].map(function(p){
+            return '<button class="' + (PDC.kpiPeriod === p[0] ? 'on' : '') + '" onclick="pdcSetKpiPeriod(\'' + p[0] + '\')">' + p[1] + '</button>';
+          }).join('') + '</div>';
+      kpis.parentNode.insertBefore(segWrap, kpis);
+      if(PDC.kpiPeriod !== 'mois'){
+        var agg = PDC.periodAgg, tgt = pdcTarget();
+        var fresh = agg && !agg.loading && agg.mode === PDC.kpiPeriod && agg.tgt === tgt
+                    && (PDC.kpiPeriod !== 'exercice' || agg.fyYear === fyY);
+        if(fresh){
+          kpis.innerHTML = pdcPeriodKpiHtml(agg);
+        } else {
+          kpis.innerHTML = '<div class="kpi neutre" style="grid-column:1 / -1;"><div class="k-label">' + (PDC.kpiPeriod === 'exercice' ? ('Exercice ' + fyY) : '12 mois glissants') + '</div><div class="k-val" style="font-size:16px;">Calcul en cours\u2026</div></div>';
+          if(!(agg && agg.loading)) pdcLoadPeriodAgg(PDC.kpiPeriod);
+        }
+      }
+    };
+  }
 })();
 </script>
 </body>
