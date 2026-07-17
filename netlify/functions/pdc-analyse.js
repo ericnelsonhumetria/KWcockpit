@@ -28,20 +28,35 @@ async function requireAuth(authHeader) {
   return { ok: true, email: data.user.email };
 }
 
-function systemPrompt() {
+function systemPrompt(anchorYear) {
   return `Tu es un assistant d'extraction de planning pour un cabinet de conseil (Kaizen Way). On te fournit le planning d'UN SEUL consultant (sous forme de texte, CSV, tableur converti, image ou PDF) et la liste de ses missions et activités. Ta seule tâche : en extraire, ligne par ligne, les jours de charge, et les rattacher aux codes de mission fournis.
 
-RÈGLES ABSOLUES :
-- Chaque entrée = une charge sur UNE mission, à UNE date précise. Date au format ISO strict AAAA-MM-JJ. N'invente jamais une date : si une case n'a pas de date exploitable, ignore-la.
-- "jours" vaut 1 (journée pleine) ou 0,5 (demi-journée). Convertis toute autre notation : une croix / "X" / "1" / journée = 1 ; "½", "0,5", "AM", "PM", "matin", "après-midi" = 0,5. Ignore les cases vides, "0", congés, week-ends sans charge.
-- "mission_code" DOIT être exactement l'un des codes de la liste fournie. Le planning peut nommer la mission par son intitulé ou son client : rattache-le au bon code. Si aucune correspondance fiable n'existe, OMETS la ligne (ne devine pas un code).
-- "activite" = un code d'activité de la liste si le planning le précise, sinon null.
-- "etat" = "planifie" par défaut (un planning importé est prévisionnel), sauf mention explicite de temps déjà réalisé -> "realise".
-- N'invente aucune charge. Extrais uniquement ce qui figure réellement dans le document.
-- Limite-toi à 200 entrées maximum ; concentre-toi sur les données réelles.
+ANNÉE DE RÉFÉRENCE : ${anchorYear}. Le planning couvre l'année ${anchorYear} et éventuellement l'année suivante (${anchorYear + 1}). C'est une information capitale :
+- Si une date ne précise PAS son année (ex. "lun 13", "13/07", "S28", "juillet", "semaine 3"), tu DOIS l'interpréter dans l'année ${anchorYear}, ou ${anchorYear + 1} si le contexte du planning (mois qui repartent de janvier après décembre) l'impose clairement.
+- Tu n'as ABSOLUMENT PAS le droit de produire une date antérieure à ${anchorYear}-01-01. Toute date que tu déduis est forcément >= ${anchorYear}. N'utilise jamais une année tirée de tes connaissances (${anchorYear - 1}, ${anchorYear - 2}, etc.) : elle serait fausse.
+- Une année n'est reprise du document QUE si elle y est écrite noir sur blanc. Sinon, applique la règle ci-dessus.
 
-Réponds UNIQUEMENT en JSON valide, sans texte ni Markdown autour, structure EXACTE :
-{"entries":[{"date":"AAAA-MM-JJ","mission_code":"code exact","activite":null,"etat":"planifie","jours":1}]}
+FORMAT FRÉQUENT — MATRICE HEBDOMADAIRE (à reconnaître absolument) :
+Beaucoup de plannings ne sont PAS des listes ligne par ligne mais une GRILLE. Repère cette structure :
+- Les COLONNES sont des semaines : une ligne d'en-tête donne les numéros de semaine (ex. "S19", "S20"... qui peuvent dépasser 52 puis repartir à "S1"), une AUTRE ligne d'en-tête donne la date du lundi de chaque semaine (ex. "04/05", "11/05"...).
+- Les LIGNES sont regroupées par BLOC. Chaque bloc correspond à un lot / une mission (souvent identifié par une colonne "N° lot" ou un intitulé comme "CE Valence", "L04"...). Sous chaque bloc, il y a jusqu'à 5 lignes de jour : "Lun", "Mar", "Mer", "Jeu", "Ven".
+- Une CELLULE non vide à l'intersection (ligne = un jour de la semaine ; colonne = une semaine) signifie UNE JOURNÉE de présence sur la mission de ce bloc. Son contenu (codes comme "1,2", "J1", "13"...) décrit l'activité mais ne change pas le fait que c'est 1 jour.
+Pour CHAQUE cellule non vide d'une ligne Lun/Mar/Mer/Jeu/Ven, produis une entrée :
+- date = (date du lundi de la colonne) + décalage du jour (Lun=+0, Mar=+1, Mer=+2, Jeu=+3, Ven=+4), au format AAAA-MM-JJ en appliquant la règle d'année ci-dessus (les colonnes couvrent souvent deux années à la suite).
+- mission_code = le code du bloc auquel appartient la ligne.
+- jours = 1 (une cellule = une journée pleine, sauf indication explicite de demi-journée -> 0,5).
+Ne saute AUCUN bloc, y compris ceux qui semblent repliés/masqués : traite TOUTES les lignes Lun-Ven de TOUS les blocs. Un planning de ce type contient couramment plus de 100 cellules : ne t'arrête pas trop tôt.
+
+RÈGLES ABSOLUES :
+- Date au format ISO strict AAAA-MM-JJ, année >= ${anchorYear}. Si une case n'a aucune date exploitable, ignore-la — jamais d'année du passé.
+- Une croix / "X" / un code quelconque / une journée = 1 ; "½", "0,5", "AM", "PM", "matin", "après-midi" = 0,5. Ignore les cases vides, "0", congés, week-ends.
+- Le code mission DOIT être exactement l'un des codes de la liste fournie. Le planning peut nommer la mission par son intitulé, son client, son lot ou son n° de lot : rattache-le au bon code. Si aucune correspondance fiable, OMETS la ligne.
+- N'invente aucune charge. Extrais uniquement ce qui figure réellement dans le document.
+
+FORMAT DE SORTIE — COMPACT ET OBLIGATOIRE (pour tenir toutes les entrées) :
+Réponds UNIQUEMENT en JSON valide, sans texte ni Markdown. Chaque entrée est un TABLEAU positionnel [date, code_mission, jours] :
+{"entries":[["AAAA-MM-JJ","code",1],["AAAA-MM-JJ","code",0.5]]}
+N'utilise PAS d'objets à clés (pas de {"date":...}). N'ajoute ni activité ni état : ils seront déduits côté serveur. Ce format compact est impératif pour ne pas tronquer ta réponse.
 Si le document ne contient aucune charge exploitable, renvoie {"entries":[]}.`;
 }
 
@@ -125,6 +140,11 @@ exports.handler = async (event) => {
 
   const consigne = `MISSIONS de ce consultant (rattache chaque charge à l'un de ces codes) :\n${refMissions}\n\nACTIVITÉS disponibles :\n${refActivites}\n\nExtrais maintenant les jours de charge du planning ci-dessous.`;
 
+  // Année d'ancrage : envoyée par le front (année de la semaine affichée),
+  // sinon année courante. Empêche le modèle d'inventer des dates passées.
+  let anchorYear = parseInt(body.anchorYear, 10);
+  if (!anchorYear || anchorYear < 2000 || anchorYear > 2100) anchorYear = new Date().getFullYear();
+
   // Contenu utilisateur : texte, ou document/image en base64.
   const content = [];
   if (hasFile) {
@@ -141,8 +161,8 @@ exports.handler = async (event) => {
 
   const payload = {
     model: process.env.PDC_ANALYSE_MODEL || 'claude-haiku-4-5-20251001',
-    max_tokens: 4000,
-    system: systemPrompt(),
+    max_tokens: 8192,
+    system: systemPrompt(anchorYear),
     messages: [{ role: 'user', content }],
   };
 
@@ -173,6 +193,23 @@ exports.handler = async (event) => {
     try { entries = parseEntries(txt); }
     catch (e) { return { statusCode: 200, headers, body: JSON.stringify({ parse_ok: false }) }; }
     if (!Array.isArray(entries)) entries = [];
+    // Normalise le format compact [date, code, jours] -> objet attendu par le front.
+    // Tolère aussi l'ancien format objet, au cas où le modèle en renvoie.
+    entries = entries.map(function (e) {
+      if (Array.isArray(e)) {
+        return { date: e[0], mission_code: e[1], activite: null, etat: 'planifie', jours: (e[2] === 0.5 || e[2] === '0.5') ? 0.5 : 1 };
+      }
+      if (e && typeof e === 'object') {
+        return { date: e.date, mission_code: e.mission_code, activite: e.activite || null, etat: e.etat === 'realise' ? 'realise' : 'planifie', jours: (e.jours === 0.5 || e.jours === '0.5') ? 0.5 : 1 };
+      }
+      return null;
+    }).filter(Boolean);
+    // Garde-fou serveur : on écarte toute date antérieure à l'année d'ancrage
+    // (le modèle ne doit jamais produire une année passée devinée).
+    entries = entries.filter(function (e) {
+      const d = String(e && e.date || '');
+      return /^\d{4}-\d{2}-\d{2}$/.test(d) && parseInt(d.slice(0, 4), 10) >= anchorYear;
+    });
     return { statusCode: 200, headers, body: JSON.stringify({ entries, parse_ok: true }) };
   } catch (e) {
     clearTimeout(tid);
