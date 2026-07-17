@@ -6462,60 +6462,158 @@ function kwLifecycleSyncBtn(){
     };
   }
 
-  // --- import IA : comparaison a l'existant de la cible ---
+  // --- import IA : total identifie + rattachement manuel des lots + ecriture cible ---
+  function pdcFmtJ(j){ return (j % 1 === 0) ? String(j) : j.toFixed(1); }
+  function pdcEsc(s){ return String(s==null?'':s).replace(/"/g,'&quot;'); }
+
   if(typeof pdcBuildReview === 'function'){
     pdcBuildReview = async function(entries){
       var TGT = pdcTarget();
       var codes = new Set(PDC.affectations.map(function(m){ return m.mission_code; }));
       var actCodes = new Set(PDC.activites.map(function(a){ return a.code; }));
-      var valid = [], unmatched = [];
+      var matched = [], groupsMap = {}, totalJours = 0, totalLignes = 0;
       entries.forEach(function(e){
         var date = String(e.date || '').slice(0, 10);
         var j = pdcNormJours(e.jours);
+        if(!/^\d{4}-\d{2}-\d{2}$/.test(date) || j <= 0) return;
         var etat = ['planifie','realise','revise'].indexOf(e.etat) >= 0 ? e.etat : 'planifie';
         var act = actCodes.has(e.activite) ? e.activite : null;
-        if(!/^\d{4}-\d{2}-\d{2}$/.test(date) || j <= 0) return;
-        if(!codes.has(e.mission_code)){ unmatched.push(e); return; }
-        valid.push({ date: date, mission_code: e.mission_code, activite: act, etat: etat, jours: j });
+        totalJours += j; totalLignes++;
+        if(codes.has(e.mission_code)){
+          matched.push({ date:date, mission_code:e.mission_code, activite:act, etat:etat, jours:j });
+        } else {
+          var k = e.mission_code || '(sans code)';
+          (groupsMap[k] = groupsMap[k] || []).push({ date:date, activite:act, etat:etat, jours:j });
+        }
       });
-      if(!valid.length){
-        pdcOpenModal('<div style="padding:22px 20px;">Aucune ligne exploitable extraite du planning.' + (unmatched.length ? ' (' + unmatched.length + ' ligne(s) non rattachable(s) aux missions de ce consultant)' : '') + '<div style="margin-top:14px;text-align:right;"><button class="per-btn" onclick="pdcCloseImport()">Fermer</button></div></div>');
+      if(totalLignes === 0){
+        pdcOpenModal('<div style="padding:22px 20px;">Aucune ligne datee exploitable extraite du planning.<div style="margin-top:14px;text-align:right;"><button class="per-btn" onclick="pdcCloseImport()">Fermer</button></div></div>');
         return;
       }
-      var dates = valid.map(function(v){ return v.date; }).sort();
       var existing = {};
-      try {
-        var q = await SB.from('pdc_charge').select('mission_code,date_jour,etat,jours,activite').eq('email', TGT).gte('date_jour', dates[0]).lte('date_jour', dates[dates.length - 1]);
-        (q.data || []).forEach(function(r){ existing[r.mission_code + '|' + r.date_jour + '|' + r.etat] = { jours: r.jours, activite: r.activite }; });
-      } catch(e){}
+      if(matched.length){
+        var mdates = matched.map(function(v){ return v.date; }).sort();
+        try {
+          var q = await SB.from('pdc_charge').select('mission_code,date_jour,etat,jours,activite').eq('email', TGT).gte('date_jour', mdates[0]).lte('date_jour', mdates[mdates.length - 1]);
+          (q.data || []).forEach(function(r){ existing[r.mission_code + '|' + r.date_jour + '|' + r.etat] = { jours:r.jours, activite:r.activite }; });
+        } catch(e){}
+      }
       var newE = [], conf = [], sameN = 0;
-      valid.forEach(function(v){
+      matched.forEach(function(v){
         var ex = existing[v.mission_code + '|' + v.date + '|' + v.etat];
         if(!ex) newE.push(v);
         else if(ex.jours === v.jours && (ex.activite || null) === (v.activite || null)) sameN++;
-        else conf.push({ date:v.date, mission_code:v.mission_code, activite:v.activite, etat:v.etat, jours:v.jours, ex: ex });
+        else conf.push({ date:v.date, mission_code:v.mission_code, activite:v.activite, etat:v.etat, jours:v.jours, ex:ex });
       });
-      PDC._imp = { newE: newE, conf: conf };
-      pdcRenderReview(newE, conf, sameN, unmatched.length);
+      var groups = Object.keys(groupsMap).map(function(k){
+        var rowsG = groupsMap[k];
+        var jg = rowsG.reduce(function(s,x){ return s + x.jours; }, 0);
+        return { code:k, rows:rowsG, jours:jg };
+      });
+      PDC._imp = { newE:newE, conf:conf, groups:groups };
+      pdcRenderReview({ newE:newE, conf:conf, sameN:sameN, groups:groups, totalJours:totalJours, totalLignes:totalLignes });
     };
   }
 
-  // --- import IA : ecriture au nom de la cible ---
+  // rendu enrichi : bandeau "jours identifies" + rattachement manuel des lots non reconnus
+  pdcRenderReview = function(ctx){
+    var newE = ctx.newE, conf = ctx.conf, groups = ctx.groups;
+    var matchedJ = newE.reduce(function(s,v){ return s + v.jours; }, 0) + conf.reduce(function(s,v){ return s + v.jours; }, 0);
+    var groupJ = groups.reduce(function(s,g){ return s + g.jours; }, 0);
+    var defCode = PDC.affectations.length === 1 ? PDC.affectations[0].mission_code : '';
+    function missOptions(){
+      return '<option value="">(ignorer ce lot)</option>' + PDC.affectations.map(function(m){
+        var s = m.mission_code === defCode ? ' selected' : '';
+        return '<option value="' + pdcEsc(m.mission_code) + '"' + s + '>' + pdcEsc(m.intitule || m.mission_code) + (m.client ? (' (' + pdcEsc(m.client) + ')') : '') + '</option>';
+      }).join('');
+    }
+    var groupRows = groups.map(function(g,i){
+      return '<tr>' +
+        '<td><b>' + pdcEsc(g.code) + '</b><br><span class="sub-cell">' + g.rows.length + ' ligne(s)</span></td>' +
+        '<td style="text-align:center;font-weight:700;">' + pdcFmtJ(g.jours) + ' j</td>' +
+        '<td><select id="grp_' + i + '" style="min-width:200px;padding:6px 8px;border:1px solid var(--line,#ccc);border-radius:6px;background:#fff;">' + missOptions() + '</select></td>' +
+      '</tr>';
+    }).join('');
+    var addRows = newE.map(function(v,i){
+      return '<tr>' +
+        '<td style="text-align:center;"><input type="checkbox" id="add_' + i + '" checked></td>' +
+        '<td>' + v.date + '</td>' +
+        '<td>' + pdcMissName(v.mission_code) + '<br><span class="sub-cell">' + v.mission_code + '</span></td>' +
+        '<td>' + PDC_ETAT_LABEL[v.etat] + '</td>' +
+        '<td>' + pdcActLabel(v.activite) + '</td>' +
+        '<td style="text-align:center;font-weight:700;">' + pdcJfmt(v.jours) + ' j</td>' +
+      '</tr>';
+    }).join('');
+    var confRows = conf.map(function(c,i){
+      return '<tr>' +
+        '<td>' + c.date + '</td>' +
+        '<td>' + pdcMissName(c.mission_code) + '<br><span class="sub-cell">' + c.mission_code + ' &middot; ' + PDC_ETAT_LABEL[c.etat] + '</span></td>' +
+        '<td style="text-align:center;">' + pdcJfmt(c.ex.jours) + ' j<br><span class="sub-cell">' + pdcActLabel(c.ex.activite) + '</span></td>' +
+        '<td style="text-align:center;">' + pdcJfmt(c.jours) + ' j<br><span class="sub-cell">' + pdcActLabel(c.activite) + '</span></td>' +
+        '<td style="white-space:nowrap;"><label style="display:block;font-size:12px;"><input type="radio" name="cf_' + i + '" value="ex" checked> garder l\'existant</label><label style="display:block;font-size:12px;"><input type="radio" name="cf_' + i + '" value="ia"> remplacer par l\'IA</label></td>' +
+      '</tr>';
+    }).join('');
+    var html = '' +
+      '<div style="padding:18px 20px;max-height:84vh;overflow-y:auto;">' +
+        '<div class="sec-title" style="margin:0 0 10px;">Import du planning &mdash; arbitrage</div>' +
+        '<div class="panel" style="padding:12px 14px;margin:0 0 16px;background:#fbf5e0;border:1px solid #efb810;">' +
+          '<div style="font-size:22px;font-weight:800;line-height:1.2;">' + pdcFmtJ(ctx.totalJours) + ' jours identifies par l\'IA</div>' +
+          '<div class="sub-cell" style="margin-top:3px;">sur ' + ctx.totalLignes + ' ligne(s) du planning &middot; ' + pdcFmtJ(matchedJ) + ' j rattaches automatiquement' + (groupJ > 0 ? (' &middot; ' + pdcFmtJ(groupJ) + ' j a rattacher ci-dessous') : '') + (ctx.sameN ? (' &middot; ' + ctx.sameN + ' deja a jour') : '') + '</div>' +
+        '</div>' +
+        (groups.length ? (
+          '<div class="sec-eyebrow">Lots a rattacher a une mission</div>' +
+          '<div class="sec-note">L\'IA a regroupe ces lignes mais n\'a pas pu les relier seule a une mission du Cockpit. Choisissez la mission de destination (ou laissez sur ignorer).</div>' +
+          '<div class="panel" style="padding:6px 10px;margin:6px 0 16px;overflow-x:auto;"><table>' +
+            '<thead><tr><th>Repere planning</th><th style="text-align:center;">Jours</th><th>Mission de destination</th></tr></thead>' +
+            '<tbody>' + groupRows + '</tbody></table></div>'
+        ) : '') +
+        (conf.length ? (
+          '<div class="sec-eyebrow">Conflits</div>' +
+          '<div class="sec-note">Une valeur existe deja pour ces cases. Choisissez, ligne par ligne, ce qui doit etre retenu.</div>' +
+          '<div class="panel" style="padding:6px 10px;margin:6px 0 16px;overflow-x:auto;"><table>' +
+            '<thead><tr><th>Date</th><th>Mission</th><th style="text-align:center;">Existant</th><th style="text-align:center;">IA</th><th>Decision</th></tr></thead>' +
+            '<tbody>' + confRows + '</tbody></table></div>'
+        ) : '') +
+        (newE.length ? (
+          '<div class="sec-eyebrow">A ajouter (rattachees automatiquement)</div>' +
+          '<div class="sec-note">Decochez les lignes que vous ne souhaitez pas enregistrer.</div>' +
+          '<div class="panel" style="padding:6px 10px;margin:6px 0 16px;overflow-x:auto;"><table>' +
+            '<thead><tr><th></th><th>Date</th><th>Mission</th><th>Etat</th><th>Activite</th><th style="text-align:center;">Jours</th></tr></thead>' +
+            '<tbody>' + addRows + '</tbody></table></div>'
+        ) : '') +
+        '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:6px;">' +
+          '<button class="per-btn" onclick="pdcCloseImport()">Annuler</button>' +
+          '<button class="add-btn" onclick="pdcApplyImport()">Appliquer</button>' +
+        '</div>' +
+      '</div>';
+    pdcOpenModal(html);
+  };
+
   if(typeof pdcApplyImport === 'function'){
     pdcApplyImport = async function(){
       var TGT = pdcTarget();
-      var imp = PDC._imp || { newE: [], conf: [] };
+      var imp = PDC._imp || { newE:[], conf:[], groups:[] };
       var rows = [];
-      imp.newE.forEach(function(v, i){ var c = document.getElementById('add_' + i); if(c && c.checked) rows.push(v); });
-      imp.conf.forEach(function(c, i){ var sel = document.querySelector('input[name="cf_' + i + '"]:checked'); if(sel && sel.value === 'ia') rows.push({ date:c.date, mission_code:c.mission_code, activite:c.activite, etat:c.etat, jours:c.jours }); });
+      imp.newE.forEach(function(v,i){ var c = document.getElementById('add_' + i); if(c && c.checked) rows.push(v); });
+      imp.conf.forEach(function(c,i){ var sel = document.querySelector('input[name="cf_' + i + '"]:checked'); if(sel && sel.value === 'ia') rows.push({ date:c.date, mission_code:c.mission_code, activite:c.activite, etat:c.etat, jours:c.jours }); });
+      (imp.groups || []).forEach(function(g,i){
+        var sel = document.getElementById('grp_' + i);
+        var mc = sel ? sel.value : '';
+        if(mc){ g.rows.forEach(function(v){ rows.push({ date:v.date, mission_code:mc, activite:v.activite, etat:v.etat, jours:v.jours }); }); }
+      });
       if(!rows.length){ pdcCloseImport(); flashSync('rien a appliquer'); return; }
       var now = new Date().toISOString();
-      var payload = rows.map(function(v){ return { email: TGT, mission_code: v.mission_code, date_jour: v.date, etat: v.etat, jours: v.jours, activite: v.activite, saisi_par: CURRENT_EMAIL, updated_at: now }; });
+      // dedup par cle onConflict : Postgres rejette 2 lignes de meme cle dans un upsert
+      var seen = {};
+      rows.forEach(function(v){ seen[TGT + '|' + v.date + '|' + v.mission_code + '|' + v.etat] = v; });
+      var deduped = Object.keys(seen).map(function(k){ return seen[k]; });
+      var totJ = deduped.reduce(function(s,v){ return s + (v.jours || 0); }, 0);
+      var payload = deduped.map(function(v){ return { email:TGT, mission_code:v.mission_code, date_jour:v.date, etat:v.etat, jours:v.jours, activite:v.activite, saisi_par:CURRENT_EMAIL, updated_at:now }; });
       try {
-        var res = await SB.from('pdc_charge').upsert(payload, { onConflict: 'email,date_jour,mission_code,etat' });
+        var res = await SB.from('pdc_charge').upsert(payload, { onConflict:'email,date_jour,mission_code,etat' });
         if(res.error) throw res.error;
         pdcCloseImport();
-        flashSync('\u2713 ' + rows.length + ' ligne(s) importee(s)' + (TGT !== CURRENT_EMAIL ? ' (' + pdcNm(TGT) + ')' : ''));
+        flashSync('\u2713 ' + deduped.length + ' ligne(s) \u00b7 ' + pdcFmtJ(totJ) + ' j importe(s)' + (TGT !== CURRENT_EMAIL ? (' (' + pdcNm(TGT) + ')') : ''));
         loadPdc();
       } catch(e){ flashSync('\u26a0 ' + ((e && e.message) || 'refus')); }
     };
