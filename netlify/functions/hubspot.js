@@ -134,6 +134,29 @@ exports.handler = async (event) => {
     const nbR2 = idR2 ? deals.filter(d => d.stage === idR2).length : 0;
     const nbProp = idProp ? deals.filter(d => d.stage === idProp).length : 0;
 
+    // R1 PRIS SUR UNE PERIODE (?period=7d|30d|ytd ou ?days=N) : un deal entre dans le
+    // pipeline prospects (createdate) = un R1 pris, quel que soit son stage actuel.
+    const qp = event.queryStringParameters || {};
+    let periodStart = null;
+    if (qp.period === 'ytd') periodStart = new Date(new Date().getFullYear(), 0, 1).getTime();
+    else if (qp.period === '30d') periodStart = now - 30 * 24 * 3600 * 1000;
+    else if (qp.period === '7d') periodStart = now - 7 * 24 * 3600 * 1000;
+    else if (qp.days) { const dd = parseInt(qp.days, 10); if (dd >= 1 && dd <= 400) periodStart = now - dd * 24 * 3600 * 1000; }
+    let r1Periode = null;
+    if (periodStart != null) {
+      r1Periode = deals.filter(d => d.createdate && new Date(d.createdate).getTime() >= periodStart).length;
+    }
+    // R1 par mois (annee civile courante), sur createdate
+    const anneeN = new Date().getFullYear();
+    const r1ParMois = {};
+    deals.forEach(d => {
+      if (!d.createdate) return;
+      const dt = new Date(d.createdate);
+      if (isNaN(dt.getTime()) || dt.getFullYear() !== anneeN) return;
+      const ym = dt.getFullYear() + '-' + ('0' + (dt.getMonth() + 1)).slice(-2);
+      r1ParMois[ym] = (r1ParMois[ym] || 0) + 1;
+    });
+
     return {
       statusCode: 200,
       headers: { ...cors, 'Content-Type': 'application/json' },
@@ -141,6 +164,8 @@ exports.handler = async (event) => {
         stock,                        // { "R1": 11, "Évaluation des besoins": 11, ... }
         flux_r1_7j: fluxR1,           // R1 des 7 derniers jours
         cible_r1_hebdo: 8,
+        r1_periode: r1Periode,        // R1 pris sur la periode demandee (createdate), null si non demandee
+        r1_par_mois: r1ParMois,       // { "2026-01": 3, ... } annee civile courante
         volumes: { r1: nbR1, r2: nbR2, proposition: nbProp },
         // taux indicatifs sur le stock (à interpréter avec prudence, cf. note)
         taux_r1_vers_r2: nbR1 > 0 ? Math.round((nbR2 / nbR1) * 100) : null,
