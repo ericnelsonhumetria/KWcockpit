@@ -69,7 +69,6 @@ async function getDeals(headers, pipelineId, stageDateIds) {
     url.searchParams.set('limit', '100');
     url.searchParams.set('properties', props.join(','));
     url.searchParams.set('associations', 'calls');
-    url.searchParams.set('propertiesWithHistory', 'dealstage');
     if (after) url.searchParams.set('after', after);
     let res;
     try { res = await fetchWithTimeout(url.toString(), { headers }, 9000); }
@@ -83,17 +82,13 @@ async function getDeals(headers, pipelineId, stageDateIds) {
         (stageDateIds || []).forEach(id => { if (id) entered[id] = p['hs_date_entered_' + id] || null; });
         const callIds = (d.associations && d.associations.calls && d.associations.calls.results)
           ? d.associations.calls.results.map(r => String(r.id)) : [];
-        const hist = (d.propertiesWithHistory && d.propertiesWithHistory.dealstage) || [];
-        const everStages = Array.from(new Set(
-          hist.map(h => h.value).concat(p.dealstage ? [p.dealstage] : []).filter(Boolean)
-        ));
         all.push({
+          id: d.id,
           stage: p.dealstage,
           createdate: p.createdate,
           amount: Number(p.amount || 0),
           entered: entered,
           callIds: callIds,
-          everStages: everStages,
         });
       }
     });
@@ -129,6 +124,33 @@ async function getPitchCallIds(headers) {
     pages += 1;
   } while (after && pages < 30 && Date.now() < deadline);
   return ids;
+}
+
+// Historique de stade pour un lot d'ids de deals (batch read), best-effort et DÉCOUPLÉ
+// du chemin critique. Renvoie une Map id -> Set(stades jamais atteints).
+// En cas d'echec : Map vide -> R2/Offre passent à null, R1/pitch restent valides.
+async function getStageHistory(headers, dealIds) {
+  const map = new Map();
+  const deadline = Date.now() + 12000;
+  for (let i = 0; i < dealIds.length && Date.now() < deadline; i += 100) {
+    const chunk = dealIds.slice(i, i + 100);
+    const body = { propertiesWithHistory: ['dealstage'], inputs: chunk.map(id => ({ id })) };
+    let res;
+    try {
+      res = await fetchWithTimeout('https://api.hubapi.com/crm/v3/objects/deals/batch/read',
+        { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, 9000);
+    } catch (e) { break; }
+    if (!res.ok) break;
+    const data = await res.json();
+    (data.results || []).forEach(d => {
+      const hist = (d.propertiesWithHistory && d.propertiesWithHistory.dealstage) || [];
+      const ever = new Set(hist.map(h => h.value).filter(Boolean));
+      const cur = d.properties && d.properties.dealstage;
+      if (cur) ever.add(cur);
+      map.set(String(d.id), ever);
+    });
+  }
+  return map;
 }
 
 exports.handler = async (event) => {
@@ -226,33 +248,37 @@ exports.handler = async (event) => {
       const cohorte = deals.filter(d => inPeriode(d.createdate));
       const cR1 = cohorte.length;
       const cR1Pitch = cohorte.filter(d => d.callIds.some(id => pitchSet.has(id))).length;
-      // R2 / Offre : "a déjà atteint" via historique de stade
-      const cR2 = idR2 ? cohorte.filter(d => d.everStages.includes(idR2)).length : null;
-      const cOffre = idProp ? cohorte.filter(d => d.everStages.includes(idProp)).length : null;
+      // R2 / Offre : "a déjà atteint" via historique de stade (batch read ciblé cohorte, best-effort)
+      const histMap = await getStageHistory(headers, cohorte.map(d => d.id).filter(Boolean));
+      const histOk = histMap.size > 0;
+      const ever = (d) => histMap.get(String(d.id)) || new Set();
+      const cR2 = (idR2 && histOk) ? cohorte.filter(d => ever(d).has(idR2)).length : null;
+      const cOffre = (idProp && histOk) ? cohorte.filter(d => ever(d).has(idProp)).length : null;
       // Diagnostic (retirable une fois validé) :
       const ancienR1ViaEntree = idR1 ? deals.filter(d => inPeriode(d.entered[idR1])).length : null;
       const r2ViaDate = idR2 ? cohorte.filter(d => d.entered[idR2]).length : null;
       const offreViaDate = idProp ? cohorte.filter(d => d.entered[idProp]).length : null;
-      const multiStade = cohorte.filter(d => (d.everStages || []).length > 1).length;
+      const multiStade = cohorte.filter(d => ever(d).size > 1).length;
       entonnoir = {
         periode: qp.period || (qp.days ? (qp.days + 'd') : 'tout'),
         r1: cR1,
         r1_avec_pitch: cR1Pitch,
         r2: cR2,
         offre: cOffre,
-        taux_pitch_r1: cR1 ? Math.round(cR1Pitch / cR1 * 100) : null,       // % des R1 tracés à un pitch loggé
-        taux_r1_r2: cR1 ? Math.round((cR2 || 0) / cR1 * 100) : null,        // cohorte (rigoureux)
-        taux_r2_offre: cR2 ? Math.round((cOffre || 0) / cR2 * 100) : null,  // cohorte (rigoureux)
-        pitch_traceable: pitchSet.size > 0,                                 // false si l'API calls a échoué
+        taux_pitch_r1: cR1 ? Math.round(cR1Pitch / cR1 * 100) : null,                // % des R1 tracés à un pitch loggé
+        taux_r1_r2: (cR1 && cR2 != null) ? Math.round(cR2 / cR1 * 100) : null,        // cohorte (rigoureux)
+        taux_r2_offre: (cR2 && cOffre != null) ? Math.round(cOffre / cR2 * 100) : null, // cohorte (rigoureux)
+        pitch_traceable: pitchSet.size > 0,                                          // false si l'API calls a échoué
         ancre: 'createdate',
-        methode_progression: 'historique_stade',
+        methode_progression: 'historique_stade_batch',
         cible_r1_r2: 33,
         cible_r2_offre: 50,
         _diag: {
+          historique_ok: histOk,                          // false => batch history KO (R1/pitch restent OK)
           r1_ancien_via_entree_stade: ancienR1ViaEntree,  // attendu ~0
           r2_via_date_entree: r2ViaDate,                  // ancienne méthode (attendu 0)
           offre_via_date_entree: offreViaDate,            // ancienne méthode (attendu 0)
-          cohorte_multi_stade: multiStade,                // deals cohorte avec >1 stade en historique => historique exploitable
+          cohorte_multi_stade: multiStade,                // deals cohorte avec >1 stade => historique exploitable
           cohorte_taille: cR1,
         },
       };
