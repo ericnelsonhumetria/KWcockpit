@@ -1482,10 +1482,12 @@ function renderAdmin(users){
     </div>
     <div id="salZone"></div>
     <div id="freelanceTjmZone"></div>
+    <div id="pdcMultiImportZone"></div>
     <div id="consAccessZone"></div>
     <div id="depBaremeZone"></div>`;
   renderSalaries();
   renderFreelanceTjm();
+  if(window.renderPdcMultiImport) window.renderPdcMultiImport();
   renderConsultantAccess();
   renderDepBareme();
 }
@@ -7174,6 +7176,153 @@ function kwLifecycleSyncBtn(){
          && document.getElementById('cockpitSynth')) loadCockpitSynth();
     };
   }
+})();
+
+// === Import planning multi-consultants -> pdc_charge (Admin / direction) ===
+// Additif. Une feuille = un consultant. On lit la ligne "Charge <..>" (jours/semaine),
+// on mappe prénom->email (arbitrage), puis on répartit les jours sur lun-ven et on
+// écrit dans pdc_charge (mission PLANNING, état planifié). La projection freelance
+// (jours planifiés x TJM Admin) et le taux de charge s'en trouvent alimentés.
+(function(){
+  var PARSED = [];   // [{sheet, weeks:[{start, jours}], total, totalYear}]
+  var MAP = {};      // sheet -> email choisi
+  function _num(x){ if(x == null) return 0; var n = Number(String(x).replace(',', '.').replace(/[^\d.\-]/g, '')); return isFinite(n) ? n : 0; }
+  function _guessMap(){
+    var g = {};
+    try {
+      var src = (typeof CONS_DEFAUT !== 'undefined') ? CONS_DEFAUT : '';
+      String(src).split('\n').forEach(function(l){
+        var m = l.match(/[^\s;,<>]+@[^\s;,<>]+/); if(!m) return;
+        var fn = l.trim().split(/\s+/)[0].toLowerCase();
+        if(fn) g[fn] = m[0].toLowerCase();
+      });
+    } catch(e){}
+    return g;
+  }
+  function _dmy(dstr, yr){
+    var m = String(dstr || '').match(/(\d{1,2})[\/-](\d{1,2})/); if(!m) return null;
+    return yr + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[1]).slice(-2);
+  }
+  function _parse(buf){
+    var wb = XLSX.read(new Uint8Array(buf), { type: 'array' });
+    var out = [];
+    wb.SheetNames.forEach(function(sn){
+      var aoa = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: true, defval: null });
+      if(!aoa || !aoa.length) return;
+      var hdr = -1;
+      for(var i = 0; i < Math.min(aoa.length, 20); i++){ if(String((aoa[i] || [])[0] || '').trim().toLowerCase() === 'lot'){ hdr = i; break; } }
+      if(hdr < 0) return;
+      var header = aoa[hdr] || [];
+      var dateRow = null;
+      for(var j = hdr + 1; j < Math.min(aoa.length, hdr + 4); j++){
+        var rr = aoa[j] || [];
+        for(var c = 4; c < rr.length; c++){ if(/^\s*\d{1,2}[\/-]\d{1,2}/.test(String(rr[c] || ''))){ dateRow = rr; break; } }
+        if(dateRow) break;
+      }
+      var chargeRow = null;
+      for(var k = 0; k < aoa.length; k++){ if(String((aoa[k] || [])[0] || '').trim().toLowerCase().indexOf('charge') === 0){ chargeRow = aoa[k]; break; } }
+      if(!chargeRow || !dateRow) return;
+      var colYear = {};
+      for(var c2 = 4; c2 < header.length; c2++){ var sm = String(header[c2] || '').match(/\/(\d{2})\s*$/); colYear[c2] = sm ? (2000 + parseInt(sm[1], 10)) : null; }
+      var ys = Object.keys(colYear).map(function(kk){ return colYear[kk]; }).filter(Boolean);
+      var base = ys.length ? (Math.min.apply(null, ys) - 1) : (new Date().getFullYear());
+      var weeks = [];
+      for(var c3 = 4; c3 < header.length; c3++){
+        var ch = _num(chargeRow[c3]); if(ch <= 0) continue;
+        var iso = _dmy(dateRow[c3], colYear[c3] || base); if(!iso) continue;
+        weeks.push({ start: iso, jours: Math.round(ch) });
+      }
+      if(!weeks.length) return;
+      var total = weeks.reduce(function(s, w){ return s + w.jours; }, 0);
+      var yy = (typeof YEAR !== 'undefined') ? String(YEAR) : String(new Date().getFullYear());
+      var totalYear = weeks.reduce(function(s, w){ return s + (String(w.start).slice(0, 4) === yy ? w.jours : 0); }, 0);
+      out.push({ sheet: sn, weeks: weeks, total: total, totalYear: totalYear });
+    });
+    return out;
+  }
+  function _expand(email, weeks){
+    var rows = [];
+    weeks.forEach(function(w){
+      var d0 = new Date(w.start + 'T00:00:00'); if(isNaN(d0.getTime())) return;
+      var n = Math.max(0, Math.min(5, w.jours));
+      for(var i = 0; i < n; i++){
+        var d = new Date(d0.getTime() + i * 86400000);
+        var iso = d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+        rows.push({ email: email, mission_code: 'PLANNING', date_jour: iso, etat: 'planifie', jours: 1, activite: 'Import planning', saisi_par: (typeof CURRENT_EMAIL !== 'undefined' ? CURRENT_EMAIL : email), updated_at: new Date().toISOString() });
+      }
+    });
+    return rows;
+  }
+  function _emailOptions(sel){
+    var us = (typeof ADMIN_USERS !== 'undefined' && Array.isArray(ADMIN_USERS)) ? ADMIN_USERS.map(function(u){ return u.email; }).filter(Boolean).sort() : [];
+    return '<option value="">— ignorer —</option>' + us.map(function(e){ return '<option value="' + e + '"' + (e === sel ? ' selected' : '') + '>' + e + '</option>'; }).join('');
+  }
+  function _renderPreview(){
+    var z = document.getElementById('pdcMultiResult'); if(!z) return;
+    if(!PARSED.length){ z.innerHTML = '<div class="edit-hint" style="margin-top:8px;">Aucune feuille exploitable (ligne « Charge … » introuvable).</div>'; return; }
+    var yy = (typeof YEAR !== 'undefined') ? YEAR : new Date().getFullYear();
+    var rows = PARSED.map(function(p){
+      return '<tr><td><b>' + p.sheet + '</b></td>'
+        + '<td><select onchange="kwPdcMultiSetMap(\'' + p.sheet.replace(/'/g, '') + '\', this.value)">' + _emailOptions(MAP[p.sheet] || '') + '</select></td>'
+        + '<td style="text-align:right;">' + p.total + ' j</td>'
+        + '<td style="text-align:right;font-weight:700;">' + p.totalYear + ' j</td></tr>';
+    }).join('');
+    var nMap = Object.keys(MAP).filter(function(k){ return MAP[k]; }).length;
+    z.innerHTML = '<table style="margin-top:10px;"><thead><tr><th>Feuille (consultant)</th><th>Compte</th><th style="text-align:right;">Total planifié</th><th style="text-align:right;">dont ' + yy + '</th></tr></thead><tbody>' + rows + '</tbody></table>'
+      + '<div class="edit-bar" style="margin-top:8px;"><button class="add-btn" onclick="kwPdcMultiApply()">Écrire dans le plan de charge (' + nMap + ' mappé·s)</button><span class="edit-hint">Écrit en « planifié » (mission PLANNING). Réimporter remplace le PLANNING précédent de chaque consultant — la saisie manuelle est conservée.</span></div>'
+      + '<div id="pdcMultiApplyMsg"></div>';
+  }
+  window.kwPdcMultiSetMap = function(sheet, email){ MAP[sheet] = email; };
+  window.kwPdcMultiFile = function(input){
+    var f = input && input.files && input.files[0]; if(!f) return;
+    var z = document.getElementById('pdcMultiResult'); if(z) z.innerHTML = '<div class="edit-hint" style="margin-top:8px;">Lecture du classeur…</div>';
+    var rd = new FileReader();
+    rd.onload = function(){
+      try {
+        if(typeof XLSX === 'undefined'){ if(z) z.innerHTML = '<div class="edit-hint" style="color:var(--signal);margin-top:8px;">Lecteur Excel indisponible.</div>'; return; }
+        PARSED = _parse(rd.result);
+        var g = _guessMap(); MAP = {};
+        PARSED.forEach(function(p){ var key = String(p.sheet).trim().toLowerCase(); if(g[key]) MAP[p.sheet] = g[key]; });
+        _renderPreview();
+      } catch(e){ if(z) z.innerHTML = '<div class="edit-hint" style="color:var(--signal);margin-top:8px;">Lecture impossible : ' + ((e && e.message) || e) + '</div>'; }
+    };
+    rd.onerror = function(){ if(z) z.innerHTML = '<div class="edit-hint" style="color:var(--signal);margin-top:8px;">Fichier illisible.</div>'; };
+    rd.readAsArrayBuffer(f);
+  };
+  window.kwPdcMultiApply = async function(){
+    var msg = document.getElementById('pdcMultiApplyMsg');
+    if(typeof SB === 'undefined' || !SB){ if(msg) msg.innerHTML = '<div class="edit-hint" style="color:var(--signal);margin-top:8px;">Base indisponible.</div>'; return; }
+    var todo = PARSED.filter(function(p){ return MAP[p.sheet]; });
+    if(!todo.length){ if(msg) msg.innerHTML = '<div class="edit-hint" style="margin-top:8px;">Associe au moins un consultant à un compte.</div>'; return; }
+    if(msg) msg.innerHTML = '<div class="edit-hint" style="margin-top:8px;">Écriture…</div>';
+    var done = 0, errs = [];
+    for(var i = 0; i < todo.length; i++){
+      var p = todo[i], email = MAP[p.sheet];
+      try {
+        var del = await SB.from('pdc_charge').delete().eq('email', email).eq('mission_code', 'PLANNING').eq('etat', 'planifie');
+        if(del.error) throw del.error;
+        var rows = _expand(email, p.weeks);
+        for(var c = 0; c < rows.length; c += 400){
+          var up = await SB.from('pdc_charge').upsert(rows.slice(c, c + 400), { onConflict: 'email,date_jour,mission_code,etat' });
+          if(up.error) throw up.error;
+        }
+        done++;
+      } catch(e){ errs.push(p.sheet + ' : ' + ((e && e.message) || e)); }
+    }
+    if(msg) msg.innerHTML = '<div class="save-ok" style="display:block;margin-top:8px;">' + done + ' consultant·s écrit·s dans le plan de charge.'
+      + (errs.length ? ' <span style="color:var(--signal);">Erreurs : ' + errs.join(' · ') + '</span>' : '')
+      + ' Les TJM Admin × jours planifiés alimentent maintenant la projection freelance.</div>';
+  };
+  window.renderPdcMultiImport = function(){
+    var z = document.getElementById('pdcMultiImportZone'); if(!z) return;
+    z.innerHTML = '<div class="panel" style="padding:12px 16px 16px;margin-top:16px;">'
+      + '<div class="sec-eyebrow">Plan de charge</div>'
+      + '<div class="sec-title" style="font-size:16px;">Import planning multi-consultants</div>'
+      + '<div class="sec-note">Classeur Excel avec une feuille par consultant (ligne « Charge … » = jours/semaine). Les jours sont écrits en « planifié » pour chaque consultant mappé, et alimentent la projection des charges freelance (× TJM ci-dessus) et le taux de charge.</div>'
+      + '<div class="edit-bar" style="margin-top:8px;"><input type="file" accept=".xlsx,.xls" onchange="kwPdcMultiFile(this)" style="font-size:12px;max-width:260px;"></div>'
+      + '<div id="pdcMultiResult"></div>'
+      + '</div>';
+  };
 })();
 </script>
 </body>
