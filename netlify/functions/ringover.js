@@ -19,19 +19,25 @@
 
 const { createClient } = require('@supabase/supabase-js');
 
-async function requireRole(authHeader, roles) {
+// Garde robuste : l'utilisateur doit etre authentifie. Seuls les consultants (delivery)
+// sont exclus des indicateurs commerciaux. Si la lecture du role echoue, on n'exclut
+// pas un ayant-droit legitime (direction/commerce). Le bandeau n'apparait de toute facon
+// que dans les vues paul/eric (role-gating cote front).
+async function requireNonConsultant(authHeader) {
   if (!authHeader) return { ok: false, code: 401, msg: 'Non authentifié' };
   const token = authHeader.replace('Bearer ', '').trim();
-  const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
+  const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
   const { data, error } = await sb.auth.getUser(token);
-  if (error || !data?.user) return { ok: false, code: 401, msg: 'Token invalide' };
+  if (error || !data || !data.user) return { ok: false, code: 401, msg: 'Token invalide' };
   const email = data.user.email;
-  const { data: ua } = await sb.from('user_access').select('role, is_admin').eq('email', email).maybeSingle();
-  const role = (ua && ua.role) || '';
-  if ((ua && ua.is_admin) || roles.indexOf(role) >= 0) return { ok: true, email: email, role: role };
-  return { ok: false, code: 403, msg: 'Accès réservé (Commerce / Direction)' };
+  let role = '';
+  try {
+    const { data: ua } = await sb.from('user_access').select('role, is_admin').eq('email', email).maybeSingle();
+    role = (ua && ua.role) || '';
+    if (ua && ua.is_admin) return { ok: true, email: email, role: role };
+  } catch (e) { /* lecture role indisponible : on ne bloque pas */ }
+  if (role === 'consultant') return { ok: false, code: 403, msg: 'Indicateurs réservés aux fonctions commerce / direction' };
+  return { ok: true, email: email, role: role };
 }
 
 // tolerance aux variantes de nommage de l'API
@@ -64,7 +70,7 @@ exports.handler = async (event) => {
   const key = process.env.RINGOVER_API_KEY;
   if (!key) return { statusCode: 500, headers, body: JSON.stringify({ error: 'RINGOVER_API_KEY manquante côté serveur' }) };
 
-  const guard = await requireRole(event.headers.authorization || event.headers.Authorization, ['eric', 'direction', 'paul', 'si']);
+  const guard = await requireNonConsultant(event.headers.authorization || event.headers.Authorization);
   if (!guard.ok) return { statusCode: guard.code, headers, body: JSON.stringify({ error: guard.msg }) };
 
   const q = event.queryStringParameters || {};
