@@ -54,6 +54,6 @@
   status = 200
 
 [[redirects]]
-  from = "/api/finance-charges-proj"
-  to = "/.netlify/functions/finance-charges-proj"
+  from = "/api/ringover"
+  to = "/.netlify/functions/ringover"
   status = 200
