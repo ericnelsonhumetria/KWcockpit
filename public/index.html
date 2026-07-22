@@ -6881,7 +6881,7 @@ function kwLifecycleSyncBtn(){
 // Cartes : CA vs objectif · EBITDA · Charge salaries · Vitalite commerciale.
 // Chaque carte est autonome (degradation gracieuse si une source manque).
 (function(){
-  var SYNTH_PERIOD = '30d';   // fenetre de la vitalite commerciale
+  var SYNTH_PERIOD = 'ytd';   // fenetre de la vitalite commerciale (cohorte annuelle)
   var Y = new Date().getFullYear();
 
   function euroC(n){
@@ -7018,20 +7018,35 @@ function kwLifecycleSyncBtn(){
   }
   function arrow(){ return '<div style="display:flex;align-items:center;color:#EFB810;font-size:18px;font-weight:700;padding:0 1px;">&rarr;</div>'; }
   function vitaliteHtml(ring, hub){
-    if(!ring || ring.error){ return '<div class="panel" style="padding:12px 14px;color:var(--signal);">Vitalité indisponible' + (ring && ring.error ? (' : ' + ring.error) : '') + '. <button class="add-btn" onclick="loadVitalite()">↻ Réessayer</button></div>'; }
-    var pitchs = ring.pitchs || 0;
-    var r1 = (hub && hub.r1_periode != null) ? hub.r1_periode : null;
-    var r2 = (hub && hub.volumes) ? (hub.volumes.r2 || 0) : null;
-    var offre = (hub && hub.volumes) ? (hub.volumes.proposition || 0) : null;
-    var tPR1 = (r1 != null && pitchs) ? Math.round(r1 / pitchs * 100) : null;
-    var tR1R2 = (hub && hub.taux_r1_vers_r2 != null) ? hub.taux_r1_vers_r2 : null;
-    var tR2O = (hub && hub.taux_r2_vers_proposition != null) ? hub.taux_r2_vers_proposition : null;
-    return '<div style="display:flex;flex-wrap:wrap;align-items:stretch;gap:6px;margin-top:6px;">'
-      + step('Pitchs', pitchs, null, null, '30 j') + arrow()
+    var ent = (hub && hub.entonnoir) ? hub.entonnoir : null;
+    if((!ring || ring.error) && !ent){ return '<div class="panel" style="padding:12px 14px;color:var(--signal);">Vitalité indisponible' + (ring && ring.error ? (' : ' + ring.error) : '') + '. <button class="add-btn" onclick="loadVitalite()">↻ Réessayer</button></div>'; }
+    var pitchs = (ring && !ring.error) ? (ring.pitchs || 0) : null;
+    var r1, r2, offre, tR1R2, tR2O, coh = false;
+    if(ent){
+      coh = true; r1 = ent.r1; r2 = ent.r2; offre = ent.offre;
+      tR1R2 = ent.taux_r1_r2; tR2O = ent.taux_r2_offre;
+    } else {
+      r1 = (hub && hub.r1_periode != null) ? hub.r1_periode : null;
+      r2 = (hub && hub.volumes) ? (hub.volumes.r2 || 0) : null;
+      offre = (hub && hub.volumes) ? (hub.volumes.proposition || 0) : null;
+      tR1R2 = (hub && hub.taux_r1_vers_r2 != null) ? hub.taux_r1_vers_r2 : null;
+      tR2O = (hub && hub.taux_r2_vers_proposition != null) ? hub.taux_r2_vers_proposition : null;
+    }
+    var tPR1 = (pitchs && r1 != null && pitchs > 0) ? Math.round(r1 / pitchs * 100) : null;
+    var funnel = '<div style="display:flex;flex-wrap:wrap;align-items:stretch;gap:6px;margin-top:6px;">'
+      + step('Pitchs', (pitchs == null ? null : pitchs), null, null, 'YTD') + arrow()
       + step('R1', r1, tPR1, null, '') + arrow()
       + step('R2', r2, tR1R2, 33, '') + arrow()
-      + step('Offre', offre, tR2O, 50, '') + '</div>'
-      + '<div class="edit-hint" style="margin-top:8px;">Pitchs et R1 = flux sur 30 j (RingOver / HubSpot) · R1&rarr;R2 et R2&rarr;Offre = taux de transformation du pipeline (cibles 33 % / 50 %). <button class="add-btn" onclick="loadVitalite()">↻ Actualiser</button></div>';
+      + step('Offre', offre, tR2O, 50, '') + '</div>';
+    var note;
+    if(coh){
+      var trace = (ent.taux_pitch_r1 != null) ? (ent.taux_pitch_r1 + '% des R1 tracés à un appel &ge; 90 s') : 'traçabilité pitch indisponible';
+      var warn = (ent.pitch_traceable === false) ? ' <span style="color:var(--signal);">(appels non tracés — vérifier l\u2019association appel↔deal)</span>' : '';
+      note = 'Cohorte : deals entrés en R1 depuis le 1er janvier, suivis par dates d\u2019entrée de stade — R1&rarr;R2 et R2&rarr;Offre sont les taux réels de la cohorte (cibles 33 % / 50 %). ' + trace + warn + '. Pitchs = appels &ge; 1 min 30 (RingOver).';
+    } else {
+      note = 'Pitchs et R1 = flux (RingOver / HubSpot) · R1&rarr;R2 et R2&rarr;Offre = taux du pipeline (cibles 33 % / 50 %). Entonnoir de cohorte indisponible : déployer hubspot.js.';
+    }
+    return funnel + '<div class="edit-hint" style="margin-top:8px;">' + note + ' <button class="add-btn" onclick="loadVitalite()">↻ Actualiser</button></div>';
   }
   async function loadVitalite(){
     var z = document.getElementById('csVitalite'); if(!z) return;
@@ -7059,7 +7074,7 @@ function kwLifecycleSyncBtn(){
       +     '<div id="csCharge" style="flex:1 1 200px;min-width:180px;"></div>'
       +   '</div>'
       +   '<div style="margin-top:16px;">'
-      +     '<div class="sec-eyebrow">Vitalité commerciale <span class="edit-hint" style="text-transform:none;letter-spacing:0;">· 30 derniers jours</span></div>'
+      +     '<div class="sec-eyebrow">Vitalité commerciale <span class="edit-hint" style="text-transform:none;letter-spacing:0;">· cohorte depuis le 1er janvier</span></div>'
       +     '<div id="csVitalite"><div class="edit-hint">Chargement…</div></div>'
       +   '</div>'
       + '</div></div>';
