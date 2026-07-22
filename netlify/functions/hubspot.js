@@ -201,13 +201,15 @@ exports.handler = async (event) => {
     }
     // R1 par mois (annee civile courante), sur createdate
     const anneeN = new Date().getFullYear();
-    const r1ParMois = {};
+    const r1ParMois = {}, r2ParMois = {}, offreParMois = {};
     deals.forEach(d => {
       if (!d.createdate) return;
       const dt = new Date(d.createdate);
       if (isNaN(dt.getTime()) || dt.getFullYear() !== anneeN) return;
       const ym = dt.getFullYear() + '-' + ('0' + (dt.getMonth() + 1)).slice(-2);
       r1ParMois[ym] = (r1ParMois[ym] || 0) + 1;
+      if (depuisR2.length && depuisR2.includes(d.stage)) r2ParMois[ym] = (r2ParMois[ym] || 0) + 1;
+      if (depuisOffre.length && depuisOffre.includes(d.stage)) offreParMois[ym] = (offreParMois[ym] || 0) + 1;
     });
 
     // ENTONNOIR DE COHORTE (non faussée) :
@@ -265,6 +267,8 @@ exports.handler = async (event) => {
         cible_r1_hebdo: 8,
         r1_periode: r1Periode,        // R1 pris sur la periode demandee (createdate), null si non demandee
         r1_par_mois: r1ParMois,       // { "2026-01": 3, ... } annee civile courante
+        r2_par_mois: r2ParMois,       // R2 (stade courant, atteint) par mois de création
+        offre_par_mois: offreParMois, // Offre (stade courant, atteint) par mois de création
         entonnoir: entonnoir,         // cohorte R1->R2->Offre (dates d'entree) + tracabilite pitch
         volumes: { r1: nbR1, r2: nbR2, proposition: nbProp },
         // taux indicatifs sur le stock (à interpréter avec prudence, cf. note)
