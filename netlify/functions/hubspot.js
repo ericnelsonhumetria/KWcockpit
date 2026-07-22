@@ -131,16 +131,22 @@ async function getPitchCallIds(headers) {
 // En cas d'echec : Map vide -> R2/Offre passent à null, R1/pitch restent valides.
 async function getStageHistory(headers, dealIds) {
   const map = new Map();
+  let err = null;
   const deadline = Date.now() + 12000;
   for (let i = 0; i < dealIds.length && Date.now() < deadline; i += 100) {
     const chunk = dealIds.slice(i, i + 100);
-    const body = { propertiesWithHistory: ['dealstage'], inputs: chunk.map(id => ({ id })) };
+    const body = { properties: ['dealstage'], propertiesWithHistory: ['dealstage'], inputs: chunk.map(id => ({ id: String(id) })) };
     let res;
     try {
       res = await fetchWithTimeout('https://api.hubapi.com/crm/v3/objects/deals/batch/read',
         { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, 9000);
-    } catch (e) { break; }
-    if (!res.ok) break;
+    } catch (e) { err = 'fetch:' + String(e.message || e); break; }
+    if (!res.ok) {
+      let t = '';
+      try { t = (await res.text()).slice(0, 200); } catch (_) {}
+      err = 'http ' + res.status + ':' + t;
+      break;
+    }
     const data = await res.json();
     (data.results || []).forEach(d => {
       const hist = (d.propertiesWithHistory && d.propertiesWithHistory.dealstage) || [];
@@ -150,7 +156,7 @@ async function getStageHistory(headers, dealIds) {
       map.set(String(d.id), ever);
     });
   }
-  return map;
+  return { map, err };
 }
 
 exports.handler = async (event) => {
@@ -249,7 +255,8 @@ exports.handler = async (event) => {
       const cR1 = cohorte.length;
       const cR1Pitch = cohorte.filter(d => d.callIds.some(id => pitchSet.has(id))).length;
       // R2 / Offre : "a déjà atteint" via historique de stade (batch read ciblé cohorte, best-effort)
-      const histMap = await getStageHistory(headers, cohorte.map(d => d.id).filter(Boolean));
+      const histRes = await getStageHistory(headers, cohorte.map(d => d.id).filter(Boolean));
+      const histMap = histRes.map;
       const histOk = histMap.size > 0;
       const ever = (d) => histMap.get(String(d.id)) || new Set();
       const cR2 = (idR2 && histOk) ? cohorte.filter(d => ever(d).has(idR2)).length : null;
@@ -275,6 +282,7 @@ exports.handler = async (event) => {
         cible_r2_offre: 50,
         _diag: {
           historique_ok: histOk,                          // false => batch history KO (R1/pitch restent OK)
+          historique_err: histRes.err,                    // raison de l'échec (statut HTTP / timeout) si historique_ok=false
           r1_ancien_via_entree_stade: ancienR1ViaEntree,  // attendu ~0
           r2_via_date_entree: r2ViaDate,                  // ancienne méthode (attendu 0)
           offre_via_date_entree: offreViaDate,            // ancienne méthode (attendu 0)
