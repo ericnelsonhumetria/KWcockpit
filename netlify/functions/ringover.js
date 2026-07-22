@@ -2,7 +2,7 @@
 // Indicateurs "avant R1" pour les vues Commerce et Direction, via l'API RingOver.
 // Sur une periode (7j / 30j / depuis le 1er janvier), pour les appels SORTANTS par defaut :
 //   - appels     : nombre d'appels
-//   - decroches  : appels ayant donne lieu a une conversation (incall_duration > 0, ou is_answered)
+//   - decroches  : vraies conversations (ANSWERED et incall_duration >= 30 s)
 //   - pitchs     : appels avec conversation >= 90 s (1 min 30)
 // Renvoie aussi une ventilation mois par mois (byMonth).
 // La cle API RingOver reste cote serveur.
@@ -47,6 +47,9 @@ function isAnswered(c) {
   if (ls) return ls === 'ANSWERED';
   return inCall(c) > 0;
 }
+// Vraie conversation : decroche (ANSWERED) ET au moins 30 s en ligne.
+// Ecarte les decroches-raccroches immediats, pour un decompte fidele.
+function isConversation(c) { return isAnswered(c) && inCall(c) >= 30; }
 function monthOf(c) {
   var d = c.start_time || c.start || c.creation_date || c.date || c.answered_time || '';
   var dt = new Date(d);
@@ -139,7 +142,7 @@ exports.handler = async (event) => {
   });
 
   var appels = scoped.length;
-  var decroches = scoped.filter(isAnswered).length;
+  var decroches = scoped.filter(isConversation).length;
   var pitchs = scoped.filter(function (c) { return inCall(c) >= 90; }).length;
 
   // ventilation mois par mois
@@ -149,7 +152,7 @@ exports.handler = async (event) => {
     if (!ym) return;
     if (!bm[ym]) bm[ym] = { ym: ym, appels: 0, decroches: 0, pitchs: 0 };
     bm[ym].appels++;
-    if (isAnswered(c)) bm[ym].decroches++;
+    if (isConversation(c)) bm[ym].decroches++;
     if (inCall(c) >= 90) bm[ym].pitchs++;
   });
   var byMonth = Object.keys(bm).sort().map(function (k) { return bm[k]; });
