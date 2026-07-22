@@ -79,6 +79,28 @@ exports.handler = async (event) => {
   var end = new Date();
   var start = new Date(end.getTime() - days * 86400000);
 
+  // --- Mode diagnostic : /api/ringover?debug=1 ---
+  // Teste plusieurs variantes de l'appel /calls et renvoie les reponses brutes de
+  // RingOver, pour isoler la cause (endpoint, parametres, entete, perimetre de cle).
+  if (q.debug) {
+    var variantes = [
+      { note: 'GET /calls (minimal, header Authorization seul)', url: 'https://public-api.ringover.com/v2/calls?limit_count=5', hdr: { 'Authorization': key } },
+      { note: 'GET /calls avec Content-Type json', url: 'https://public-api.ringover.com/v2/calls?limit_count=5', hdr: { 'Authorization': key, 'Content-Type': 'application/json' } },
+      { note: 'GET /calls avec dates', url: 'https://public-api.ringover.com/v2/calls?start_date=' + encodeURIComponent(start.toISOString()) + '&end_date=' + encodeURIComponent(end.toISOString()) + '&limit_count=5', hdr: { 'Authorization': key } },
+      { note: 'GET /calls avec Bearer', url: 'https://public-api.ringover.com/v2/calls?limit_count=5', hdr: { 'Authorization': 'Bearer ' + key } }
+    ];
+    var out = [];
+    for (var vi = 0; vi < variantes.length; vi++) {
+      var v = variantes[vi];
+      try {
+        var rr = await fetch(v.url, { headers: v.hdr });
+        var bb = await rr.text();
+        out.push({ note: v.note, status: rr.status, body: bb.slice(0, 220) });
+      } catch (e) { out.push({ note: v.note, error: (e && e.message) || 'err' }); }
+    }
+    return { statusCode: 200, headers, body: JSON.stringify({ debug: true, key_len: (key || '').length, tests: out }, null, 2) };
+  }
+
   // Pagination RingOver (max 1000 appels par page). Fenetre <= 31 j pour rester sous les limites de l'API.
   var calls = [];
   var offset = 0, pageSize = 1000, pages = 0, maxPages = 25;
@@ -97,8 +119,16 @@ exports.handler = async (event) => {
       var data; try { data = JSON.parse(raw); } catch (e) { data = null; }
       if (!res.ok) {
         clearTimeout(tid);
-        var msg = (data && (data.message || data.error)) ? (data.message || data.error) : raw.slice(0, 300);
-        return { statusCode: res.status, headers, body: JSON.stringify({ error: 'RingOver: ' + msg }) };
+        var detail = '';
+        if (data && typeof data === 'object') detail = data.detail || data.message || data.error || data.title || JSON.stringify(data);
+        else if (data) detail = String(data);
+        else detail = raw.slice(0, 200);
+        // On ne propage PAS 401/403 bruts de RingOver : le front les confondrait avec
+        // la garde d'acces du Cockpit. Erreur amont -> 502, message explicite.
+        var upstreamAuth = (res.status === 401 || res.status === 403);
+        var code = upstreamAuth ? 502 : res.status;
+        var hint = upstreamAuth ? ' \u2014 la cl\u00e9 API RingOver n\'a pas les droits sur les appels, ou ne couvre pas les utilisateurs concern\u00e9s.' : '';
+        return { statusCode: code, headers, body: JSON.stringify({ error: 'RingOver (' + res.status + ') : ' + detail + hint }) };
       }
       var list = (data && (data.call_list || data.calls || data.list)) || [];
       calls = calls.concat(list);
