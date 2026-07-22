@@ -7251,7 +7251,7 @@ function kwLifecycleSyncBtn(){
       for(var i = 0; i < n; i++){
         var d = new Date(d0.getTime() + i * 86400000);
         var iso = d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
-        rows.push({ email: email, mission_code: 'PLANNING', date_jour: iso, etat: 'planifie', jours: 1, activite: 'Import planning', saisi_par: (typeof CURRENT_EMAIL !== 'undefined' ? CURRENT_EMAIL : email), updated_at: new Date().toISOString() });
+        rows.push({ email: email, mission_code: 'PLANNING', date_jour: iso, etat: 'planifie', jours: 1, activite: null, saisi_par: (typeof CURRENT_EMAIL !== 'undefined' ? CURRENT_EMAIL : email), updated_at: new Date().toISOString() });
       }
     });
     return rows;
