@@ -3721,27 +3721,6 @@ consultant: () => renderPdc(),
 /* ---------- ERIC : DIRECTION ---------- */
 eric: () => `
 
-  <div class="sec-eyebrow">Objectifs de l'équipe</div>
-  <div class="sec-title">Indicateurs — objectifs validés</div>
-  <div class="sec-note">Synthèse de tous les objectifs validés · vert = tenu / à l'objectif · rouge = en retard / sous l'objectif</div>
-  <div id="indicZone">${renderIndicateursDirection()}</div>
-
-  <div class="sec-eyebrow">État des fonctions</div>
-  <div class="sec-title">Vue par responsable</div>
-  <div class="sec-note">Synthèse remontée de chaque fonction · RH et Finance ouvrables (accès direction)</div>
-  <div class="panel" style="padding:8px 16px 16px;">
-    <table>
-      <thead><tr><th>Fonction</th><th>Responsable</th><th>Indicateur clé</th><th>Statut</th></tr></thead>
-      <tbody>
-        <tr><td>Commerce</td><td class="owner">Paul Ingrassia</td><td id="resp-commerce">— <span class="edit-hint">(chargement HubSpot…)</span></td><td id="resp-commerce-statut"><span class="pill p-grey">…</span></td></tr>
-        <tr><td>Réalisation & compétences</td><td class="owner">Audrey Humbert</td><td>5 missions actives</td><td><span class="pill p-green">vert</span></td></tr>
-        <tr><td>Marketing & com</td><td class="owner">Juliette Surcouf</td><td>3 succès à publier</td><td><span class="pill p-amber">à activer</span></td></tr>
-        <tr onclick="openSubview('sabrine')" style="cursor:pointer;"><td>RH — recrutement <span class="open-link">ouvrir →</span></td><td class="owner">Eric (intérim)</td><td>2 postes ouverts</td><td><span class="pill p-amber">en chasse</span></td></tr>
-        <tr onclick="openSubview('najoua')" style="cursor:pointer;"><td>Finance & admin <span class="open-link">ouvrir →</span></td><td class="owner">Eric (intérim)</td><td>Tréso 2,3 mois</td><td><span class="pill p-green">vert</span></td></tr>
-      </tbody>
-    </table>
-  </div>
-
   <div class="sec-eyebrow">Tableau de bord financier</div>
   <div class="sec-title">Synthèse Qonto + Evoliz</div>
   <div class="sec-note">Données réelles via connexions sécurisées · réservé à la direction · <span class="src fin"><span class="sdot"></span>Qonto + Evoliz</span></div>
@@ -6105,6 +6084,16 @@ function kwLifecycleSyncBtn(){
     var ebitda = (CA != null && charges != null) ? (CA - charges) : null;
     var marge = (ebitda != null && CA > 0) ? Math.round(ebitda / CA * 1000) / 10 : null;
     var TS = dataTs();
+    // Mix de réalisation par mode (salarié vs freelance) depuis le carnet — pour chiffrer le make-or-buy
+    var _rows = Array.isArray(window.FIN_PROJ_ROWS) ? window.FIN_PROJ_ROWS : [];
+    function _inYr(r){ if(!r.mois_facturation) return true; return String(r.mois_facturation).slice(0,4) === String(YEAR); }
+    function _mnt(r){ var m = Number(r.montant); if(r.montant != null && r.montant !== '' && !isNaN(m)) return m; return (Number(r.tjm)||0) * (Number(r.jours)||0); }
+    var _fl = { ca:0, cout:0, nb:0 }, _sa = { ca:0, nb:0 };
+    _rows.forEach(function(r){ if(!_inYr(r)) return; var m = _mnt(r); if(r.mode_livraison === 'freelance'){ _fl.ca += m; _fl.cout += Number(r.cout)||0; _fl.nb++; } else { _sa.ca += m; _sa.nb++; } });
+    var mixMode = _rows.length ? {
+      freelance: { ca: Math.round(_fl.ca), cout_soustraitance: Math.round(_fl.cout), marge_brute: Math.round(_fl.ca - _fl.cout), nb_lignes: _fl.nb },
+      salarie: { ca: Math.round(_sa.ca), nb_lignes: _sa.nb }
+    } : null;
     return {
       annee: YEAR,
       date_donnees: dateCourte(TS),
@@ -6112,6 +6101,7 @@ function kwLifecycleSyncBtn(){
       objectif_ca_2026: (typeof window.FINANCE_OBJECTIF !== 'undefined' && window.FINANCE_OBJECTIF) ? num(window.FINANCE_OBJECTIF) : 1800000,
       realise_ytd: { ca_ht: CA, charges_expl: charges, ebitda: ebitda, marge_pct: marge },
       categories_charges: cats ? { opex_dont_salaires: catTotal(cats, 'opex'), social_urssaf: catTotal(cats, 'social'), soustraitance: catTotal(cats, 'soustraitance') } : null,
+      mix_realisation: mixMode,
       atterrissage: {
         scenario: ctx.sc || null,
         ca: ctx.attCA != null ? Math.round(ctx.attCA) : null,
@@ -6180,10 +6170,12 @@ function kwLifecycleSyncBtn(){
       if(Array.isArray(a.leviers_action) && a.leviers_action.length){
         parts += '<div class="sec-eyebrow" style="margin:12px 0 6px;">Leviers d\u2019action recommand\u00e9s</div>';
         parts += a.leviers_action.map(function(l){
+          var gain = l.gain_chiffre || l.effet_attendu || '';
           return '<div style="background:rgba(239,184,16,.08);border:1px solid rgba(86,10,15,.12);border-radius:8px;padding:9px 11px;margin-bottom:8px;">'
             + '<div style="font-size:12.5px;font-weight:600;color:#560A0F;">' + esc(l.levier) + (l.horizon ? ' <span class="sub-cell" style="font-weight:400;">\u00b7 ' + esc(l.horizon) + '</span>' : '') + '</div>'
             + (l.action ? '<div style="font-size:12.5px;line-height:1.45;margin-top:2px;">' + esc(l.action) + '</div>' : '')
-            + (l.effet_attendu ? '<div class="sub-cell" style="font-size:11px;margin-top:3px;">Effet attendu : ' + esc(l.effet_attendu) + '</div>' : '') + '</div>';
+            + (gain ? '<div style="font-size:11.5px;margin-top:4px;color:#2e7d32;"><b>Gain :</b> ' + esc(gain) + '</div>' : '')
+            + (l.risque ? '<div style="font-size:11.5px;margin-top:2px;color:#b3541e;"><b>Risque :</b> ' + esc(l.risque) + '</div>' : '') + '</div>';
         }).join('');
       }
       if(Array.isArray(a.angles_morts) && a.angles_morts.length){
@@ -6784,18 +6776,7 @@ function kwLifecycleSyncBtn(){
         return out.indexOf(anchor) >= 0 ? out.replace(anchor, bloc + anchor) : (bloc + out);
       };
     }
-    if(typeof VIEWS.eric === 'function'){
-      var _oe = VIEWS.eric;
-      VIEWS.eric = function(){
-        var out = _oe();
-        var anchor = '<div class="sec-eyebrow">État des fonctions</div>';
-        var bloc = '<div class="sec-eyebrow">Avant R1 — prospection téléphonique</div>'
-          + '<div class="sec-title">Appels → Décrochés → Pitchs → R1</div>'
-          + '<div class="sec-note">Activité commerciale amont du R1 · source RingOver</div>'
-          + '<div id="ringoverZoneEric"><div class="panel" style="padding:16px;">Chargement RingOver…</div></div>';
-        return out.indexOf(anchor) >= 0 ? out.replace(anchor, bloc + anchor) : (bloc + out);
-      };
-    }
+    // (Injection RingOver 'avant R1' retirée de la vue Eric — conservée pour Paul.)
   }
   if(typeof renderTab === 'function'){
     var _ort = renderTab;
@@ -6803,7 +6784,6 @@ function kwLifecycleSyncBtn(){
       _ort.apply(this, arguments);
       if(typeof CURRENT_TAB !== 'undefined' && CURRENT_TAB === 'dash'){
         if(CURRENT_ROLE === 'paul' && document.getElementById('ringoverZone')) loadRingover('ringoverZone');
-        if(CURRENT_ROLE === 'eric' && document.getElementById('ringoverZoneEric')) loadRingover('ringoverZoneEric');
       }
     };
   }
@@ -6881,8 +6861,16 @@ function kwLifecycleSyncBtn(){
 // Cartes : CA vs objectif · EBITDA · Charge salaries · Vitalite commerciale.
 // Chaque carte est autonome (degradation gracieuse si une source manque).
 (function(){
-  var SYNTH_PERIOD = 'ytd';   // fenetre de la vitalite commerciale (cohorte annuelle)
+  var SYNTH_PERIOD = 'ytd';   // fenetre de la vitalite commerciale (reglable : 7d | 30d | ytd)
+  var SYNTH_PERIODS = [['7d','7 jours'],['30d','30 jours'],['ytd','Depuis le 1er janvier']];
+  var CHART_RING = null;   // byMonth annuel (ytd) mis en cache pour le graphique (indépendant du sélecteur)
   var Y = new Date().getFullYear();
+  function synthPeriodSel(){
+    return '<div class="seg" style="margin:2px 0 8px;">'
+      + SYNTH_PERIODS.map(function(p){ return '<button class="' + (SYNTH_PERIOD === p[0] ? 'on' : '') + '" onclick="setSynthPeriod(\'' + p[0] + '\')">' + p[1] + '</button>'; }).join('')
+      + '</div>';
+  }
+  window.setSynthPeriod = function(p){ if(p === SYNTH_PERIOD) return; SYNTH_PERIOD = p; loadVitalite(); };
 
   function euroC(n){
     if(n == null || isNaN(n)) return '—';
@@ -7019,7 +7007,10 @@ function kwLifecycleSyncBtn(){
   function arrow(){ return '<div style="display:flex;align-items:center;color:#EFB810;font-size:18px;font-weight:700;padding:0 1px;">&rarr;</div>'; }
   function vitaliteHtml(ring, hub){
     var ent = (hub && hub.entonnoir) ? hub.entonnoir : null;
+    var perLbl = ({'7d':'7 jours','30d':'30 jours','ytd':'YTD'})[SYNTH_PERIOD] || SYNTH_PERIOD;
+    var cohLbl = ({'7d':'sur les 7 derniers jours','30d':'sur les 30 derniers jours','ytd':'depuis le 1er janvier'})[SYNTH_PERIOD] || 'sur la période';
     if((!ring || ring.error) && !ent){ return '<div class="panel" style="padding:12px 14px;color:var(--signal);">Vitalité indisponible' + (ring && ring.error ? (' : ' + ring.error) : '') + '. <button class="add-btn" onclick="loadVitalite()">↻ Réessayer</button></div>'; }
+    var appels = (ring && !ring.error) ? (ring.appels || 0) : null;
     var pitchs = (ring && !ring.error) ? (ring.pitchs || 0) : null;
     var r1, r2, offre, tR1R2, tR2O, coh = false;
     if(ent){
@@ -7033,33 +7024,85 @@ function kwLifecycleSyncBtn(){
       tR2O = (hub && hub.taux_r2_vers_proposition != null) ? hub.taux_r2_vers_proposition : null;
     }
     var tPR1 = (pitchs && r1 != null && pitchs > 0) ? Math.round(r1 / pitchs * 100) : null;
+    var tPA = (appels && pitchs != null && appels > 0) ? Math.round(pitchs / appels * 100) : null;
     var funnel = '<div style="display:flex;flex-wrap:wrap;align-items:stretch;gap:6px;margin-top:6px;">'
-      + step('Pitchs', (pitchs == null ? null : pitchs), null, null, 'YTD') + arrow()
+      + step('Appels', (appels == null ? null : appels), null, null, perLbl) + arrow()
+      + step('Pitchs', (pitchs == null ? null : pitchs), tPA, null, '') + arrow()
       + step('R1', r1, tPR1, null, '') + arrow()
       + step('R2', r2, tR1R2, 33, '') + arrow()
       + step('Offre', offre, tR2O, 50, '') + '</div>';
     var note;
     if(coh){
       var trace = (ent.taux_pitch_r1 != null) ? (ent.taux_pitch_r1 + '% des R1 tracés à un appel &ge; 90 s') : 'traçabilité pitch indisponible';
-      var warn = (ent.pitch_traceable === false) ? ' <span style="color:var(--signal);">(appels non tracés — vérifier l\u2019association appel↔deal)</span>' : '';
-      note = 'Cohorte : deals entrés en R1 depuis le 1er janvier, suivis par dates d\u2019entrée de stade — R1&rarr;R2 et R2&rarr;Offre sont les taux réels de la cohorte (cibles 33 % / 50 %). ' + trace + warn + '. Pitchs = appels &ge; 1 min 30 (RingOver).';
+      note = 'Cohorte : deals créés (R1 pris) ' + cohLbl + '. R1&rarr;R2 et R2&rarr;Offre = part de la cohorte aujourd\u2019hui à ce stade ou au-delà (stade courant, cibles 33 % / 50 %) — borne basse : les deals perdus ne sont pas attribués. ' + trace + '. Pitchs = appels &ge; 1 min 30 (RingOver).';
     } else {
       note = 'Pitchs et R1 = flux (RingOver / HubSpot) · R1&rarr;R2 et R2&rarr;Offre = taux du pipeline (cibles 33 % / 50 %). Entonnoir de cohorte indisponible : déployer hubspot.js.';
     }
     return funnel + '<div class="edit-hint" style="margin-top:8px;">' + note + ' <button class="add-btn" onclick="loadVitalite()">↻ Actualiser</button></div>';
   }
+  async function chartRingByMonth(){
+    if(CHART_RING) return CHART_RING;
+    try { var r = await fetch('/api/ringover?period=ytd&direction=out', { headers: auth() }); if(r.ok){ var d = await r.json(); CHART_RING = Array.isArray(d.byMonth) ? d.byMonth : []; } } catch(e){}
+    return CHART_RING || [];
+  }
+  function moisCourt(ym){ var mo = ['janv','févr','mars','avr','mai','juin','juil','août','sept','oct','nov','déc']; var p = String(ym).split('-'); return mo[(parseInt(p[1],10) || 1) - 1] || ym; }
+  function vitaliteChartHtml(byMonth, hub){
+    byMonth = Array.isArray(byMonth) ? byMonth : [];
+    var r1m = (hub && hub.r1_par_mois) || {}, r2m = (hub && hub.r2_par_mois) || {}, ofm = (hub && hub.offre_par_mois) || {};
+    var ymSet = {};
+    byMonth.forEach(function(m){ if(m && m.ym) ymSet[m.ym] = 1; });
+    [r1m, r2m, ofm].forEach(function(o){ Object.keys(o).forEach(function(k){ ymSet[k] = 1; }); });
+    var yms = Object.keys(ymSet).sort();
+    if(!yms.length) return '';
+    var bm = {}; byMonth.forEach(function(m){ if(m && m.ym) bm[m.ym] = m; });
+    var series = yms.map(function(ym){
+      var b = bm[ym] || {};
+      return { ym: ym, appels: Number(b.appels) || 0, pitchs: Number(b.pitchs) || 0, r1: Number(r1m[ym]) || 0, r2: Number(r2m[ym]) || 0, offre: Number(ofm[ym]) || 0 };
+    });
+    var defs = [['appels','Appels','#560A0F'],['pitchs','Pitchs','#EFB810'],['r1','R1','#6b7a8f'],['r2','R2','#2e7d46'],['offre','Offre','#b3541e']];
+    var maxV = 1; series.forEach(function(s){ defs.forEach(function(d){ if(s[d[0]] > maxV) maxV = s[d[0]]; }); });
+    var padL = 26, padR = 8, padT = 8, padB = 20, chH = 150, groupW = 46, barW = 7, gap = 1;
+    var W = padL + series.length * groupW + padR, H = padT + chH + padB;
+    var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;min-width:' + Math.min(W, 520) + 'px;font-family:inherit;">';
+    [0, 0.5, 1].forEach(function(f){
+      var y = padT + chH - chH * f;
+      svg += '<line x1="' + padL + '" y1="' + y.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + y.toFixed(1) + '" stroke="rgba(86,10,15,.10)" stroke-width="1"/>'
+        + '<text x="' + (padL - 4) + '" y="' + (y + 3).toFixed(1) + '" text-anchor="end" font-size="8" fill="var(--muted)">' + Math.round(maxV * f) + '</text>';
+    });
+    series.forEach(function(s, i){
+      var gx = padL + i * groupW + (groupW - (defs.length * (barW + gap) - gap)) / 2;
+      defs.forEach(function(d, j){
+        var v = s[d[0]], bh = maxV > 0 ? (v / maxV) * chH : 0;
+        var x = gx + j * (barW + gap), y = padT + chH - bh;
+        svg += '<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + barW + '" height="' + Math.max(0, bh).toFixed(1) + '" fill="' + d[2] + '" rx="1"><title>' + moisCourt(s.ym) + ' — ' + d[1] + ' : ' + v + '</title></rect>';
+      });
+      svg += '<text x="' + (padL + i * groupW + groupW / 2).toFixed(1) + '" y="' + (H - 6) + '" text-anchor="middle" font-size="8.5" fill="var(--muted)">' + moisCourt(s.ym) + '</text>';
+    });
+    svg += '</svg>';
+    var legend = '<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:4px;">' + defs.map(function(d){ return '<span style="display:inline-flex;align-items:center;gap:4px;font-size:10.5px;color:var(--muted);"><span style="width:9px;height:9px;border-radius:2px;background:' + d[2] + ';display:inline-block;"></span>' + d[1] + '</span>'; }).join('') + '</div>';
+    return '<div class="sec-eyebrow" style="margin:12px 0 4px;">Évolution mensuelle</div>' + legend
+      + '<div style="overflow-x:auto;margin-top:4px;">' + svg + '</div>'
+      + '<div class="edit-hint" style="margin-top:3px;">Année civile ' + (new Date().getFullYear()) + ' · Appels &amp; Pitchs (RingOver), R1/R2/Offre (HubSpot, stade courant) · survol d\u2019une barre = valeur.</div>';
+  }
   async function loadVitalite(){
     var z = document.getElementById('csVitalite'); if(!z) return;
-    if(!hasSession()){ z.innerHTML = '<div class="edit-hint" style="color:var(--signal)">Session expirée.</div>'; return; }
-    z.innerHTML = '<div class="edit-hint">Chargement RingOver / HubSpot…</div>';
+    var sel = synthPeriodSel();
+    if(!hasSession()){ z.innerHTML = sel + '<div class="edit-hint" style="color:var(--signal)">Session expirée.</div>'; return; }
+    z.innerHTML = sel + '<div class="edit-hint">Chargement RingOver / HubSpot…</div>';
     try {
       var rr = await fetch('/api/ringover?period=' + SYNTH_PERIOD + '&direction=out', { headers: auth() });
       var ring; try { ring = await rr.json(); } catch(e){ ring = null; }
       if(!rr.ok) ring = { error: (ring && ring.error) || ('erreur ' + rr.status) };
       var hub = null;
       try { var hr = await fetch('/api/hubspot?period=' + SYNTH_PERIOD, { headers: auth() }); if(hr.ok) hub = await hr.json(); } catch(e){}
-      z.innerHTML = vitaliteHtml(ring, hub);
-    } catch(e){ z.innerHTML = '<div class="panel" style="padding:12px 14px;color:var(--signal)">Vitalité injoignable. <button class="add-btn" onclick="loadVitalite()">↻ Réessayer</button></div>'; }
+      z.innerHTML = sel + vitaliteHtml(ring, hub) + '<div id="csVitChart"></div>';
+      try {
+        if(SYNTH_PERIOD === 'ytd' && ring && Array.isArray(ring.byMonth)) CHART_RING = ring.byMonth;
+        var bym = CHART_RING || (await chartRingByMonth());
+        var cz = document.getElementById('csVitChart');
+        if(cz) cz.innerHTML = vitaliteChartHtml(bym, hub);
+      } catch(e){}
+    } catch(e){ z.innerHTML = sel + '<div class="panel" style="padding:12px 14px;color:var(--signal)">Vitalité injoignable. <button class="add-btn" onclick="loadVitalite()">↻ Réessayer</button></div>'; }
   }
   window.loadVitalite = loadVitalite;
 
@@ -7074,7 +7117,7 @@ function kwLifecycleSyncBtn(){
       +     '<div id="csCharge" style="flex:1 1 200px;min-width:180px;"></div>'
       +   '</div>'
       +   '<div style="margin-top:16px;">'
-      +     '<div class="sec-eyebrow">Vitalité commerciale <span class="edit-hint" style="text-transform:none;letter-spacing:0;">· cohorte depuis le 1er janvier</span></div>'
+      +     '<div class="sec-eyebrow">Vitalité commerciale <span class="edit-hint" style="text-transform:none;letter-spacing:0;">· fenêtre réglable ci-dessous</span></div>'
       +     '<div id="csVitalite"><div class="edit-hint">Chargement…</div></div>'
       +   '</div>'
       + '</div></div>';
