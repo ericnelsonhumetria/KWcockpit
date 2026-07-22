@@ -204,19 +204,24 @@ exports.handler = async (event) => {
     // (hs_date_entered_R1), et on regarde combien sont ENSUITE entres en R2 puis en Offre
     // (dates d'entree de stade), quel que soit leur stade actuel. Le taux pitch->R1 mesure
     // la part des R1 tracables a un appel >= 90 s loggé sur le deal.
+    // NB cohorte : ancrée sur createdate (= R1 pris chez KW). hs_date_entered_<R1>
+    // n'est pas enregistré dans ce CRM (deals créés, non déplacés vers R1) => createdate,
+    // signal fiable, cohérent avec r1_periode/r1_par_mois. Progression R2/Offre via
+    // hs_date_entered_<idR2>/<idProp> (capture "déjà atteint", y compris deals perdus/parkés).
     let entonnoir = null;
-    if (idR1) {
+    {
       const inPeriode = (ts) => {
         if (!ts) return false;
         const t = new Date(ts).getTime();
         if (isNaN(t)) return false;
         return periodStart == null ? true : t >= periodStart;
       };
-      const cohorte = deals.filter(d => inPeriode(d.entered[idR1]));
+      const cohorte = deals.filter(d => inPeriode(d.createdate));
       const cR1 = cohorte.length;
       const cR1Pitch = cohorte.filter(d => d.callIds.some(id => pitchSet.has(id))).length;
       const cR2 = idR2 ? cohorte.filter(d => d.entered[idR2]).length : null;
       const cOffre = idProp ? cohorte.filter(d => d.entered[idProp]).length : null;
+      const ancienR1ViaEntree = idR1 ? deals.filter(d => inPeriode(d.entered[idR1])).length : null;
       entonnoir = {
         periode: qp.period || (qp.days ? (qp.days + 'd') : 'tout'),
         r1: cR1,
@@ -227,8 +232,10 @@ exports.handler = async (event) => {
         taux_r1_r2: cR1 ? Math.round((cR2 || 0) / cR1 * 100) : null,        // cohorte (rigoureux)
         taux_r2_offre: cR2 ? Math.round((cOffre || 0) / cR2 * 100) : null,  // cohorte (rigoureux)
         pitch_traceable: pitchSet.size > 0,                                 // false si l'API calls a échoué
+        ancre: 'createdate',
         cible_r1_r2: 33,
         cible_r2_offre: 50,
+        _diag: { r1_ancien_via_entree_stade: ancienR1ViaEntree },
       };
     }
 
