@@ -6878,29 +6878,147 @@ function kwLifecycleSyncBtn(){
 </script>
 <script>
 // === Bandeau de synthese direction (en tete de la vue eric) ===
-// Brique 2 : Vitalite commerciale (entonnoir Pitchs -> R1 -> R2 -> Offre).
-// Structure extensible : les cartes CA, EBITDA, taux de charge s'ajouteront dans #csGrid.
+// Cartes : CA vs objectif · EBITDA · Charge salaries · Vitalite commerciale.
+// Chaque carte est autonome (degradation gracieuse si une source manque).
 (function(){
   var SYNTH_PERIOD = '30d';   // fenetre de la vitalite commerciale
+  var Y = new Date().getFullYear();
 
+  function euroC(n){
+    if(n == null || isNaN(n)) return '—';
+    n = Number(n); var a = Math.abs(n);
+    if(a >= 1e6) return (n/1e6).toFixed(a >= 1e7 ? 0 : 2).replace('.', ',') + ' M€';
+    if(a >= 1e3) return Math.round(n/1e3) + ' k€';
+    return Math.round(n) + ' €';
+  }
+  function auth(){ return { Authorization: 'Bearer ' + SB_SESSION.access_token }; }
+  function hasSession(){ return typeof SB_SESSION !== 'undefined' && SB_SESSION; }
+
+  function kpiMini(label, val, sub, col){
+    return '<div style="background:#faf7f2;border:1px solid var(--line);border-radius:10px;padding:12px 14px;height:100%;box-sizing:border-box;">'
+      + '<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;">' + label + '</div>'
+      + '<div style="font-size:26px;font-weight:800;color:' + (col || '#560A0F') + ';line-height:1.15;margin-top:2px;">' + val + '</div>'
+      + '<div style="font-size:11px;color:var(--muted);margin-top:2px;">' + (sub || '&nbsp;') + '</div></div>';
+  }
+
+  // ---- carnet : reproduction fidele de l'atterrissage CA ----
+  function montantLigneS(r){
+    if(r.montant != null && r.montant !== '' && !isNaN(Number(r.montant))) return Number(r.montant);
+    return (Number(r.tjm) || 0) * (Number(r.jours) || 0);
+  }
+  function dansAnneeS(r){
+    if(typeof window.finAVenir === 'function') return window.finAVenir(r);
+    if(!r.mois_facturation) return true;
+    return String(r.mois_facturation).slice(0,4) === String(Y);
+  }
+  function sommeProbaS(rows, p){
+    return rows.filter(function(r){ return r.probabilite === p && dansAnneeS(r); })
+               .reduce(function(s,r){ return s + montantLigneS(r); }, 0);
+  }
+  function atterrissage(caReal, rows){
+    var sc = (typeof window.FIN_PROJ_SCENARIO !== 'undefined' && window.FIN_PROJ_SCENARIO) ? window.FIN_PROJ_SCENARIO : 'signe';
+    var base = caReal || 0;
+    var sS = sommeProbaS(rows, 'signe'), s75 = sommeProbaS(rows, 'p75'), s50 = sommeProbaS(rows, 'p50');
+    var land = { facture: base, signe: base + sS, p75: base + sS + s75, p50: base + sS + s75 + s50 };
+    return { atter: (land[sc] != null ? land[sc] : base), scenario: sc };
+  }
+
+  function caCardHtml(caReal, atter, obj){
+    var loaded = caReal != null;
+    var pctReal = (obj > 0 && loaded) ? Math.round(caReal / obj * 100) : 0;
+    var pctAtt = (obj > 0) ? Math.round(atter / obj * 100) : 0;
+    var wReal = Math.max(0, Math.min(100, pctReal));
+    var wProj = Math.max(0, Math.min(100 - wReal, pctAtt - pctReal));
+    var ecart = atter - obj;
+    var ecartTxt = (obj > 0) ? ((ecart >= 0 ? '+' : '') + euroC(ecart) + ' vs objectif') : 'objectif non défini';
+    var barre = '<div style="position:relative;height:9px;background:#ece6da;border-radius:5px;overflow:hidden;margin:8px 0 5px;">'
+      + '<div style="position:absolute;left:0;top:0;height:100%;width:' + wReal + '%;background:#560A0F;"></div>'
+      + '<div style="position:absolute;left:' + wReal + '%;top:0;height:100%;width:' + wProj + '%;background:#EFB810;"></div></div>';
+    return '<div style="background:#faf7f2;border:1px solid var(--line);border-radius:10px;padding:12px 14px;height:100%;box-sizing:border-box;">'
+      + '<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;">CA ' + Y + '</div>'
+      + '<div style="font-size:26px;font-weight:800;color:#560A0F;line-height:1.15;margin-top:2px;">' + (loaded ? euroC(caReal) : '—') + '</div>'
+      + '<div style="font-size:11px;color:var(--muted);">réalisé' + (loaded ? '' : ' (Evoliz indispo)') + '</div>'
+      + barre
+      + '<div style="font-size:11px;color:var(--muted);"><span style="color:#b8860b;font-weight:700;">' + euroC(atter) + '</span> atterrissage · obj. ' + euroC(obj) + '</div>'
+      + '<div style="font-size:11px;font-weight:700;color:' + (ecart >= 0 ? '#2e7d46' : '#b3541e') + ';margin-top:2px;">' + ecartTxt + '</div></div>';
+  }
+
+  function ebitdaCardHtml(caReal, opexEbitda, atter){
+    if(caReal == null || opexEbitda == null) return kpiMini('EBITDA ' + Y, '—', 'CA ou charges indispo');
+    var ebitda = caReal - opexEbitda;
+    var marge = caReal > 0 ? Math.round(ebitda / caReal * 100) : null;
+    var ebitdaFin = (caReal > 0 && atter != null) ? Math.round(atter * (ebitda / caReal)) : null;
+    var col = ebitda >= 0 ? '#2e7d46' : '#b3541e';
+    return '<div style="background:#faf7f2;border:1px solid var(--line);border-radius:10px;padding:12px 14px;height:100%;box-sizing:border-box;">'
+      + '<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;">EBITDA ' + Y + '</div>'
+      + '<div style="font-size:26px;font-weight:800;color:' + col + ';line-height:1.15;margin-top:2px;">' + euroC(ebitda) + '</div>'
+      + '<div style="font-size:11px;color:var(--muted);">marge ' + (marge == null ? '—' : marge + '%') + ' · CA − charges expl.</div>'
+      + '<div style="font-size:11px;color:var(--muted);margin-top:6px;">fin d\'année ~ <span style="font-weight:700;color:#560A0F;">' + (ebitdaFin == null ? '—' : euroC(ebitdaFin)) + '</span></div>'
+      + '<div class="edit-hint" style="margin-top:1px;">estim. : marge actuelle × atterrissage</div></div>';
+  }
+
+  async function loadFinanceCards(){
+    var zc = document.getElementById('csCA'), ze = document.getElementById('csEbitda');
+    if(!zc && !ze) return;
+    if(!hasSession()){ if(zc) zc.innerHTML = kpiMini('CA ' + Y, '—', 'session expirée'); if(ze) ze.innerHTML = kpiMini('EBITDA ' + Y, '—', 'session expirée'); return; }
+    if(zc) zc.innerHTML = kpiMini('CA ' + Y, '…', 'chargement');
+    if(ze) ze.innerHTML = kpiMini('EBITDA ' + Y, '…', 'chargement');
+    var caReal = null, rows = [], opexEbitda = null;
+    try { var er = await fetch('/api/evoliz?start=' + Y + '-01-01', { headers: auth() }); if(er.ok){ var ed = await er.json(); caReal = Number(ed.ca_ht) || 0; } } catch(e){}
+    try { var cr = await fetch('/api/finance-projection?annee=' + Y, { headers: auth() }); if(cr.ok){ var cd = await cr.json(); rows = Array.isArray(cd.rows) ? cd.rows : []; } } catch(e){}
+    try { var qr = await fetch('/api/qonto-diag?start=' + Y + '-01-01', { headers: auth() }); if(qr.ok){ var qd = await qr.json(); opexEbitda = Number(qd.opex_ebitda); if(isNaN(opexEbitda)) opexEbitda = null; } } catch(e){}
+    if(caReal != null) window.FIN_CA_REALISE = caReal;
+    var at = atterrissage(caReal, rows).atter;
+    var obj = Number(window.FINANCE_OBJECTIF) || 0;
+    if(zc) zc.innerHTML = caCardHtml(caReal, at, obj);
+    if(ze) ze.innerHTML = ebitdaCardHtml(caReal, opexEbitda, at);
+  }
+
+  async function loadTauxCharge(){
+    var z = document.getElementById('csCharge'); if(!z) return;
+    if(typeof SB === 'undefined' || !SB){ z.innerHTML = kpiMini('Charge salariés ' + Y, '—', 'base indisponible'); return; }
+    z.innerHTML = kpiMini('Charge salariés ' + Y, '…', 'chargement');
+    try {
+      var res = await Promise.all([
+        SB.from('pdc_charge').select('email,date_jour,etat,jours'),
+        SB.from('pdc_capacite').select('email,annee,mois,jours_dispo'),
+        loadShared('pdc_salaries')
+      ]);
+      var charge = res[0].data || [], cap = res[1].data || [];
+      var sal = Array.isArray(res[2]) ? res[2] : [];
+      if(!sal.length){ z.innerHTML = kpiMini('Charge salariés ' + Y, '—', 'aucun salarié défini (Admin)'); return; }
+      var salSet = {}; sal.forEach(function(e){ salSet[e] = 1; });
+      var capSal = 0;
+      cap.forEach(function(r){ if(salSet[r.email] && Number(r.annee) === Y) capSal += Number(r.jours_dispo) || 0; });
+      var prio = { realise: 3, revise: 2, planifie: 1 }, best = {};
+      charge.forEach(function(r){
+        if(!salSet[r.email]) return;
+        if(String(r.date_jour).slice(0,4) !== String(Y)) return;
+        var k = r.email + '|' + r.date_jour, p = prio[r.etat] || 0;
+        if(!best[k] || p > best[k].p) best[k] = { p: p, j: Number(r.jours) || 0 };
+      });
+      var chSal = 0; Object.keys(best).forEach(function(k){ chSal += best[k].j; });
+      var taux = capSal ? Math.round(chSal / capSal * 100) : null;
+      var col = taux == null ? 'var(--muted)' : (taux > 100 ? '#b3541e' : (taux >= 70 ? '#2e7d46' : '#560A0F'));
+      z.innerHTML = kpiMini('Charge salariés ' + Y, (taux == null ? '—' : taux + '%'),
+        sal.length + ' salarié(s) · ' + Math.round(chSal) + '/' + Math.round(capSal) + ' j', col);
+    } catch(e){ z.innerHTML = kpiMini('Charge salariés ' + Y, '—', 'indisponible'); }
+  }
+
+  // ---- vitalite commerciale (entonnoir) ----
   function step(label, val, taux, cible, sub){
-    var col = '#560A0F';
     var txt;
     if(taux != null){
       var c = (cible != null) ? (taux >= cible ? '#2e7d46' : '#b3541e') : '#560A0F';
       txt = '<div style="font-size:12px;font-weight:700;margin-top:3px;color:' + c + ';">' + taux + '%' + (cible != null ? (' <span style="color:var(--muted);font-weight:400;">/ ' + cible + '%</span>') : '') + '</div>';
-    } else {
-      txt = '<div style="font-size:11px;color:var(--muted);margin-top:3px;">' + (sub || '&nbsp;') + '</div>';
-    }
+    } else { txt = '<div style="font-size:11px;color:var(--muted);margin-top:3px;">' + (sub || '&nbsp;') + '</div>'; }
     return '<div style="flex:1 1 92px;min-width:92px;background:#faf7f2;border:1px solid var(--line);border-radius:10px;padding:10px 8px;text-align:center;">'
-      + '<div style="font-size:22px;font-weight:800;color:' + col + ';line-height:1.1;">' + (val == null ? '&mdash;' : val) + '</div>'
-      + '<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-top:2px;">' + label + '</div>'
-      + txt + '</div>';
+      + '<div style="font-size:22px;font-weight:800;color:#560A0F;line-height:1.1;">' + (val == null ? '&mdash;' : val) + '</div>'
+      + '<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-top:2px;">' + label + '</div>' + txt + '</div>';
   }
   function arrow(){ return '<div style="display:flex;align-items:center;color:#EFB810;font-size:18px;font-weight:700;padding:0 1px;">&rarr;</div>'; }
-
   function vitaliteHtml(ring, hub){
-    if(!ring){ return '<div class="panel" style="padding:12px 14px;color:var(--signal);">Vitalité commerciale indisponible' + (ring && ring.error ? (' : ' + ring.error) : '') + '. <button class="add-btn" onclick="loadVitalite()">↻ Réessayer</button></div>'; }
+    if(!ring || ring.error){ return '<div class="panel" style="padding:12px 14px;color:var(--signal);">Vitalité indisponible' + (ring && ring.error ? (' : ' + ring.error) : '') + '. <button class="add-btn" onclick="loadVitalite()">↻ Réessayer</button></div>'; }
     var pitchs = ring.pitchs || 0;
     var r1 = (hub && hub.r1_periode != null) ? hub.r1_periode : null;
     var r2 = (hub && hub.volumes) ? (hub.volumes.r2 || 0) : null;
@@ -6912,53 +7030,49 @@ function kwLifecycleSyncBtn(){
       + step('Pitchs', pitchs, null, null, '30 j') + arrow()
       + step('R1', r1, tPR1, null, '') + arrow()
       + step('R2', r2, tR1R2, 33, '') + arrow()
-      + step('Offre', offre, tR2O, 50, '')
-      + '</div>'
+      + step('Offre', offre, tR2O, 50, '') + '</div>'
       + '<div class="edit-hint" style="margin-top:8px;">Pitchs et R1 = flux sur 30 j (RingOver / HubSpot) · R1&rarr;R2 et R2&rarr;Offre = taux de transformation du pipeline (cibles 33 % / 50 %). <button class="add-btn" onclick="loadVitalite()">↻ Actualiser</button></div>';
   }
-
   async function loadVitalite(){
     var z = document.getElementById('csVitalite'); if(!z) return;
-    if(typeof SB_SESSION === 'undefined' || !SB_SESSION){ z.innerHTML = '<div class="edit-hint" style="color:var(--signal)">Session expirée.</div>'; return; }
+    if(!hasSession()){ z.innerHTML = '<div class="edit-hint" style="color:var(--signal)">Session expirée.</div>'; return; }
     z.innerHTML = '<div class="edit-hint">Chargement RingOver / HubSpot…</div>';
     try {
-      var auth = { Authorization: 'Bearer ' + SB_SESSION.access_token };
-      var rr = await fetch('/api/ringover?period=' + SYNTH_PERIOD + '&direction=out', { headers: auth });
+      var rr = await fetch('/api/ringover?period=' + SYNTH_PERIOD + '&direction=out', { headers: auth() });
       var ring; try { ring = await rr.json(); } catch(e){ ring = null; }
       if(!rr.ok) ring = { error: (ring && ring.error) || ('erreur ' + rr.status) };
       var hub = null;
-      try { var hr = await fetch('/api/hubspot?period=' + SYNTH_PERIOD, { headers: auth }); if(hr.ok) hub = await hr.json(); } catch(e){}
-      z.innerHTML = vitaliteHtml(rr.ok ? ring : ring, hub);
-    } catch(e){
-      z.innerHTML = '<div class="panel" style="padding:12px 14px;color:var(--signal)">Vitalité injoignable. <button class="add-btn" onclick="loadVitalite()">↻ Réessayer</button></div>';
-    }
+      try { var hr = await fetch('/api/hubspot?period=' + SYNTH_PERIOD, { headers: auth() }); if(hr.ok) hub = await hr.json(); } catch(e){}
+      z.innerHTML = vitaliteHtml(ring, hub);
+    } catch(e){ z.innerHTML = '<div class="panel" style="padding:12px 14px;color:var(--signal)">Vitalité injoignable. <button class="add-btn" onclick="loadVitalite()">↻ Réessayer</button></div>'; }
   }
   window.loadVitalite = loadVitalite;
 
   function loadCockpitSynth(){
     var host = document.getElementById('cockpitSynth'); if(!host) return;
     host.innerHTML = '<div class="panel" style="padding:0;margin:0 0 18px;border-top:3px solid #EFB810;overflow:hidden;">'
-      + '<div style="padding:12px 16px 2px;"><div class="sec-eyebrow" style="color:#560A0F;">Synthèse direction</div>'
-      + '<div class="sec-title">Indicateurs clés du cockpit</div></div>'
-      + '<div id="csGrid" style="display:flex;flex-wrap:wrap;gap:16px;padding:8px 16px 16px;">'
-      +   '<div style="flex:1 1 100%;min-width:280px;">'
+      + '<div style="padding:12px 16px 2px;"><div class="sec-eyebrow" style="color:#560A0F;">Synthèse direction</div><div class="sec-title">Indicateurs clés du cockpit</div></div>'
+      + '<div style="padding:8px 16px 16px;">'
+      +   '<div style="display:flex;flex-wrap:wrap;gap:12px;">'
+      +     '<div id="csCA" style="flex:1 1 200px;min-width:180px;"></div>'
+      +     '<div id="csEbitda" style="flex:1 1 200px;min-width:180px;"></div>'
+      +     '<div id="csCharge" style="flex:1 1 200px;min-width:180px;"></div>'
+      +   '</div>'
+      +   '<div style="margin-top:16px;">'
       +     '<div class="sec-eyebrow">Vitalité commerciale <span class="edit-hint" style="text-transform:none;letter-spacing:0;">· 30 derniers jours</span></div>'
       +     '<div id="csVitalite"><div class="edit-hint">Chargement…</div></div>'
       +   '</div>'
       + '</div></div>';
+    loadFinanceCards();
+    loadTauxCharge();
     loadVitalite();
   }
   window.loadCockpitSynth = loadCockpitSynth;
 
-  // Insere le conteneur en tete de la vue direction (eric) uniquement.
   if(typeof VIEWS === 'object' && VIEWS && typeof VIEWS.eric === 'function'){
     var _ve = VIEWS.eric;
-    VIEWS.eric = function(){
-      var out = _ve.apply(this, arguments);
-      return '<div id="cockpitSynth"></div>' + out;
-    };
+    VIEWS.eric = function(){ return '<div id="cockpitSynth"></div>' + _ve.apply(this, arguments); };
   }
-  // Declenche le chargement quand la vue direction / tableau de bord s'affiche.
   if(typeof renderTab === 'function'){
     var _rt = renderTab;
     renderTab = function(){
