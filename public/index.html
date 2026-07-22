@@ -1521,9 +1521,12 @@ async function toggleSalarie(email){
 function renderFreelanceTjm(){
   const z = document.getElementById('freelanceTjmZone'); if(!z) return;
   if(!FREELANCE_TJM || typeof FREELANCE_TJM !== 'object') FREELANCE_TJM = {};
-  const cons = (ADMIN_USERS||[]).filter(u => u.role === 'consultant' && !SALARIES.includes(u.email)).map(u => u.email);
-  Object.keys(FREELANCE_TJM).forEach(e => { if(e && cons.indexOf(e) < 0) cons.push(e); });
-  cons.sort();
+  const set = {};
+  try { String(typeof CONS_DEFAUT !== 'undefined' ? CONS_DEFAUT : '').split('\n').forEach(l => { const m = l.match(/[^\s;,<>]+@[^\s;,<>]+/); if(m) set[m[0].toLowerCase()] = 1; }); } catch(e){}
+  (ADMIN_USERS||[]).forEach(u => { if(u.role === 'consultant' && u.email) set[String(u.email).toLowerCase()] = 1; });
+  Object.keys(FREELANCE_TJM).forEach(e => { if(e) set[String(e).toLowerCase()] = 1; });
+  const salLc = (SALARIES||[]).map(s => String(s).toLowerCase());
+  const cons = Object.keys(set).filter(e => salLc.indexOf(e) < 0).sort();
   const rows = cons.map(e => {
     const v = (FREELANCE_TJM[e] != null && FREELANCE_TJM[e] !== 0) ? FREELANCE_TJM[e] : '';
     return `<tr><td><b>${e}</b></td><td style="text-align:right;"><input type="number" step="10" min="0" value="${v}" placeholder="—" onchange="setFreelanceTjm('${e}', this.value)" style="width:120px;text-align:right;"> <span class="sub-cell">&euro;/j</span></td></tr>`;
@@ -7295,6 +7298,10 @@ function kwLifecycleSyncBtn(){
     var todo = PARSED.filter(function(p){ return MAP[p.sheet]; });
     if(!todo.length){ if(msg) msg.innerHTML = '<div class="edit-hint" style="margin-top:8px;">Associe au moins un consultant à un compte.</div>'; return; }
     if(msg) msg.innerHTML = '<div class="edit-hint" style="margin-top:8px;">Écriture…</div>';
+    try {
+      var mm = await SB.from('pdc_missions').upsert({ code: 'PLANNING', intitule: 'Planning importé (multi-consultants)', client: '', statut: 'En cours' }, { onConflict: 'code' });
+      if(mm.error) throw mm.error;
+    } catch(e){ if(msg) msg.innerHTML = '<div class="edit-hint" style="color:var(--signal);margin-top:8px;">Impossible de créer la mission PLANNING : ' + ((e && e.message) || e) + '</div>'; return; }
     var done = 0, errs = [];
     for(var i = 0; i < todo.length; i++){
       var p = todo[i], email = MAP[p.sheet];
