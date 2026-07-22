@@ -6700,49 +6700,87 @@ function kwLifecycleSyncBtn(){
 <script>
 // === Indicateurs "avant R1" (RingOver) — vues Commerce (paul) et Direction (eric) ===
 (function(){
-  function ringoverKpisHtml(d){
+  var RING_PERIOD = {};
+  var PERIODS = [['7d','7 jours'],['30d','30 jours'],['ytd','Depuis le 1er janvier']];
+  function pct(n, d){ return d ? Math.round(n / d * 100) : null; }
+  function moisLabel(ym){
+    var mo = ['janv','févr','mars','avr','mai','juin','juil','août','sept','oct','nov','déc'];
+    var p = ym.split('-'); return mo[parseInt(p[1],10) - 1] + ' ' + p[0].slice(2);
+  }
+  function ringoverKpisHtml(d, r1p){
     var appels = d.appels || 0, decr = d.decroches || 0, pitchs = d.pitchs || 0;
-    var td = (d.taux_decroche != null) ? d.taux_decroche : (appels ? Math.round(decr / appels * 100) : 0);
-    var tp = (d.taux_pitch_sur_decroche != null) ? d.taux_pitch_sur_decroche : (decr ? Math.round(pitchs / decr * 100) : 0);
-    var jours = (d.periode && d.periode.days) || 7;
-    var r1 = (typeof HUB_FLUX_R1 !== 'undefined' && HUB_FLUX_R1 != null) ? HUB_FLUX_R1 : '\u2014';
+    var td = (d.taux_decroche != null) ? d.taux_decroche : pct(decr, appels);
+    var tp = (d.taux_pitch_sur_decroche != null) ? d.taux_pitch_sur_decroche : pct(pitchs, decr);
+    var tr = (r1p != null && pitchs) ? Math.round(r1p / pitchs * 100) : null;
     return '<div class="kpis k4">'
-      + '<div class="kpi"><div class="k-label">Appels (' + jours + ' j)</div><div class="k-val">' + appels + '</div><div class="k-trend">sortants \u00b7 prospection</div></div>'
-      + '<div class="kpi"><div class="k-label">D\u00e9croch\u00e9s</div><div class="k-val">' + decr + '</div><div class="k-trend">' + td + '% des appels</div></div>'
-      + '<div class="kpi accent"><div class="k-label">Pitchs (&gt; 1min30)</div><div class="k-val">' + pitchs + '</div><div class="k-trend">' + tp + '% des d\u00e9croch\u00e9s</div></div>'
-      + '<div class="kpi"><div class="k-label">\u2192 vers R1</div><div class="k-val">' + r1 + '</div><div class="k-trend">R1 cette semaine</div></div>'
+      + '<div class="kpi"><div class="k-label">Appels</div><div class="k-val">' + appels + '</div><div class="k-trend">sortants · prospection</div></div>'
+      + '<div class="kpi"><div class="k-label">Décrochés</div><div class="k-val">' + decr + '</div><div class="k-trend">' + (td == null ? '—' : td + '% des appels') + '</div></div>'
+      + '<div class="kpi accent"><div class="k-label">Pitchs (&gt; 1min30)</div><div class="k-val">' + pitchs + '</div><div class="k-trend">' + (tp == null ? '—' : tp + '% des décrochés') + '</div></div>'
+      + '<div class="kpi"><div class="k-label">% pitchs → R1</div><div class="k-val">' + (tr == null ? '—' : tr + '%') + '</div><div class="k-trend">' + (r1p != null ? (r1p + ' R1 pris') : 'R1 indisponible') + '</div></div>'
       + '</div>';
   }
-  async function loadRingover(zoneId, days){
+  function monthlyHtml(byMonth, r1ParMois){
+    if(!byMonth || !byMonth.length) return '<div class="edit-hint" style="margin-top:8px;">Pas de données mensuelles sur la période.</div>';
+    var rows = byMonth.map(function(m){
+      var r1 = (r1ParMois && r1ParMois[m.ym] != null) ? r1ParMois[m.ym] : null;
+      var tr = (r1 != null && m.pitchs) ? Math.round(r1 / m.pitchs * 100) : null;
+      return '<tr>'
+        + '<td>' + moisLabel(m.ym) + '</td>'
+        + '<td style="text-align:right;">' + m.appels + '</td>'
+        + '<td style="text-align:right;">' + m.decroches + '</td>'
+        + '<td style="text-align:right;font-weight:700;">' + m.pitchs + '</td>'
+        + '<td style="text-align:right;">' + (r1 == null ? '—' : r1) + '</td>'
+        + '<td style="text-align:right;">' + (tr == null ? '—' : tr + '%') + '</td>'
+        + '</tr>';
+    }).join('');
+    return '<div class="sec-eyebrow" style="margin-top:14px;">Mois par mois</div>'
+      + '<div class="panel" style="padding:6px 10px;margin-top:4px;overflow-x:auto;"><table>'
+      + '<thead><tr><th>Mois</th><th style="text-align:right;">Appels</th><th style="text-align:right;">Décrochés</th><th style="text-align:right;">Pitchs</th><th style="text-align:right;">R1</th><th style="text-align:right;">% →R1</th></tr></thead>'
+      + '<tbody>' + rows + '</tbody></table></div>';
+  }
+  function periodSelHtml(zoneId, cur){
+    return '<div class="seg" style="margin:0 0 10px;">'
+      + PERIODS.map(function(p){ return '<button class="' + (cur === p[0] ? 'on' : '') + '" onclick="ringoverSetPeriod(\'' + zoneId + '\',\'' + p[0] + '\')">' + p[1] + '</button>'; }).join('')
+      + '</div>';
+  }
+  async function loadRingover(zoneId, period){
     var zone = document.getElementById(zoneId);
     if(!zone) return;
-    days = days || 7;
-    if(typeof SB_SESSION === 'undefined' || !SB_SESSION){ zone.innerHTML = '<div class="panel" style="padding:14px 16px;color:var(--signal)">Session expir\u00e9e \u2014 reconnectez-vous.</div>'; return; }
-    zone.innerHTML = '<div class="panel" style="padding:16px;">Chargement RingOver\u2026</div>';
+    period = period || RING_PERIOD[zoneId] || '7d';
+    RING_PERIOD[zoneId] = period;
+    var sel = periodSelHtml(zoneId, period);
+    if(typeof SB_SESSION === 'undefined' || !SB_SESSION){ zone.innerHTML = sel + '<div class="panel" style="padding:14px 16px;color:var(--signal)">Session expirée — reconnectez-vous.</div>'; return; }
+    zone.innerHTML = sel + '<div class="panel" style="padding:16px;">Chargement RingOver…</div>';
     try {
-      var res = await fetch('/api/ringover?days=' + days + '&direction=out', { headers: { Authorization: 'Bearer ' + SB_SESSION.access_token } });
-      var raw = await res.text(); var d; try { d = JSON.parse(raw); } catch(e){ d = null; }
-      if(res.status === 403){ zone.innerHTML = '<div class="panel" style="padding:14px 16px;color:var(--muted)">Indicateurs RingOver r\u00e9serv\u00e9s \u00e0 la direction et au commerce.</div>'; return; }
-      if(!res.ok || !d){ zone.innerHTML = '<div class="panel" style="padding:14px 16px;color:var(--signal)">RingOver indisponible' + (d && d.error ? (' : ' + d.error) : (' (' + res.status + ')')) + '. <button class="add-btn" onclick="loadRingover(\'' + zoneId + '\',' + days + ')">\u21bb R\u00e9essayer</button></div>'; return; }
-      zone.innerHTML = ringoverKpisHtml(d)
-        + '<div class="edit-hint" style="margin-top:6px;">Activit\u00e9 t\u00e9l\u00e9phonique sortante sur ' + ((d.periode && d.periode.days) || days) + ' jours \u00b7 source RingOver \u00b7 d\u00e9croch\u00e9 = conversation \u00e9tablie \u00b7 pitch = \u00e9change &gt; 1 min 30. <button class="add-btn" onclick="loadRingover(\'' + zoneId + '\',' + days + ')">\u21bb Actualiser</button></div>';
+      var auth = { Authorization: 'Bearer ' + SB_SESSION.access_token };
+      var rr = await fetch('/api/ringover?period=' + period + '&direction=out', { headers: auth });
+      var rt = await rr.text(); var d; try { d = JSON.parse(rt); } catch(e){ d = null; }
+      if(!rr.ok || !d){ zone.innerHTML = sel + '<div class="panel" style="padding:14px 16px;color:var(--signal)">RingOver indisponible' + (d && d.error ? (' : ' + d.error) : (' (' + rr.status + ')')) + '. <button class="add-btn" onclick="loadRingover(\'' + zoneId + '\',\'' + period + '\')">↻ Réessayer</button></div>'; return; }
+      var r1p = null, r1pm = null;
+      try {
+        var hr = await fetch('/api/hubspot?period=' + period, { headers: auth });
+        if(hr.ok){ var h = await hr.json(); r1p = (h.r1_periode != null ? h.r1_periode : null); r1pm = h.r1_par_mois || null; }
+      } catch(e){}
+      zone.innerHTML = sel
+        + ringoverKpisHtml(d, r1p)
+        + monthlyHtml(d.byMonth, r1pm)
+        + '<div class="edit-hint" style="margin-top:6px;">Appels sortants · source RingOver · décroché = conversation établie · pitch = échange &gt; 1 min 30 · R1 = deals entrés au pipeline (HubSpot). <button class="add-btn" onclick="loadRingover(\'' + zoneId + '\',\'' + period + '\')">↻ Actualiser</button></div>';
     } catch(e){
-      zone.innerHTML = '<div class="panel" style="padding:14px 16px;color:var(--signal)">RingOver injoignable. <button class="add-btn" onclick="loadRingover(\'' + zoneId + '\',' + days + ')">\u21bb R\u00e9essayer</button></div>';
+      zone.innerHTML = sel + '<div class="panel" style="padding:14px 16px;color:var(--signal)">RingOver injoignable. <button class="add-btn" onclick="loadRingover(\'' + zoneId + '\',\'' + period + '\')">↻ Réessayer</button></div>';
     }
   }
   window.loadRingover = loadRingover;
-
-  // injection d'un conteneur en amont du R1 dans les deux vues
+  window.ringoverSetPeriod = function(zoneId, period){ loadRingover(zoneId, period); };
   if(typeof VIEWS === 'object' && VIEWS){
     if(typeof VIEWS.paul === 'function'){
       var _op = VIEWS.paul;
       VIEWS.paul = function(){
         var out = _op();
         var anchor = '<div class="sec-eyebrow" style="margin-top:24px;">Pipeline</div>';
-        var bloc = '<div class="sec-eyebrow" style="margin-top:24px;">Avant R1 \u2014 prospection t\u00e9l\u00e9phonique</div>'
-          + '<div class="sec-title">Appels \u2192 D\u00e9croch\u00e9s \u2192 Pitchs</div>'
-          + '<div class="sec-note">Activit\u00e9 amont du R1 \u00b7 <span class="src"><span class="sdot"></span>source RingOver</span></div>'
-          + '<div id="ringoverZone"><div class="panel" style="padding:16px;">Chargement RingOver\u2026</div></div>';
+        var bloc = '<div class="sec-eyebrow" style="margin-top:24px;">Avant R1 — prospection téléphonique</div>'
+          + '<div class="sec-title">Appels → Décrochés → Pitchs → R1</div>'
+          + '<div class="sec-note">Activité amont du R1 · <span class="src"><span class="sdot"></span>source RingOver</span></div>'
+          + '<div id="ringoverZone"><div class="panel" style="padding:16px;">Chargement RingOver…</div></div>';
         return out.indexOf(anchor) >= 0 ? out.replace(anchor, bloc + anchor) : (bloc + out);
       };
     }
@@ -6750,24 +6788,22 @@ function kwLifecycleSyncBtn(){
       var _oe = VIEWS.eric;
       VIEWS.eric = function(){
         var out = _oe();
-        var anchor = '<div class="sec-eyebrow">\u00c9tat des fonctions</div>';
-        var bloc = '<div class="sec-eyebrow">Avant R1 \u2014 prospection t\u00e9l\u00e9phonique</div>'
-          + '<div class="sec-title">Appels \u2192 D\u00e9croch\u00e9s \u2192 Pitchs</div>'
-          + '<div class="sec-note">Activit\u00e9 commerciale amont du R1 \u00b7 source RingOver</div>'
-          + '<div id="ringoverZoneEric"><div class="panel" style="padding:16px;">Chargement RingOver\u2026</div></div>';
+        var anchor = '<div class="sec-eyebrow">État des fonctions</div>';
+        var bloc = '<div class="sec-eyebrow">Avant R1 — prospection téléphonique</div>'
+          + '<div class="sec-title">Appels → Décrochés → Pitchs → R1</div>'
+          + '<div class="sec-note">Activité commerciale amont du R1 · source RingOver</div>'
+          + '<div id="ringoverZoneEric"><div class="panel" style="padding:16px;">Chargement RingOver…</div></div>';
         return out.indexOf(anchor) >= 0 ? out.replace(anchor, bloc + anchor) : (bloc + out);
       };
     }
   }
-
-  // declenchement du chargement apres le rendu du tableau de bord
   if(typeof renderTab === 'function'){
     var _ort = renderTab;
     renderTab = function(){
       _ort.apply(this, arguments);
       if(typeof CURRENT_TAB !== 'undefined' && CURRENT_TAB === 'dash'){
-        if(CURRENT_ROLE === 'paul' && document.getElementById('ringoverZone')) loadRingover('ringoverZone', 7);
-        if(CURRENT_ROLE === 'eric' && document.getElementById('ringoverZoneEric')) loadRingover('ringoverZoneEric', 7);
+        if(CURRENT_ROLE === 'paul' && document.getElementById('ringoverZone')) loadRingover('ringoverZone');
+        if(CURRENT_ROLE === 'eric' && document.getElementById('ringoverZoneEric')) loadRingover('ringoverZoneEric');
       }
     };
   }
