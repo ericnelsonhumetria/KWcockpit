@@ -1,28 +1,22 @@
 // netlify/functions/ringover.js
 // Indicateurs "avant R1" pour les vues Commerce et Direction, via l'API RingOver.
-// Calcule, sur une periode glissante, pour les appels (par defaut SORTANTS) :
+// Sur une periode (7j / 30j / depuis le 1er janvier), pour les appels SORTANTS par defaut :
 //   - appels     : nombre d'appels
 //   - decroches  : appels ayant donne lieu a une conversation (incall_duration > 0, ou is_answered)
 //   - pitchs     : appels avec conversation >= 90 s (1 min 30)
-// La cle API RingOver reste cote serveur (jamais exposee au front).
+// Renvoie aussi une ventilation mois par mois (byMonth).
+// La cle API RingOver reste cote serveur.
 //
-// Appel (GET) : /api/ringover?days=7&direction=out
-//   days      : fenetre glissante en jours (1-31, defaut 7 — aligne sur "R1 cette semaine")
-//   direction : 'out' (defaut) | 'in' | 'all'
-// Sortie :
-//   { periode:{start,end,days,direction}, appels, decroches, pitchs,
-//     taux_decroche, taux_pitch_sur_decroche }
+// Appel (GET) : /api/ringover?period=7d|30d|ytd&direction=out
+// Sortie : { periode, appels, decroches, pitchs, taux_decroche, taux_pitch_sur_decroche,
+//            byMonth:[{ym, appels, decroches, pitchs}] }
 //
-// Prerequis : variable d'env RINGOVER_API_KEY (Dashboard RingOver -> Developpeur -> cles API,
-// droits sur les appels), scope Functions, puis redeploy.
-// API RingOver : base https://public-api.ringover.com/v2 , auth par header Authorization: <cle> (sans "Bearer").
+// Prerequis : RINGOVER_API_KEY (droits sur les appels), scope Functions.
+// API : base https://public-api.ringover.com/v2 , auth header Authorization: <cle> (sans "Bearer").
+// Limite API : plage <= 15 j par requete -> on decoupe en fenetres.
 
 const { createClient } = require('@supabase/supabase-js');
 
-// Garde robuste : l'utilisateur doit etre authentifie. Seuls les consultants (delivery)
-// sont exclus des indicateurs commerciaux. Si la lecture du role echoue, on n'exclut
-// pas un ayant-droit legitime (direction/commerce). Le bandeau n'apparait de toute facon
-// que dans les vues paul/eric (role-gating cote front).
 async function requireNonConsultant(authHeader) {
   if (!authHeader) return { ok: false, code: 401, msg: 'Non authentifié' };
   const token = authHeader.replace('Bearer ', '').trim();
@@ -40,7 +34,6 @@ async function requireNonConsultant(authHeader) {
   return { ok: true, email: email, role: role };
 }
 
-// tolerance aux variantes de nommage de l'API
 function dirOf(c) { return String(c.direction || c.type || c.way || '').toLowerCase(); }
 function inCall(c) {
   var v = (c.incall_duration != null) ? c.incall_duration
@@ -53,6 +46,21 @@ function isAnswered(c) {
   var ls = String(c.last_state || c.status || c.state || '').toUpperCase();
   if (ls) return ls === 'ANSWERED';
   return inCall(c) > 0;
+}
+function monthOf(c) {
+  var d = c.start_time || c.start || c.creation_date || c.date || c.answered_time || '';
+  var dt = new Date(d);
+  if (isNaN(dt.getTime())) return null;
+  return dt.getFullYear() + '-' + ('0' + (dt.getMonth() + 1)).slice(-2);
+}
+function windows(start, end, maxDays) {
+  var res = [], cur = new Date(start), span = maxDays * 86400000;
+  while (cur < end) {
+    var w2 = new Date(Math.min(cur.getTime() + span, end.getTime()));
+    res.push([new Date(cur), w2]);
+    cur = new Date(w2.getTime() + 1000);
+  }
+  return res.length ? res : [[new Date(start), new Date(end)]];
 }
 
 exports.handler = async (event) => {
@@ -74,72 +82,54 @@ exports.handler = async (event) => {
   if (!guard.ok) return { statusCode: guard.code, headers, body: JSON.stringify({ error: guard.msg }) };
 
   const q = event.queryStringParameters || {};
-  var days = parseInt(q.days, 10); if (!days || days < 1 || days > 31) days = 7;
   var direction = (q.direction === 'in' || q.direction === 'all') ? q.direction : 'out';
+  var period = (q.period === '30d' || q.period === 'ytd') ? q.period : '7d';
   var end = new Date();
-  var start = new Date(end.getTime() - days * 86400000);
+  var start;
+  if (period === 'ytd') start = new Date(end.getFullYear(), 0, 1);
+  else if (period === '30d') start = new Date(end.getTime() - 30 * 86400000);
+  else start = new Date(end.getTime() - 7 * 86400000);
 
-  // --- Mode diagnostic : /api/ringover?debug=1 ---
-  // Teste plusieurs variantes de l'appel /calls et renvoie les reponses brutes de
-  // RingOver, pour isoler la cause (endpoint, parametres, entete, perimetre de cle).
-  if (q.debug) {
-    var variantes = [
-      { note: 'GET /calls (minimal, header Authorization seul)', url: 'https://public-api.ringover.com/v2/calls?limit_count=5', hdr: { 'Authorization': key } },
-      { note: 'GET /calls avec Content-Type json', url: 'https://public-api.ringover.com/v2/calls?limit_count=5', hdr: { 'Authorization': key, 'Content-Type': 'application/json' } },
-      { note: 'GET /calls avec dates', url: 'https://public-api.ringover.com/v2/calls?start_date=' + encodeURIComponent(start.toISOString()) + '&end_date=' + encodeURIComponent(end.toISOString()) + '&limit_count=5', hdr: { 'Authorization': key } },
-      { note: 'GET /calls avec Bearer', url: 'https://public-api.ringover.com/v2/calls?limit_count=5', hdr: { 'Authorization': 'Bearer ' + key } }
-    ];
-    var out = [];
-    for (var vi = 0; vi < variantes.length; vi++) {
-      var v = variantes[vi];
-      try {
-        var rr = await fetch(v.url, { headers: v.hdr });
-        var bb = await rr.text();
-        out.push({ note: v.note, status: rr.status, body: bb.slice(0, 220) });
-      } catch (e) { out.push({ note: v.note, error: (e && e.message) || 'err' }); }
-    }
-    return { statusCode: 200, headers, body: JSON.stringify({ debug: true, key_len: (key || '').length, tests: out }, null, 2) };
-  }
-
-  // Pagination RingOver (max 1000 appels par page). Fenetre <= 31 j pour rester sous les limites de l'API.
   var calls = [];
-  var offset = 0, pageSize = 1000, pages = 0, maxPages = 25;
   const controller = new AbortController();
   const tid = setTimeout(() => controller.abort(), 25000);
   try {
-    while (pages < maxPages) {
-      pages++;
-      var url = 'https://public-api.ringover.com/v2/calls'
-        + '?start_date=' + encodeURIComponent(start.toISOString())
-        + '&end_date=' + encodeURIComponent(end.toISOString())
-        + '&limit_count=' + pageSize + '&limit_offset=' + offset;
-      var res = await fetch(url, { headers: { 'Authorization': key, 'Content-Type': 'application/json' }, signal: controller.signal });
-      if (res.status === 204) break; // aucun appel sur la periode
-      var raw = await res.text();
-      var data; try { data = JSON.parse(raw); } catch (e) { data = null; }
-      if (!res.ok) {
-        clearTimeout(tid);
-        var detail = '';
-        if (data && typeof data === 'object') detail = data.detail || data.message || data.error || data.title || JSON.stringify(data);
-        else if (data) detail = String(data);
-        else detail = raw.slice(0, 200);
-        // On ne propage PAS 401/403 bruts de RingOver : le front les confondrait avec
-        // la garde d'acces du Cockpit. Erreur amont -> 502, message explicite.
-        var upstreamAuth = (res.status === 401 || res.status === 403);
-        var code = upstreamAuth ? 502 : res.status;
-        var hint = upstreamAuth ? ' \u2014 la cl\u00e9 API RingOver n\'a pas les droits sur les appels, ou ne couvre pas les utilisateurs concern\u00e9s.' : '';
-        return { statusCode: code, headers, body: JSON.stringify({ error: 'RingOver (' + res.status + ') : ' + detail + hint }) };
+    var wins = windows(start, end, 15);
+    for (var wi = 0; wi < wins.length; wi++) {
+      var ws = wins[wi][0], we = wins[wi][1];
+      var offset = 0, pageSize = 1000, pages = 0, maxPages = 20;
+      while (pages < maxPages) {
+        pages++;
+        var url = 'https://public-api.ringover.com/v2/calls'
+          + '?start_date=' + encodeURIComponent(ws.toISOString())
+          + '&end_date=' + encodeURIComponent(we.toISOString())
+          + '&limit_count=' + pageSize + '&limit_offset=' + offset;
+        var res = await fetch(url, { headers: { 'Authorization': key }, signal: controller.signal });
+        if (res.status === 204) break;
+        var raw = await res.text();
+        var data; try { data = JSON.parse(raw); } catch (e) { data = null; }
+        if (!res.ok) {
+          clearTimeout(tid);
+          var detail = '';
+          if (data && typeof data === 'object') detail = data.detail || data.message || data.error || data.title || JSON.stringify(data);
+          else if (data) detail = String(data);
+          else detail = raw.slice(0, 200);
+          var upstreamAuth = (res.status === 401 || res.status === 403);
+          var code = upstreamAuth ? 502 : res.status;
+          var hint = upstreamAuth ? ' \u2014 la cl\u00e9 API RingOver n\'a pas les droits sur les appels, ou ne couvre pas les utilisateurs concern\u00e9s.' : '';
+          return { statusCode: code, headers, body: JSON.stringify({ error: 'RingOver (' + res.status + ') : ' + detail + hint }) };
+        }
+        var list = (data && (data.call_list || data.calls || data.list)) || [];
+        calls = calls.concat(list);
+        var total = data ? (data.total_call_count != null ? data.total_call_count : data.call_list_count) : null;
+        offset += pageSize;
+        if (list.length < pageSize || (total != null && (offset >= total))) break;
       }
-      var list = (data && (data.call_list || data.calls || data.list)) || [];
-      calls = calls.concat(list);
-      var total = data ? (data.total_call_count != null ? data.total_call_count : data.call_list_count) : null;
-      offset += pageSize;
-      if (list.length < pageSize || (total != null && calls.length >= total)) break;
     }
     clearTimeout(tid);
   } catch (e) {
     clearTimeout(tid);
-    var m = e.name === 'AbortError' ? 'Délai dépassé (réduire la fenêtre)' : ('RingOver injoignable : ' + e.message);
+    var m = e.name === 'AbortError' ? 'Délai dépassé — réduisez la période (l\'historique annuel peut être volumineux).' : ('RingOver injoignable : ' + e.message);
     return { statusCode: 502, headers, body: JSON.stringify({ error: m }) };
   }
 
@@ -152,14 +142,27 @@ exports.handler = async (event) => {
   var decroches = scoped.filter(isAnswered).length;
   var pitchs = scoped.filter(function (c) { return inCall(c) >= 90; }).length;
 
+  // ventilation mois par mois
+  var bm = {};
+  scoped.forEach(function (c) {
+    var ym = monthOf(c);
+    if (!ym) return;
+    if (!bm[ym]) bm[ym] = { ym: ym, appels: 0, decroches: 0, pitchs: 0 };
+    bm[ym].appels++;
+    if (isAnswered(c)) bm[ym].decroches++;
+    if (inCall(c) >= 90) bm[ym].pitchs++;
+  });
+  var byMonth = Object.keys(bm).sort().map(function (k) { return bm[k]; });
+
   return {
     statusCode: 200, headers, body: JSON.stringify({
-      periode: { start: start.toISOString(), end: end.toISOString(), days: days, direction: direction },
+      periode: { start: start.toISOString(), end: end.toISOString(), period: period, direction: direction },
       appels: appels,
       decroches: decroches,
       pitchs: pitchs,
       taux_decroche: appels ? Math.round(decroches / appels * 100) : 0,
       taux_pitch_sur_decroche: decroches ? Math.round(pitchs / decroches * 100) : 0,
+      byMonth: byMonth,
     }),
   };
 };
