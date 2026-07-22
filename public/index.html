@@ -7302,7 +7302,7 @@ function kwLifecycleSyncBtn(){
       var mm = await SB.from('pdc_missions').upsert({ code: 'PLANNING', intitule: 'Planning importé (multi-consultants)', client: '', statut: 'En cours' }, { onConflict: 'code' });
       if(mm.error) throw mm.error;
     } catch(e){ if(msg) msg.innerHTML = '<div class="edit-hint" style="color:var(--signal);margin-top:8px;">Impossible de créer la mission PLANNING : ' + ((e && e.message) || e) + '</div>'; return; }
-    var done = 0, errs = [];
+    var done = 0, errs = [], verified = 0, zeros = [];
     for(var i = 0; i < todo.length; i++){
       var p = todo[i], email = MAP[p.sheet];
       try {
@@ -7313,12 +7313,17 @@ function kwLifecycleSyncBtn(){
           var up = await SB.from('pdc_charge').upsert(rows.slice(c, c + 400), { onConflict: 'email,date_jour,mission_code,etat' });
           if(up.error) throw up.error;
         }
+        var vc = 0;
+        try { var chk = await SB.from('pdc_charge').select('date_jour', { count: 'exact', head: true }).eq('email', email).eq('mission_code', 'PLANNING').eq('etat', 'planifie'); vc = chk.count || 0; } catch(e){}
+        verified += vc;
+        if(vc === 0 && rows.length > 0) zeros.push(p.sheet + ' (' + email + ')');
         done++;
       } catch(e){ errs.push(p.sheet + ' : ' + ((e && e.message) || e)); }
     }
-    if(msg) msg.innerHTML = '<div class="save-ok" style="display:block;margin-top:8px;">' + done + ' consultant·s écrit·s dans le plan de charge.'
-      + (errs.length ? ' <span style="color:var(--signal);">Erreurs : ' + errs.join(' · ') + '</span>' : '')
-      + ' Les TJM Admin × jours planifiés alimentent maintenant la projection freelance.</div>';
+    var extra = zeros.length ? ' <span style="color:var(--signal);">⚠ Rien persisté pour : ' + zeros.join(', ') + ' — écriture bloquée (droits/RLS sur pdc_charge pour un autre compte). Signale-le-moi.</span>' : '';
+    if(msg) msg.innerHTML = '<div class="save-ok" style="display:block;margin-top:8px;">' + done + ' consultant·s traité·s · <b>' + verified + ' jours vérifiés en base</b>.'
+      + (errs.length ? ' <span style="color:var(--signal);">Erreurs : ' + errs.join(' · ') + '</span>' : '') + extra
+      + ' Recharge « ⟱ Charger la vue consolidée » dans Charge équipe pour voir le résultat (les boutons d\u2019année ne rechargent pas). Projection freelance = jours × TJM.</div>';
   };
   window.renderPdcMultiImport = function(){
     var z = document.getElementById('pdcMultiImportZone'); if(!z) return;
