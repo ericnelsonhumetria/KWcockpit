@@ -126,39 +126,6 @@ async function getPitchCallIds(headers) {
   return ids;
 }
 
-// Historique de stade pour un lot d'ids de deals (batch read), best-effort et DÉCOUPLÉ
-// du chemin critique. Renvoie une Map id -> Set(stades jamais atteints).
-// En cas d'echec : Map vide -> R2/Offre passent à null, R1/pitch restent valides.
-async function getStageHistory(headers, dealIds) {
-  const map = new Map();
-  let err = null;
-  const deadline = Date.now() + 12000;
-  for (let i = 0; i < dealIds.length && Date.now() < deadline; i += 100) {
-    const chunk = dealIds.slice(i, i + 100);
-    const body = { properties: ['dealstage'], propertiesWithHistory: ['dealstage'], inputs: chunk.map(id => ({ id: String(id) })) };
-    let res;
-    try {
-      res = await fetchWithTimeout('https://api.hubapi.com/crm/v3/objects/deals/batch/read',
-        { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, 9000);
-    } catch (e) { err = 'fetch:' + String(e.message || e); break; }
-    if (!res.ok) {
-      let t = '';
-      try { t = (await res.text()).slice(0, 200); } catch (_) {}
-      err = 'http ' + res.status + ':' + t;
-      break;
-    }
-    const data = await res.json();
-    (data.results || []).forEach(d => {
-      const hist = (d.propertiesWithHistory && d.propertiesWithHistory.dealstage) || [];
-      const ever = new Set(hist.map(h => h.value).filter(Boolean));
-      const cur = d.properties && d.properties.dealstage;
-      if (cur) ever.add(cur);
-      map.set(String(d.id), ever);
-    });
-  }
-  return { map, err };
-}
-
 exports.handler = async (event) => {
   const cors = {
     'Access-Control-Allow-Origin': process.env.APP_ORIGIN || '*',
@@ -186,8 +153,15 @@ exports.handler = async (event) => {
     const idR1 = stageIdFor('R1');
     const idR2 = stageIdFor('evaluation des besoins');
     const idProp = stageIdFor('presentation de solutions');
+    const idObj = stageIdFor('traitement des objections');
+    const idFinal = stageIdFor('finalisation des conditions');
     const idGagne = stageIdFor('gagnee');
     const idPerdu = stageIdFor('perdu');
+    // Chemin principal de progression (ordre commercial). Un deal dont le stade COURANT
+    // est dans "depuis R2" a donc atteint R2 ; idem "depuis Offre". Stades hors chemin
+    // (perdu, suite R1, nurturing, no-show) non comptés : voir _diag.cohorte_perdus.
+    const depuisR2 = [idR2, idProp, idObj, idFinal, idGagne].filter(Boolean);
+    const depuisOffre = [idProp, idObj, idFinal, idGagne].filter(Boolean);
 
     // deals avec dates d'entree de stade (cohorte) + appels associes (pitchs)
     const deals = await getDeals(headers, pipelineId, [idR1, idR2, idProp]);
@@ -200,11 +174,6 @@ exports.handler = async (event) => {
     else if (qp.period === '30d') periodStart = now - 30 * 24 * 3600 * 1000;
     else if (qp.period === '7d') periodStart = now - 7 * 24 * 3600 * 1000;
     else if (qp.days) { const dd = parseInt(qp.days, 10); if (dd >= 1 && dd <= 400) periodStart = now - dd * 24 * 3600 * 1000; }
-    const _inPer = (ts) => { if (!ts) return periodStart == null; const t = new Date(ts).getTime(); return periodStart == null ? true : (!isNaN(t) && t >= periodStart); };
-
-    // HISTORIQUE DE STADE AVANT la rafale pitch : l'API search HubSpot (~4 req/s) throttle
-    // le token, et le batch/read qui suivait se prenait le 429. Ici quota frais.
-    const histRes = await getStageHistory(headers, deals.filter(d => _inPer(d.createdate)).map(d => d.id).filter(Boolean));
 
     const pitchSet = await getPitchCallIds(headers);
 
@@ -244,9 +213,8 @@ exports.handler = async (event) => {
     // ENTONNOIR DE COHORTE (non faussée) :
     // NB cohorte : ancrée sur createdate (= R1 pris chez KW). hs_date_entered_<R1>
     // n'est PAS enregistré dans ce CRM => createdate, signal fiable, cohérent avec
-    // r1_periode/r1_par_mois. Progression R2/Offre via HISTORIQUE DE STADE
-    // (propertiesWithHistory=dealstage) : "a déjà atteint le stade", robuste aux deals
-    // aujourd'hui perdus/parkés — les dates d'entrée de stade étant mortes sur cette instance.
+    // r1_periode/r1_par_mois. Progression R2/Offre via STADE COURANT (chemin principal) :
+    // borne basse — les deals perdus ne sont pas attribués à un stade atteint (cf. _diag).
     let entonnoir = null;
     {
       const inPeriode = (ts) => {
@@ -258,17 +226,13 @@ exports.handler = async (event) => {
       const cohorte = deals.filter(d => inPeriode(d.createdate));
       const cR1 = cohorte.length;
       const cR1Pitch = cohorte.filter(d => d.callIds.some(id => pitchSet.has(id))).length;
-      // R2 / Offre : "a déjà atteint" via historique de stade (préchargé avant le pitch)
-      const histMap = histRes.map;
-      const histOk = histMap.size > 0;
-      const ever = (d) => histMap.get(String(d.id)) || new Set();
-      const cR2 = (idR2 && histOk) ? cohorte.filter(d => ever(d).has(idR2)).length : null;
-      const cOffre = (idProp && histOk) ? cohorte.filter(d => ever(d).has(idProp)).length : null;
-      // Diagnostic (retirable une fois validé) :
-      const ancienR1ViaEntree = idR1 ? deals.filter(d => inPeriode(d.entered[idR1])).length : null;
-      const r2ViaDate = idR2 ? cohorte.filter(d => d.entered[idR2]).length : null;
-      const offreViaDate = idProp ? cohorte.filter(d => d.entered[idProp]).length : null;
-      const multiStade = cohorte.filter(d => ever(d).size > 1).length;
+      // R2 / Offre : deal dont le STADE COURANT est à R2-ou-au-delà / Offre-ou-au-delà
+      // (chemin principal). Borne basse : les perdus ne sont pas attribués (cf. _diag).
+      const cR2 = depuisR2.length ? cohorte.filter(d => depuisR2.includes(d.stage)).length : null;
+      const cOffre = depuisOffre.length ? cohorte.filter(d => depuisOffre.includes(d.stage)).length : null;
+      // Diagnostic (retirable une fois calibré) :
+      const cPerdus = idPerdu ? cohorte.filter(d => d.stage === idPerdu).length : null;
+      const cGagnes = idGagne ? cohorte.filter(d => d.stage === idGagne).length : null;
       entonnoir = {
         periode: qp.period || (qp.days ? (qp.days + 'd') : 'tout'),
         r1: cR1,
@@ -276,21 +240,18 @@ exports.handler = async (event) => {
         r2: cR2,
         offre: cOffre,
         taux_pitch_r1: cR1 ? Math.round(cR1Pitch / cR1 * 100) : null,                // % des R1 tracés à un pitch loggé
-        taux_r1_r2: (cR1 && cR2 != null) ? Math.round(cR2 / cR1 * 100) : null,        // cohorte (rigoureux)
-        taux_r2_offre: (cR2 && cOffre != null) ? Math.round(cOffre / cR2 * 100) : null, // cohorte (rigoureux)
+        taux_r1_r2: (cR1 && cR2 != null) ? Math.round(cR2 / cR1 * 100) : null,        // borne basse (stade courant)
+        taux_r2_offre: (cR2 && cOffre != null) ? Math.round(cOffre / cR2 * 100) : null, // borne basse (stade courant)
         pitch_traceable: pitchSet.size > 0,                                          // false si l'API calls a échoué
         ancre: 'createdate',
-        methode_progression: 'historique_stade_batch',
+        methode_progression: 'stade_courant',
+        borne: 'basse',                                                              // perdus non attribués
         cible_r1_r2: 33,
         cible_r2_offre: 50,
         _diag: {
-          historique_ok: histOk,                          // false => batch history KO (R1/pitch restent OK)
-          historique_err: histRes.err,                    // raison de l'échec (statut HTTP / timeout) si historique_ok=false
-          r1_ancien_via_entree_stade: ancienR1ViaEntree,  // attendu ~0
-          r2_via_date_entree: r2ViaDate,                  // ancienne méthode (attendu 0)
-          offre_via_date_entree: offreViaDate,            // ancienne méthode (attendu 0)
-          cohorte_multi_stade: multiStade,                // deals cohorte avec >1 stade => historique exploitable
           cohorte_taille: cR1,
+          cohorte_perdus: cPerdus,        // deals de la cohorte déjà en "Fermé perdu" (angle mort de la borne basse)
+          cohorte_gagnes: cGagnes,        // deals de la cohorte déjà gagnés
         },
       };
     }
