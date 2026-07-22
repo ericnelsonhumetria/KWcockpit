@@ -1447,6 +1447,7 @@ async function loadAdmin(){
     const data = await res.json();
     ADMIN_USERS = data.users || [];
     SALARIES = (await loadShared('pdc_salaries')) || [];
+    FREELANCE_TJM = (await loadShared('pdc_cout_freelance')) || {};
     renderAdmin(ADMIN_USERS);
   } catch(e){ zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Connexion impossible.</div>'; }
 }
@@ -1480,13 +1481,16 @@ function renderAdmin(users){
       <div id="adminMsg"></div>
     </div>
     <div id="salZone"></div>
+    <div id="freelanceTjmZone"></div>
     <div id="consAccessZone"></div>
     <div id="depBaremeZone"></div>`;
   renderSalaries();
+  renderFreelanceTjm();
   renderConsultantAccess();
   renderDepBareme();
 }
 let SALARIES = [];
+let FREELANCE_TJM = {};
 let ADMIN_USERS = [];
 async function loadSalaries(){ SALARIES = (await loadShared('pdc_salaries')) || []; }
 function renderSalaries(){
@@ -1507,6 +1511,36 @@ async function toggleSalarie(email){
   if(i>=0) SALARIES.splice(i,1); else SALARIES.push(email);
   await saveShared('pdc_salaries', SALARIES);
   renderSalaries();
+  renderFreelanceTjm();
+}
+/* ---- Tarifs journaliers freelances (TJM) : saisis en Admin, stockes dans
+   pdc_cout_freelance (meme cle que le lien projection). Freelance = consultant
+   non marque salarie. ---- */
+function renderFreelanceTjm(){
+  const z = document.getElementById('freelanceTjmZone'); if(!z) return;
+  if(!FREELANCE_TJM || typeof FREELANCE_TJM !== 'object') FREELANCE_TJM = {};
+  const cons = (ADMIN_USERS||[]).filter(u => u.role === 'consultant' && !SALARIES.includes(u.email)).map(u => u.email);
+  Object.keys(FREELANCE_TJM).forEach(e => { if(e && cons.indexOf(e) < 0) cons.push(e); });
+  cons.sort();
+  const rows = cons.map(e => {
+    const v = (FREELANCE_TJM[e] != null && FREELANCE_TJM[e] !== 0) ? FREELANCE_TJM[e] : '';
+    return `<tr><td><b>${e}</b></td><td style="text-align:right;"><input type="number" step="10" min="0" value="${v}" placeholder="—" onchange="setFreelanceTjm('${e}', this.value)" style="width:120px;text-align:right;"> <span class="sub-cell">&euro;/j</span></td></tr>`;
+  }).join('');
+  z.innerHTML = `<div class="panel" style="padding:12px 16px 16px;margin-top:16px;">
+      <div class="sec-eyebrow">Plan de charge</div>
+      <div class="sec-title" style="font-size:16px;">Tarifs journaliers freelances (TJM)</div>
+      <div class="sec-note">Co&ucirc;t jour de sous-traitance par freelance (consultants non salari&eacute;s). Alimente la projection des charges freelance : co&ucirc;t = jours planifi&eacute;s &times; TJM. Enregistrement automatique.</div>
+      ${cons.length ? `<table style="margin-top:8px;"><thead><tr><th>Freelance</th><th style="text-align:right;">Co&ucirc;t / jour</th></tr></thead><tbody>${rows}</tbody></table>` : '<div class="edit-hint" style="margin-top:8px;">Aucun freelance : tous les consultants sont marqu&eacute;s salari&eacute;s, ou aucun consultant d&eacute;fini.</div>'}
+      <div class="edit-hint" style="margin-top:10px;">${cons.filter(e => (+FREELANCE_TJM[e] || 0) > 0).length} TJM renseign&eacute;(s).</div>
+    </div>`;
+}
+async function setFreelanceTjm(email, val){
+  if(!FREELANCE_TJM || typeof FREELANCE_TJM !== 'object') FREELANCE_TJM = {};
+  const n = Number(val);
+  FREELANCE_TJM[email] = (isFinite(n) && n > 0) ? Math.round(n) : 0;
+  await saveShared('pdc_cout_freelance', FREELANCE_TJM);
+  flashSync('&#10003; TJM enregistr\u00e9');
+  renderFreelanceTjm();
 }
 /* ---- Acces consultants : creation en lot (onglet Admin, role consultant) ----
    Cree les comptes manquants via /api/admin (action create) et affiche les
