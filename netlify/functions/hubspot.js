@@ -191,6 +191,21 @@ exports.handler = async (event) => {
 
     // deals avec dates d'entree de stade (cohorte) + appels associes (pitchs)
     const deals = await getDeals(headers, pipelineId, [idR1, idR2, idProp]);
+
+    // Fenêtre de période (createdate) — calculée tôt car utilisée par la cohorte ET r1_periode
+    const now = Date.now();
+    const qp = event.queryStringParameters || {};
+    let periodStart = null;
+    if (qp.period === 'ytd') periodStart = new Date(new Date().getFullYear(), 0, 1).getTime();
+    else if (qp.period === '30d') periodStart = now - 30 * 24 * 3600 * 1000;
+    else if (qp.period === '7d') periodStart = now - 7 * 24 * 3600 * 1000;
+    else if (qp.days) { const dd = parseInt(qp.days, 10); if (dd >= 1 && dd <= 400) periodStart = now - dd * 24 * 3600 * 1000; }
+    const _inPer = (ts) => { if (!ts) return periodStart == null; const t = new Date(ts).getTime(); return periodStart == null ? true : (!isNaN(t) && t >= periodStart); };
+
+    // HISTORIQUE DE STADE AVANT la rafale pitch : l'API search HubSpot (~4 req/s) throttle
+    // le token, et le batch/read qui suivait se prenait le 429. Ici quota frais.
+    const histRes = await getStageHistory(headers, deals.filter(d => _inPer(d.createdate)).map(d => d.id).filter(Boolean));
+
     const pitchSet = await getPitchCallIds(headers);
 
     // STOCK : nombre de deals par étape (libellé lisible)
@@ -200,7 +215,6 @@ exports.handler = async (event) => {
     });
 
     // FLUX : deals créés dans les 7 derniers jours ET actuellement en R1
-    const now = Date.now();
     const septJours = 7 * 24 * 3600 * 1000;
     const fluxR1 = deals.filter(d =>
       d.stage === idR1 && d.createdate && (now - new Date(d.createdate).getTime()) <= septJours
@@ -211,14 +225,7 @@ exports.handler = async (event) => {
     const nbR2 = idR2 ? deals.filter(d => d.stage === idR2).length : 0;
     const nbProp = idProp ? deals.filter(d => d.stage === idProp).length : 0;
 
-    // R1 PRIS SUR UNE PERIODE (?period=7d|30d|ytd ou ?days=N) : un deal entre dans le
-    // pipeline prospects (createdate) = un R1 pris, quel que soit son stage actuel.
-    const qp = event.queryStringParameters || {};
-    let periodStart = null;
-    if (qp.period === 'ytd') periodStart = new Date(new Date().getFullYear(), 0, 1).getTime();
-    else if (qp.period === '30d') periodStart = now - 30 * 24 * 3600 * 1000;
-    else if (qp.period === '7d') periodStart = now - 7 * 24 * 3600 * 1000;
-    else if (qp.days) { const dd = parseInt(qp.days, 10); if (dd >= 1 && dd <= 400) periodStart = now - dd * 24 * 3600 * 1000; }
+    // R1 PRIS SUR UNE PERIODE : createdate >= periodStart (calculé plus haut).
     let r1Periode = null;
     if (periodStart != null) {
       r1Periode = deals.filter(d => d.createdate && new Date(d.createdate).getTime() >= periodStart).length;
@@ -234,10 +241,7 @@ exports.handler = async (event) => {
       r1ParMois[ym] = (r1ParMois[ym] || 0) + 1;
     });
 
-    // ENTONNOIR DE COHORTE (non fausse) : on suit les deals ENTRES EN R1 sur la periode
-    // (hs_date_entered_R1), et on regarde combien sont ENSUITE entres en R2 puis en Offre
-    // (dates d'entree de stade), quel que soit leur stade actuel. Le taux pitch->R1 mesure
-    // la part des R1 tracables a un appel >= 90 s loggé sur le deal.
+    // ENTONNOIR DE COHORTE (non faussée) :
     // NB cohorte : ancrée sur createdate (= R1 pris chez KW). hs_date_entered_<R1>
     // n'est PAS enregistré dans ce CRM => createdate, signal fiable, cohérent avec
     // r1_periode/r1_par_mois. Progression R2/Offre via HISTORIQUE DE STADE
@@ -254,8 +258,7 @@ exports.handler = async (event) => {
       const cohorte = deals.filter(d => inPeriode(d.createdate));
       const cR1 = cohorte.length;
       const cR1Pitch = cohorte.filter(d => d.callIds.some(id => pitchSet.has(id))).length;
-      // R2 / Offre : "a déjà atteint" via historique de stade (batch read ciblé cohorte, best-effort)
-      const histRes = await getStageHistory(headers, cohorte.map(d => d.id).filter(Boolean));
+      // R2 / Offre : "a déjà atteint" via historique de stade (préchargé avant le pitch)
       const histMap = histRes.map;
       const histOk = histMap.size > 0;
       const ever = (d) => histMap.get(String(d.id)) || new Set();
