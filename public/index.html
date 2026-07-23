@@ -714,6 +714,7 @@ function renderTab(){
     document.getElementById('view').innerHTML = renderPdc();
   } else if(CURRENT_TAB==='pdccons'){
     document.getElementById('view').innerHTML = renderPdcCons();
+    loadPdcCons();
   } else if(CURRENT_TAB==='dep'){
     document.getElementById('view').innerHTML = renderDep();
     depInit();
