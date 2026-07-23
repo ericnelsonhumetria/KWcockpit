@@ -7315,6 +7315,7 @@ function kwLifecycleSyncBtn(){
       var ko = res.filter(function(x){ return x.error || !(x.verified > 0); });
       var totalV = res.reduce(function(s, x){ return s + (x.verified || 0); }, 0);
       var html = '<div class="save-ok" style="display:block;margin-top:8px;"><b>' + ok.length + '/' + res.length + ' consultants écrits · ' + totalV + ' jours vérifiés en base.</b>';
+      html += '<div style="margin-top:4px;font-size:11.5px;font-family:monospace;">' + res.map(function(x){ return x.email + ' : ' + (x.error ? ('ERREUR ' + x.error) : (x.verified + ' j')); }).join('<br>') + '</div>';
       if(ko.length){ html += '<div style="color:var(--signal);margin-top:4px;">Non écrits : ' + ko.map(function(x){ return x.email + (x.error ? (' (' + x.error + ')') : ' (0 vérifié)'); }).join(' · ') + '</div>'; }
       html += '<div class="edit-hint" style="margin-top:4px;">Recharge « ⟱ Charger la vue consolidée » dans Charge équipe (repasse par un autre onglet). Projection freelance = jours × TJM.</div></div>';
       if(msg) msg.innerHTML = html;
