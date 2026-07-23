@@ -1447,10 +1447,10 @@ async function loadAdmin(){
     if(!res.ok){ zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Erreur ('+res.status+').</div>'; return; }
     const data = await res.json();
     ADMIN_USERS = data.users || [];
-    SALARIES = (await loadShared('pdc_salaries')) || [];
-    FREELANCE_TJM = (await loadShared('pdc_cout_freelance')) || {};
-    renderAdmin(ADMIN_USERS);
-  } catch(e){ zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Connexion impossible.</div>'; }
+  } catch(e){ zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Connexion impossible à /api/admin — ' + ((e && e.message) ? e.message : 'erreur réseau') + '</div>'; return; }
+  try { SALARIES = (await loadShared('pdc_salaries')) || []; } catch(e){ SALARIES = SALARIES || []; }
+  try { FREELANCE_TJM = (await loadShared('pdc_cout_freelance')) || {}; } catch(e){ FREELANCE_TJM = FREELANCE_TJM || {}; }
+  renderAdmin(ADMIN_USERS);
 }
 function renderAdmin(users){
   const zone = document.getElementById('adminZone');
@@ -1487,8 +1487,8 @@ function renderAdmin(users){
     <div id="consAccessZone"></div>
     <div id="depBaremeZone"></div>`;
   renderSalaries();
-  renderFreelanceTjm();
-  if(window.renderPdcMultiImport) window.renderPdcMultiImport();
+  try { renderFreelanceTjm(); } catch(e){ console.error('renderFreelanceTjm', e); }
+  try { if(window.renderPdcMultiImport) window.renderPdcMultiImport(); } catch(e){ console.error('renderPdcMultiImport', e); }
   renderConsultantAccess();
   renderDepBareme();
 }
