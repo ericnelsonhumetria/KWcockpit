@@ -7091,8 +7091,12 @@ function kwLifecycleSyncBtn(){
     return { atter: (land[sc] != null ? land[sc] : base), scenario: sc };
   }
 
-  function caCardHtml(caReal, atter, obj){
+  function caCardHtml(caReal, land, obj, sc){
     var loaded = caReal != null;
+    var SC = ['facture','signe','p75','p50'];
+    var SCL = { facture:'Facturé', signe:'Commandé', p75:'Pond. 75%', p50:'Pond. 50%' };
+    if(SC.indexOf(sc) < 0) sc = 'signe';
+    var atter = (land && land[sc] != null) ? land[sc] : (caReal || 0);
     var pctReal = (obj > 0 && loaded) ? Math.round(caReal / obj * 100) : 0;
     var pctAtt = (obj > 0) ? Math.round(atter / obj * 100) : 0;
     var wReal = Math.max(0, Math.min(100, pctReal));
@@ -7102,13 +7106,19 @@ function kwLifecycleSyncBtn(){
     var barre = '<div style="position:relative;height:9px;background:#ece6da;border-radius:5px;overflow:hidden;margin:8px 0 5px;">'
       + '<div style="position:absolute;left:0;top:0;height:100%;width:' + wReal + '%;background:#560A0F;"></div>'
       + '<div style="position:absolute;left:' + wReal + '%;top:0;height:100%;width:' + wProj + '%;background:#EFB810;"></div></div>';
+    var segs = '<div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:6px;">'
+      + SC.map(function(k){
+          var on = k === sc;
+          return '<button onclick="csSetScenario(\'' + k + '\')" style="flex:1 1 auto;font-size:9.5px;font-weight:700;padding:3px 5px;border-radius:6px;cursor:pointer;border:1px solid ' + (on ? '#EFB810' : 'rgba(86,10,15,.25)') + ';background:' + (on ? '#EFB810' : '#fff') + ';color:#560A0F;">' + SCL[k] + '</button>';
+        }).join('') + '</div>';
     return '<div style="background:#faf7f2;border:1px solid var(--line);border-radius:10px;padding:12px 14px;height:100%;box-sizing:border-box;">'
-      + '<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;">CA ' + Y + '</div>'
-      + '<div style="font-size:26px;font-weight:800;color:#560A0F;line-height:1.15;margin-top:2px;">' + (loaded ? euroC(caReal) : '—') + '</div>'
-      + '<div style="font-size:11px;color:var(--muted);">réalisé' + (loaded ? '' : ' (Evoliz indispo)') + '</div>'
+      + '<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;">CA ' + Y + ' · ' + SCL[sc] + '</div>'
+      + '<div style="font-size:26px;font-weight:800;color:#560A0F;line-height:1.15;margin-top:2px;">' + (loaded ? euroC(atter) : '—') + '</div>'
+      + '<div style="font-size:11px;color:var(--muted);">réalisé ' + (loaded ? euroC(caReal) : '(Evoliz indispo)') + '</div>'
       + barre
       + '<div style="font-size:11px;color:var(--muted);"><span style="color:#b8860b;font-weight:700;">' + euroC(atter) + '</span> atterrissage · obj. ' + euroC(obj) + '</div>'
-      + '<div style="font-size:11px;font-weight:700;color:' + (ecart >= 0 ? '#2e7d46' : '#b3541e') + ';margin-top:2px;">' + ecartTxt + '</div></div>';
+      + '<div style="font-size:11px;font-weight:700;color:' + (ecart >= 0 ? '#2e7d46' : '#b3541e') + ';margin-top:2px;">' + ecartTxt + '</div>'
+      + segs + '</div>';
   }
 
   function ebitdaCardHtml(caReal, opexEbitda, atter){
@@ -7126,21 +7136,49 @@ function kwLifecycleSyncBtn(){
   }
 
   async function loadFinanceCards(){
-    var zc = document.getElementById('csCA'), ze = document.getElementById('csEbitda');
-    if(!zc && !ze) return;
-    if(!hasSession()){ if(zc) zc.innerHTML = kpiMini('CA ' + Y, '—', 'session expirée'); if(ze) ze.innerHTML = kpiMini('EBITDA ' + Y, '—', 'session expirée'); return; }
+    var zc = document.getElementById('csCA'), ze = document.getElementById('csEbitda'), zt = document.getElementById('csTreso');
+    if(!zc && !ze && !zt) return;
+    if(!hasSession()){ if(zc) zc.innerHTML = kpiMini('CA ' + Y, '—', 'session expirée'); if(ze) ze.innerHTML = kpiMini('EBITDA ' + Y, '—', 'session expirée'); if(zt) zt.innerHTML = kpiMini('Trésorerie', '—', 'session expirée'); return; }
     if(zc) zc.innerHTML = kpiMini('CA ' + Y, '…', 'chargement');
     if(ze) ze.innerHTML = kpiMini('EBITDA ' + Y, '…', 'chargement');
-    var caReal = null, rows = [], opexEbitda = null;
+    if(zt) zt.innerHTML = kpiMini('Trésorerie', '…', 'chargement');
+    var caReal = null, rows = [], opexEbitda = null, solde = null, nbComptes = null;
     try { var er = await fetch('/api/evoliz?start=' + Y + '-01-01', { headers: auth() }); if(er.ok){ var ed = await er.json(); caReal = Number(ed.ca_ht) || 0; } } catch(e){}
     try { var cr = await fetch('/api/finance-projection?annee=' + Y, { headers: auth() }); if(cr.ok){ var cd = await cr.json(); rows = Array.isArray(cd.rows) ? cd.rows : []; } } catch(e){}
     try { var qr = await fetch('/api/qonto-diag?start=' + Y + '-01-01', { headers: auth() }); if(qr.ok){ var qd = await qr.json(); opexEbitda = Number(qd.opex_ebitda); if(isNaN(opexEbitda)) opexEbitda = null; } } catch(e){}
+    try { var qs = await fetch('/api/qonto?entite=Kaizen%20Way&start=' + Y + '-01-01', { headers: auth() }); if(qs.ok){ var qsd = await qs.json(); solde = Number(qsd.solde); if(isNaN(solde)) solde = null; nbComptes = (qsd.comptes && qsd.comptes.length) ? qsd.comptes.length : null; } } catch(e){}
     if(caReal != null) window.FIN_CA_REALISE = caReal;
-    var at = atterrissage(caReal, rows).atter;
+    // les 4 scénarios pour la carte CA (facturé / commandé / p75 / p50)
+    var base = caReal || 0;
+    var sS = sommeProbaS(rows, 'signe'), s75 = sommeProbaS(rows, 'p75'), s50 = sommeProbaS(rows, 'p50');
+    window.__csLand = { facture: base, signe: base + sS, p75: base + sS + s75, p50: base + sS + s75 + s50 };
+    window.__csCaReal = caReal; window.__csOpex = opexEbitda;
     var obj = Number(window.FINANCE_OBJECTIF) || 0;
-    if(zc) zc.innerHTML = caCardHtml(caReal, at, obj);
+    var sc = (typeof window.FIN_PROJ_SCENARIO !== 'undefined' && window.FIN_PROJ_SCENARIO) ? window.FIN_PROJ_SCENARIO : 'signe';
+    var at = (window.__csLand[sc] != null) ? window.__csLand[sc] : base;
+    if(zc) zc.innerHTML = caCardHtml(caReal, window.__csLand, obj, sc);
     if(ze) ze.innerHTML = ebitdaCardHtml(caReal, opexEbitda, at);
+    if(zt){
+      var col = (solde == null) ? 'var(--muted)' : (solde < 0 ? '#b3541e' : '#2e7d46');
+      zt.innerHTML = kpiMini('Trésorerie (Qonto)', (solde == null ? '—' : euroC(solde)),
+        (solde == null ? 'solde indisponible' : ('solde actuel' + (nbComptes ? ' · ' + nbComptes + ' compte(s)' : ''))), col);
+    }
   }
+
+  // change le scénario affiché dans la carte CA de pilotage (sans tout recharger)
+  window.csSetScenario = function(s){
+    if(['facture','signe','p75','p50'].indexOf(s) < 0) return;
+    window.FIN_PROJ_SCENARIO = s;
+    var zc = document.getElementById('csCA'), ze = document.getElementById('csEbitda');
+    if(window.__csLand){
+      var obj = Number(window.FINANCE_OBJECTIF) || 0;
+      var at = (window.__csLand[s] != null) ? window.__csLand[s] : (window.__csCaReal || 0);
+      if(zc) zc.innerHTML = caCardHtml(window.__csCaReal, window.__csLand, obj, s);
+      if(ze) ze.innerHTML = ebitdaCardHtml(window.__csCaReal, window.__csOpex, at);
+    }
+    // propage au reste de l'app si la synthèse financière est montée
+    try { if(typeof window.finSynthRepaint === 'function') window.finSynthRepaint(); } catch(e){}
+  };
 
   async function loadTauxCharge(){
     var z = document.getElementById('csCharge'); if(!z) return;
@@ -7297,6 +7335,7 @@ function kwLifecycleSyncBtn(){
       +   '<div style="display:flex;flex-wrap:wrap;gap:12px;">'
       +     '<div id="csCA" style="flex:1 1 200px;min-width:180px;"></div>'
       +     '<div id="csEbitda" style="flex:1 1 200px;min-width:180px;"></div>'
+      +     '<div id="csTreso" style="flex:1 1 200px;min-width:180px;"></div>'
       +     '<div id="csCharge" style="flex:1 1 200px;min-width:180px;"></div>'
       +   '</div>'
       +   '<div style="margin-top:16px;">'
