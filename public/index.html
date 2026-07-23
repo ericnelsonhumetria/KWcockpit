@@ -5931,29 +5931,39 @@ function kwLifecycleSyncBtn(){
       recap = '<div class="panel" style="padding:11px 13px;margin-top:12px;background:rgba(86,10,15,.04);">'
         + '<div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:3px;"><span>Base run-rate' + (cpAnnu() !== 1 ? ' \u00d7 ' + cpAnnu().toLocaleString('fr-FR', { minimumFractionDigits: 2 }) : '') + ' (existant)</span><b style="font-family:monospace;">' + euro(ctx.baseAnnuel) + '</b></div>'
         + (function(){
-            // --- Encart tracabilite freelance : ce qui entre reellement dans l'atterrissage ---
+            // --- Encart tracabilite freelance : decompose l'INTEGRALITE du levier sous-traitants ---
             var st = CP.soustraitants || [];
             var pdcItems = st.filter(function(it){ return it.src === 'pdc'; });
-            var manItems = st.filter(function(it){ return it.src !== 'pdc' && it.email; });
+            var manEmail = st.filter(function(it){ return it.src !== 'pdc' && it.email; });
+            var manLibre = st.filter(function(it){ return it.src !== 'pdc' && !it.email; });
             var fwdPdc = pdcItems.reduce(function(s, it){ return s + impSt(it); }, 0);
-            var fwdMan = manItems.reduce(function(s, it){ return s + impSt(it); }, 0);
+            var fwdManE = manEmail.reduce(function(s, it){ return s + impSt(it); }, 0);
+            var fwdManL = manLibre.reduce(function(s, it){ return s + impSt(it); }, 0);
             var joursPdc = pdcItems.reduce(function(s, it){ return s + stJours(it); }, 0);
             var stYtd = (ctx.stYTD != null) ? ctx.stYTD : null;
-            // Freelances planifies au plan de charge mais sans TJM renseigne -> invisibles dans l'atterrissage
             var sansTJ = (PL_ROSTER || []).filter(function(r){ return r.total > 0 && !(+PL_COST[r.email] > 0); });
-            if(!pdcItems.length && !manItems.length && !sansTJ.length) return '';
+            var sommeParts = fwdPdc + fwdManE + fwdManL;
+            var ecartRec = (ctx.levSt != null) ? (ctx.levSt - sommeParts) : 0;
+            if(!st.length && !sansTJ.length && stYtd == null) return '';
             var h = '<div style="margin:6px 0 2px;padding:8px 10px;border-radius:8px;background:rgba(239,184,16,.08);border:1px solid rgba(239,184,16,.35);">'
-              + '<div style="font-size:11px;font-weight:700;color:#560A0F;margin-bottom:5px;">Tra\u00e7abilit\u00e9 freelance (dans les charges projet\u00e9es)</div>';
+              + '<div style="font-size:11px;font-weight:700;color:#560A0F;margin-bottom:5px;">Tra\u00e7abilit\u00e9 freelance</div>';
             if(stYtd != null)
-              h += '<div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:2px;"><span>R\u00e9alis\u00e9 YTD (factures, fig\u00e9)</span><b style="font-family:monospace;">' + euro(stYtd) + '</b></div>';
+              h += '<div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:2px;color:#666;"><span>R\u00e9alis\u00e9 YTD (factures, fig\u00e9) \u2014 <i>d\u00e9j\u00e0 dans la base run-rate</i></span><b style="font-family:monospace;">' + euro(stYtd) + '</b></div>';
+            h += '<div style="font-size:10.5px;color:#560A0F;font-weight:600;margin:5px 0 2px;">Composition du levier sous-traitants (forward, mois \u00e0 venir)</div>';
             if(pdcItems.length)
-              h += '<div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:2px;"><span>Forward plan de charge (' + pdcItems.length + ' freelance' + (pdcItems.length > 1 ? 's' : '') + ' \u00b7 ' + (Math.round(joursPdc * 10) / 10) + ' j \u00e0 venir)</span><b style="font-family:monospace;">' + (fwdPdc >= 0 ? '+' : '') + euro(fwdPdc) + '</b></div>';
-            if(manItems.length)
-              h += '<div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:2px;"><span>Forward saisie manuelle (' + manItems.length + ' ligne' + (manItems.length > 1 ? 's' : '') + ')</span><b style="font-family:monospace;">' + (fwdMan >= 0 ? '+' : '') + euro(fwdMan) + '</b></div>';
+              h += '<div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:2px;"><span>Plan de charge (' + pdcItems.length + ' freelance' + (pdcItems.length > 1 ? 's' : '') + ' \u00b7 ' + (Math.round(joursPdc * 10) / 10) + ' j)</span><b style="font-family:monospace;">' + (fwdPdc >= 0 ? '+' : '') + euro(fwdPdc) + '</b></div>';
+            if(manEmail.length)
+              h += '<div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:2px;"><span>Manuel nominatif (' + manEmail.length + ' \u00b7 identifi\u00e9 par freelance)</span><b style="font-family:monospace;">' + (fwdManE >= 0 ? '+' : '') + euro(fwdManE) + '</b></div>';
+            if(manLibre.length)
+              h += '<div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:2px;color:var(--signal,#b23);"><span>\u26a0 Manuel sans identit\u00e9 (' + manLibre.length + ') : ' + manLibre.map(function(it){ return esc(it.libelle || '(sans libell\u00e9)'); }).join(', ') + '</span><b style="font-family:monospace;">' + (fwdManL >= 0 ? '+' : '') + euro(fwdManL) + '</b></div>';
             h += '<div style="display:flex;justify-content:space-between;font-size:11.5px;font-weight:700;border-top:1px solid rgba(86,10,15,.15);padding-top:4px;margin-top:3px;"><span>= Levier sous-traitants (dans charges)</span><b style="font-family:monospace;">' + (ctx.levSt >= 0 ? '+' : '') + euro(ctx.levSt) + '</b></div>';
+            if(Math.abs(ecartRec) >= 1)
+              h += '<div style="display:flex;justify-content:space-between;font-size:10.5px;color:var(--signal,#b23);margin-top:2px;"><span>\u26a0 \u00e9cart de r\u00e9conciliation (non expliqu\u00e9)</span><b style="font-family:monospace;">' + euro(ecartRec) + '</b></div>';
+            if(manLibre.length)
+              h += '<div style="font-size:10.5px;color:var(--signal,#b23);margin-top:5px;">Les lignes \u00ab sans identit\u00e9 \u00bb ne sont pas d\u00e9doublonn\u00e9es : si elles correspondent \u00e0 des freelances d\u00e9j\u00e0 au plan de charge, ce sont des doublons \u2014 assigne-leur une identit\u00e9 (menu) puis rev\u00e9rifie, ou retire-les.</div>';
             if(sansTJ.length)
               h += '<div style="font-size:10.5px;color:var(--signal,#b23);margin-top:5px;">\u26a0 ' + sansTJ.length + ' freelance' + (sansTJ.length > 1 ? 's' : '') + ' planifi\u00e9' + (sansTJ.length > 1 ? 's' : '') + ' sans TJM (Admin) : ' + sansTJ.map(function(r){ return esc(r.name); }).join(', ') + ' \u2014 absent' + (sansTJ.length > 1 ? 's' : '') + ' des charges tant que le TJM n\u2019est pas renseign\u00e9.</div>';
-            h += '<div style="font-size:10px;color:#888;margin-top:5px;">R\u00e9alis\u00e9 = factures (run-rate fig\u00e9) \u00b7 planifi\u00e9 = plan de charge (mois \u00e0 venir). Pas de double compte ; un l\u00e9ger d\u00e9calage facturation/activit\u00e9 peut subsister.</div>';
+            h += '<div style="font-size:10px;color:#888;margin-top:5px;">R\u00e9alis\u00e9 = factures (run-rate fig\u00e9) \u00b7 planifi\u00e9 = plan de charge (mois \u00e0 venir). Le r\u00e9alis\u00e9 YTD ci-dessus n\u2019entre PAS dans le levier (il est d\u00e9j\u00e0 dans la base). Un l\u00e9ger d\u00e9calage facturation/activit\u00e9 peut subsister.</div>';
             return h + '</div>';
           })()
         + '<div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:3px;"><span>Leviers</span><b style="font-family:monospace;color:' + (tot < 0 ? '#2e7d32' : '#560A0F') + ';">' + (tot >= 0 ? '+' : '') + euro(tot) + '</b></div>'
@@ -6290,10 +6300,14 @@ function kwLifecycleSyncBtn(){
     LOADING = true; PROGRESS = 0; PHASE = 'Connexion\u2026';
     try { window.finSynthRepaint(); } catch(e){}
     setProg(6, 'Tr\u00e9sorerie, CA & atterrissage (Qonto + Evoliz)\u2026');
-    startCreep(48);
+    startCreep(40);
     try { if(typeof window.loadFinance === 'function') await window.loadFinance(); } catch(e){}
     stopCreep();
-    setProg(55, 'Charges & EBITDA (Qonto)\u2026');
+    setProg(45, 'Plan de charge (forward freelance)\u2026');
+    startCreep(60);
+    try { if(typeof window.plLoad === 'function') await window.plLoad(); } catch(e){}
+    stopCreep();
+    setProg(62, 'Charges & EBITDA (Qonto)\u2026');
     startCreep(92);
     try { if(typeof window.loadQontoDiag === 'function') await window.loadQontoDiag(); } catch(e){}
     stopCreep();
