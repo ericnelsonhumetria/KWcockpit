@@ -7333,5 +7333,120 @@ function kwLifecycleSyncBtn(){
   };
 })();
 </script>
+<!-- === DIAG PLANNING (additif, lecture seule) === -->
+<script>
+(function(){
+  const ATTENDU = { 'a.torres':50, 'r.viard':110, 'd.gourgues':103, 't.draga':152, 't.lejoille':45, 'b.fraissard':146 };
+  const BORDEAUX = '#560A0F', OR = '#EFB810';
+  const short = e => String(e||'').split('@')[0].toLowerCase().trim();
+  const ym = d => { const s = String(d); return { an: s.slice(0,4), mois: s.slice(0,7) }; };
+
+  async function lire(){
+    const tok = (typeof SB_SESSION!=='undefined' && SB_SESSION && SB_SESSION.access_token) ? SB_SESSION.access_token : '';
+    const r = await fetch('/api/pdc-import', {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+tok },
+      body: JSON.stringify({ action:'read' })
+    });
+    if(!r.ok) throw new Error('HTTP '+r.status+' — '+(await r.text()).slice(0,200));
+    return r.json();
+  }
+
+  function agrege(rows){
+    const cons = {}; let autresNb = 0, autresJ = 0;
+    (rows||[]).forEach(l=>{
+      if(l.etat!=='planifie') return;
+      const j = Number(l.jours)||0;
+      if(l.mission_code!=='PLANNING'){ autresNb++; autresJ += j; return; }
+      const e = short(l.email); const {an,mois} = ym(l.date_jour);
+      const o = cons[e] || (cons[e]={ nb:0, total:0, an:{}, mois:{}, dmin:null, dmax:null });
+      o.nb++; o.total+=j;
+      o.an[an]=(o.an[an]||0)+j; o.mois[mois]=(o.mois[mois]||0)+j;
+      const d = String(l.date_jour);
+      if(!o.dmin||d<o.dmin) o.dmin=d; if(!o.dmax||d>o.dmax) o.dmax=d;
+    });
+    return { cons, autresNb, autresJ };
+  }
+
+  function nb(x){ return Math.round((Number(x)||0)*10)/10; }
+
+  function rendu(data){
+    const rows = data.pdc_charge || data.charge || [];
+    const nbTotal = rows.length;
+    const { cons, autresNb, autresJ } = agrege(rows);
+    const cles = Array.from(new Set(Object.keys(cons).concat(Object.keys(ATTENDU)))).sort();
+    let grand = 0, grandAtt = 0, tousOk = true;
+
+    let html = '<table style="width:100%;border-collapse:collapse;font-size:13px">';
+    html += '<thead><tr style="border-bottom:2px solid '+BORDEAUX+';text-align:left">'
+         + '<th style="padding:6px 8px">Consultant</th><th>Lignes</th><th>Total j</th>'
+         + '<th>2026</th><th>2027</th><th>1ère</th><th>Dernière</th><th>Attendu</th><th>Écart</th></tr></thead><tbody>';
+
+    cles.forEach(e=>{
+      const o = cons[e] || { nb:0, total:0, an:{}, mois:{}, dmin:'—', dmax:'—' };
+      const att = ATTENDU[e]; const ecart = att!=null ? nb(o.total - att) : null;
+      const ok = att==null ? null : Math.abs(o.total - att) < 0.5;
+      if(ok===false) tousOk = false;
+      grand += o.total; if(att!=null) grandAtt += att;
+      const col = ok===true ? '#137333' : (ok===false ? '#c5221f' : '#666');
+      html += '<tr style="border-bottom:1px solid #eee">'
+        + '<td style="padding:6px 8px;font-weight:600">'+e+'</td>'
+        + '<td>'+o.nb+'</td><td style="font-weight:600">'+nb(o.total)+'</td>'
+        + '<td>'+nb(o.an['2026']||0)+'</td><td>'+nb(o.an['2027']||0)+'</td>'
+        + '<td style="color:#666">'+(o.dmin||'—')+'</td><td style="color:#666">'+(o.dmax||'—')+'</td>'
+        + '<td>'+(att!=null?att:'—')+'</td>'
+        + '<td style="color:'+col+';font-weight:600">'+(ecart!=null?(ecart>0?'+':'')+ecart:'—')+'</td></tr>';
+      const moisTxt = Object.keys(o.mois).sort().map(m=>m+':'+nb(o.mois[m])).join('  ·  ');
+      if(moisTxt) html += '<tr style="border-bottom:1px solid #eee"><td></td>'
+        + '<td colspan="8" style="padding:2px 8px 8px;color:#888;font-size:11px">'+moisTxt+'</td></tr>';
+    });
+
+    const gOk = Math.abs(grand - grandAtt) < 0.5;
+    html += '</tbody><tfoot><tr style="border-top:2px solid '+BORDEAUX+';font-weight:700">'
+      + '<td style="padding:8px">TOTAL PLANNING</td><td></td>'
+      + '<td style="color:'+(gOk?'#137333':'#c5221f')+'">'+nb(grand)+'</td>'
+      + '<td colspan="4"></td><td>'+grandAtt+'</td>'
+      + '<td style="color:'+(gOk?'#137333':'#c5221f')+'">'+(gOk?'✓':((grand>grandAtt?'+':'')+nb(grand-grandAtt)))+'</td></tr></tfoot></table>';
+
+    const verdict = tousOk && gOk
+      ? '<span style="color:#137333;font-weight:700">✓ Planning multi-consultants absorbé : 6/6 conformes, '+nb(grand)+' j.</span>'
+      : '<span style="color:#c5221f;font-weight:700">⚠ Écart détecté — voir lignes rouges (lecture partielle ou import incomplet).</span>';
+
+    return '<div style="margin-bottom:10px">'+verdict+'</div>'
+      + html
+      + '<div style="margin-top:10px;color:#888;font-size:11px">'
+      + 'Lignes pdc_charge lues (toutes missions confondues) : <b>'+nbTotal+'</b> · '
+      + 'Autres missions (saisie manuelle) : '+autresNb+' lignes / '+nb(autresJ)+' j'
+      + '</div>';
+  }
+
+  function ouvrir(){
+    let ov = document.getElementById('kwDiagOv');
+    if(!ov){
+      ov = document.createElement('div'); ov.id='kwDiagOv';
+      ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px';
+      ov.innerHTML='<div id="kwDiagBox" style="background:#fff;max-width:900px;width:100%;max-height:85vh;overflow:auto;border-radius:12px;padding:22px;box-shadow:0 10px 40px rgba(0,0,0,.3)">'
+        +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">'
+        +'<h3 style="margin:0;color:'+BORDEAUX+'">Diagnostic PLANNING — absorption &amp; moments</h3>'
+        +'<button id="kwDiagX" style="border:none;background:'+BORDEAUX+';color:#fff;border-radius:6px;padding:6px 12px;cursor:pointer">Fermer</button></div>'
+        +'<div id="kwDiagBody" style="color:#333">Lecture serveur…</div></div>';
+      document.body.appendChild(ov);
+      ov.addEventListener('click', ev=>{ if(ev.target===ov) ov.remove(); });
+      document.getElementById('kwDiagX').addEventListener('click', ()=>ov.remove());
+    }
+    const body = document.getElementById('kwDiagBody');
+    body.innerHTML = 'Lecture serveur…';
+    lire().then(d=>{ body.innerHTML = rendu(d); })
+          .catch(e=>{ body.innerHTML = '<span style="color:#c5221f">Erreur : '+e.message+'</span>'; });
+  }
+
+  const btn = document.createElement('button');
+  btn.textContent = '🔎 Diag PLANNING';
+  btn.style.cssText='position:fixed;bottom:18px;right:18px;z-index:99998;background:'+BORDEAUX
+    +';color:'+OR+';border:none;border-radius:24px;padding:10px 16px;font-weight:700;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.25)';
+  btn.addEventListener('click', ouvrir);
+  document.body.appendChild(btn);
+})();
+</script>
 </body>
 </html>
