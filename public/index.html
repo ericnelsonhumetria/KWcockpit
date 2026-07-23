@@ -3081,18 +3081,16 @@ async function loadPdcCons(){
   if(!SB){ zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Base indisponible.</div>'; return; }
   zone.innerHTML = '<div class="panel" style="padding:18px 16px;">Chargement&hellip;</div>';
   try {
-    const [ch, cap, mis, aff, sal] = await Promise.all([
-      SB.from('pdc_charge').select('email,date_jour,mission_code,etat,jours'),
-      SB.from('pdc_capacite').select('email,annee,mois,jours_dispo'),
-      SB.from('pdc_missions').select('code,intitule,client,jh_vendus,statut'),
-      SB.from('pdc_affectations').select('email,mission_code'),
-      loadShared('pdc_salaries'),
-    ]);
-    PDCC.charge = ch.data || [];
+    const _tok = (typeof SB_SESSION !== 'undefined' && SB_SESSION) ? SB_SESSION.access_token : '';
+    const _rr = await fetch('/api/pdc-import', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + _tok }, body: JSON.stringify({ action: 'read' }) });
+    const rj = await _rr.json();
+    if(!_rr.ok) throw new Error((rj && rj.error) ? rj.error : ('HTTP ' + _rr.status));
+    const sal = await loadShared('pdc_salaries');
+    PDCC.charge = rj.charge || [];
     PDCC.capacite = {};
-    (cap.data||[]).forEach(r=>{ PDCC.capacite[`${r.email}|${r.annee}|${r.mois}`] = r.jours_dispo; });
-    PDCC.missions = mis.data || [];
-    PDCC.affectations = aff.data || [];
+    (rj.capacite || []).forEach(r=>{ PDCC.capacite[`${r.email}|${r.annee}|${r.mois}`] = r.jours_dispo; });
+    PDCC.missions = rj.missions || [];
+    PDCC.affectations = rj.affectations || [];
     PDCC.salaries = Array.isArray(sal) ? sal : [];
     PDCC.loaded = true;
     // annee par defaut : la plus recente ayant de la charge, sinon annee courante
@@ -6011,8 +6009,11 @@ function kwLifecycleSyncBtn(){
     PL_LOADING = true; PL_ERR = ''; PL_PROPOSAL = null; window.renderChargesProj(true);
     try {
       var y = YEAR;
-      var res = await SB.from('pdc_charge').select('email,date_jour,etat,jours');
-      if(res.error) throw res.error;
+      var _tok = (typeof SB_SESSION !== 'undefined' && SB_SESSION) ? SB_SESSION.access_token : '';
+      var _rr = await fetch('/api/pdc-import', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + _tok }, body: JSON.stringify({ action: 'read' }) });
+      var _rj = await _rr.json();
+      if(!_rr.ok) throw new Error((_rj && _rj.error) ? _rj.error : ('HTTP ' + _rr.status));
+      var res = { data: _rj.charge || [], error: null };
       var sal = await loadShared('pdc_salaries'); sal = Array.isArray(sal) ? sal : [];
       var cost = await loadShared('pdc_cout_freelance'); PL_COST = (cost && typeof cost === 'object') ? cost : {};
       var isSal = function(e){ return sal.indexOf(e) >= 0; };
