@@ -43,6 +43,19 @@ exports.handler = async (event) => {
   try { body = JSON.parse(event.body || '{}'); }
   catch (e) { return { statusCode: 400, headers, body: JSON.stringify({ error: 'Corps invalide' }) }; }
 
+  // Lecture serveur (clé service) : renvoie tout le plan de charge, hors RLS.
+  if (body && body.action === 'read') {
+    const [ch, cap, mis, aff] = await Promise.all([
+      sb.from('pdc_charge').select('email,date_jour,mission_code,etat,jours'),
+      sb.from('pdc_capacite').select('email,annee,mois,jours_dispo'),
+      sb.from('pdc_missions').select('code,intitule,client,jh_vendus,statut'),
+      sb.from('pdc_affectations').select('email,mission_code'),
+    ]);
+    return { statusCode: 200, headers, body: JSON.stringify({
+      charge: ch.data || [], capacite: cap.data || [], missions: mis.data || [], affectations: aff.data || [],
+    }) };
+  }
+
   const items = Array.isArray(body.items) ? body.items : null;
   if (!items) return { statusCode: 400, headers, body: JSON.stringify({ error: 'items manquant' }) };
 
