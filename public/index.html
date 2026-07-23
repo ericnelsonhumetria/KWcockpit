@@ -497,9 +497,17 @@
       </div>
     </div>
   </div>
-  <div id="kwGlobalRefreshBar" style="max-width:1100px;margin:10px auto 0;padding:0 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-    <button id="kwRefreshAllBtn" onclick="kwRefreshAllFinance(this)" style="background:#560A0F;color:#EFB810;border:none;border-radius:9px;padding:10px 18px;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(86,10,15,.2);">&#10227; Mettre &agrave; jour toutes les donn&eacute;es financi&egrave;res</button>
-    <span id="kwRefreshAllStatus" style="font-size:11.5px;color:#666;"></span>
+  <div id="kwGlobalRefreshBar" style="max-width:1100px;margin:10px auto 0;padding:0 16px;">
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <button id="kwRefreshAllBtn" onclick="kwRefreshAllFinance(this)" style="background:#560A0F;color:#EFB810;border:none;border-radius:9px;padding:10px 18px;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(86,10,15,.2);">&#10227; Mettre &agrave; jour toutes les donn&eacute;es financi&egrave;res</button>
+      <span id="kwRefreshAllStatus" style="font-size:11.5px;color:#666;"></span>
+    </div>
+    <div id="kwGlobalProgWrap" style="display:none;margin-top:8px;">
+      <div id="finLoadLabel" style="font-size:12.5px;color:#560A0F;font-weight:600;margin-bottom:7px;">Chargement&hellip;</div>
+      <div style="position:relative;height:10px;border-radius:6px;background:rgba(86,10,15,.10);overflow:hidden;">
+        <div id="finLoadFill" style="position:absolute;left:0;top:0;height:100%;width:0%;background:linear-gradient(90deg,#560A0F,#EFB810);border-radius:6px;transition:width .35s ease;"></div>
+      </div>
+    </div>
   </div>
   <div class="wrap" id="view"></div>
 </div>
@@ -1825,25 +1833,18 @@ async function loadFinance(){
     const canPay = (CURRENT_ROLE === 'eric' || CURRENT_ROLE === 'direction');
     const payHeaderBtns = canPay ? ` <button class="add-btn" style="font-size:11px;padding:2px 10px;" onclick="finMarkSelectedPaye()">&#10003; marquer sélectionnées payées</button> <button class="per-btn" style="font-size:11px;padding:2px 8px;" onclick="finUndoLastPaye()">&#8617; annuler dernier lettrage</button>` : '';
     const chkTh = canPay ? '<th><input type="checkbox" onclick="document.querySelectorAll(\'.imp-chk\').forEach(c=>c.checked=this.checked)" title="Tout sélectionner"></th>' : '';
-    const impTable = _imp.length ? `<div class="sec-eyebrow" style="margin-top:14px;">Impayés clients (reste dû) <button class="per-btn" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="finCopyImpayesList()">copier la liste</button> <button class="per-btn" style="font-size:11px;padding:2px 8px;" onclick="finDiagImpayes()">🔍 diagnostic</button>${payHeaderBtns}</div>
+    const impTableInner = _imp.length ? `<div class="sec-eyebrow" style="margin-top:4px;">Impayés clients (reste dû) <button class="per-btn" style="font-size:11px;padding:2px 8px;margin-left:8px;" onclick="finCopyImpayesList()">copier la liste</button> <button class="per-btn" style="font-size:11px;padding:2px 8px;" onclick="finDiagImpayes()">🔍 diagnostic</button>${payHeaderBtns}</div>
       <div class="panel" style="padding:8px 16px 16px;"><table>
         <thead><tr>${chkTh}<th>Client</th><th>N° facture</th><th>Échéance</th><th class="val">Reste dû</th><th>Statut</th><th>Relance</th></tr></thead>
         <tbody>${_imp.map((r,idx)=>`<tr>${canPay ? `<td><input type="checkbox" class="imp-chk" value="${r.numero||''}"></td>` : ''}<td>${r.client||'—'}</td><td class="sub-cell">${r.numero||''}</td><td class="sub-cell">${r.echeance||'—'}</td><td class="val">${fmtEuro(r.reste_du)}</td><td><span class="pill ${r.echu?'p-signal':'p-blue'}">${r.echu?'échu — à relancer':'à échoir'}</span>${r.near?` <span class="pill p-amber" title="Virement du même montant le ${r.near_date}">⚠ virement ${fmtEuro(r.near_amount)} détecté le ${r.near_date} — «&nbsp;${r.near_label||'sans nom'}&nbsp;»</span>`:''}</td><td><button class="per-btn" style="font-size:11px;padding:2px 8px;" onclick="finCopyRelance(${idx})">&#9993; copier</button>${canPay ? ` <button class="per-btn" style="font-size:11px;padding:2px 8px;" onclick="finMarkPaye(${idx})">&#10003; payée</button>` : ''}</td></tr>`).join('')}</tbody>
-      </table></div>` : '';
+      </table></div>` : '<div class="edit-hint" style="margin-top:4px;">Aucun impayé en cours.</div>';
+    const tresoBadge = `Trésorerie ${fmtEuro(q.solde)} · encours ${fmtEuro(fin.encours_ttc)}${(fin.nb_impayees ? ' · ' + fin.nb_impayees + ' impayée(s)' : '')}`;
+    const impTable = `<details style="border:1px solid rgba(86,10,15,.18);border-radius:12px;padding:0 14px;margin-top:14px;">
+      <summary style="cursor:pointer;list-style:none;font-size:13px;font-weight:600;color:#560A0F;padding:12px 2px;">Trésorerie <span class="sub-cell" style="font-weight:400;">· ${tresoBadge}</span> <span class="edit-hint" style="font-weight:400;">déplier ▸</span></summary>
+      <div style="padding:2px 0 12px;">${impTableInner}</div>
+    </details>`;
 
-    const anneeFiscale = new Date().getFullYear();
-    const periodeBar = `<div class="panel" style="padding:10px 16px;margin-bottom:12px;">
-      <span class="field-label" style="display:block;">Période : <b>année fiscale ${anneeFiscale}</b> (1er janvier → 31 décembre)</span>
-    </div>`;
-    zone.innerHTML = periodeBar + `
-      <div class="kpis k4">
-        <div class="kpi accent"><div class="k-label">CA HT (Evoliz)</div><div class="k-val">${fmtEuro(fin.ca_ht != null ? fin.ca_ht : e.ca_ht)}</div><div class="k-trend">payé : ${fmtEuro(fin.ca_paye_ht != null ? fin.ca_paye_ht : e.ca_paye_ht)}${(fin.ca_paye_manuel_ht != null && fin.ca_paye_manuel_ht > 0) ? ` (auto ${fmtEuro(fin.ca_paye_auto_ht)} + manuel ${fmtEuro(fin.ca_paye_manuel_ht)})` : ''}</div></div>
-        <div class="kpi good"><div class="k-label">Trésorerie actuelle (Qonto)</div><div class="k-val">${fmtEuro(q.solde)}</div><div class="k-trend">${q.comptes ? q.comptes.length : 0} compte(s)</div></div>
-        <div class="kpi ${fin.encours_ttc > 0 ? 'warn' : ''}"><div class="k-label">Encours clients (reste dû)</div><div class="k-val">${fmtEuro(fin.encours_ttc)}</div><div class="k-trend">${fin.nb_impayees || 0} impayée(s)${(fin.echu_ttc != null && fin.echu_ttc > 0) ? ' · ' + fmtEuro(fin.echu_ttc) + ' échu (' + (fin.nb_echues || 0) + ')' : ''}${fin.encours_ht != null ? ' · ' + fmtEuro(fin.encours_ht) + ' HT' : ''}</div></div>
-        <div class="kpi"><div class="k-label">Flux net (période)</div><div class="k-val">${fmtEuro(q.flux_net)}</div><div class="k-trend">${q.nb_transactions || 0} opérations${q.tronque ? '+ (tronqué)' : ''}</div></div>
-      </div>
-      ${(fin.ca_ht != null && fin.encours_ht != null) ? `<div class="edit-hint" style="margin-top:6px;">Contrôle (en HT) : CA HT = payé HT + encours HT → <b>${fmtEuro(fin.ca_ht)}</b> = ${fmtEuro(fin.ca_paye_ht)} + ${fmtEuro(fin.encours_ht)}. <i>(La tuile Encours est en TTC — c'est la somme réellement due par les clients — d'où l'écart apparent avec un total HT.)</i></div>` : ''}
-      <div class="edit-hint" style="margin-top:10px;">Lecture seule. La trésorerie est le solde actuel des comptes ; le CA et le flux portent sur la période choisie.${reconInfo} <button class="per-btn" style="font-size:11px;padding:2px 8px;" onclick="finDiagImpayes()">🔍 diagnostic impayés</button></div>` + impTable + '<div id="finDiag"></div>';
+    zone.innerHTML = impTable + '<div id="finDiag"></div>';
   } catch(err){
     zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Connexion impossible aux fonctions financières. En local, utilisez « netlify dev ».</div>';
   }
@@ -3763,7 +3764,7 @@ consultant: () => renderPdc(),
 /* ---------- ERIC : DIRECTION ---------- */
 eric: () => `
 
-  <div class="sec-eyebrow">Tableau de bord financier</div>
+  <div class="sec-eyebrow">Projections financières</div>
   <div class="sec-title">Synthèse Qonto + Evoliz</div>
   <div class="sec-note">Données réelles via connexions sécurisées · réservé à la direction · <span class="src fin"><span class="sdot"></span>Qonto + Evoliz</span></div>
   <div id="finZone">
@@ -3771,8 +3772,7 @@ eric: () => `
       <div style="margin-bottom:12px;">
         <span class="field-label" style="display:block;">Période : <b>année fiscale en cours</b> (1er janvier → 31 décembre)</span>
       </div>
-      <button class="add-btn" onclick="loadFinance()">⟱ Charger les données financières</button>
-      <span class="edit-hint" style="margin-left:10px;">Qonto (trésorerie) et Evoliz (CA, encours), lecture seule. Le solde de trésorerie est toujours le solde actuel ; le CA, le flux et les impayés portent sur l'année en cours.</span>
+      <span class="edit-hint">Utilise le bouton <b>« Mettre à jour toutes les données financières »</b> en haut du cockpit pour charger Qonto (trésorerie) et Evoliz (CA, encours).</span>
     </div>
   </div>
 
@@ -3933,7 +3933,7 @@ najoua: () => `
       <div style="margin-bottom:12px;">
         <span class="field-label" style="display:block;">Période : <b>année fiscale en cours</b> (1er janvier → 31 décembre)</span>
       </div>
-      <button class="add-btn" onclick="loadFinance()">⟱ Charger les données financières</button>
+      <button class="add-btn" onclick="kwRefreshAllFinance(this)">⟱ Charger les données financières</button>
       <span class="edit-hint" style="margin-left:10px;">Trésorerie (Qonto) + CA, encours et impayés (Evoliz), en lecture seule. La liste des impayés s'affiche après chargement.</span>
     </div>
   </div>
@@ -4908,9 +4908,9 @@ function kwLifecycleSyncBtn(){
         + '</tr>';
     }).join('');
 
-    var carnet =
-      '<div class="sec-eyebrow" style="margin-top:16px;">Carnet de projections ' + annee()
-      +   ' <button class="add-btn" style="font-size:11px;padding:2px 10px;margin-left:8px;" onclick="finProjNew()">+ ajouter une ligne</button></div>'
+    var carnetInner =
+      '<div class="sec-eyebrow" style="margin-top:4px;">Carnet ' + annee()
+      +   ' <button class="add-btn" style="font-size:11px;padding:2px 10px;margin-left:8px;" onclick="finProjNew()">+ ajouter une opportunit\u00e9</button></div>'
       + (err ? '<div class="edit-hint" style="color:var(--signal);">' + err + '</div>' : '')
       + '<div class="panel" style="padding:8px 16px 16px;"><table>'
       +   '<thead><tr><th>Intitulé (client / mission)</th><th class="val">Montant HT</th><th>Mois</th><th>Probabilité</th><th>Statut</th><th>Livraison / coût</th><th></th></tr></thead>'
@@ -4918,7 +4918,19 @@ function kwLifecycleSyncBtn(){
       + '</table></div>'
       + '<div id="finProjForm"></div>';
 
-    pz.innerHTML = head + carnet;
+    var carnet =
+      '<details style="border:1px solid rgba(86,10,15,.18);border-radius:12px;padding:0 14px;margin-top:10px;">'
+      + '<summary style="cursor:pointer;list-style:none;font-size:13px;font-weight:600;color:#560A0F;padding:12px 2px;">Ajout d\u2019opportunit\u00e9s' + (rows.length ? ' <span class="sub-cell" style="font-weight:400;">\u00b7 ' + rows.length + ' ligne' + (rows.length > 1 ? 's' : '') + '</span>' : '') + ' <span class="edit-hint" style="font-weight:400;">d\u00e9plier \u25b8</span></summary>'
+      + '<div style="padding:2px 0 12px;">' + carnetInner + '</div>'
+      + '</details>';
+
+    var headWrapped =
+      '<details style="border:1px solid rgba(86,10,15,.18);border-radius:12px;padding:0 14px;margin-bottom:6px;">'
+      + '<summary style="cursor:pointer;list-style:none;font-size:13px;font-weight:600;color:#560A0F;padding:12px 2px;">Atterrissage CA ' + annee() + ' \u00b7 sc\u00e9nario ' + SCEN_LABEL[sc] + ' \u2014 <span class="sub-cell" style="font-weight:400;">' + euro(atter) + ' (' + pct + '% obj.)</span> <span class="edit-hint" style="font-weight:400;">d\u00e9plier \u25b8</span></summary>'
+      + '<div style="padding:2px 0 12px;">' + head + '</div>'
+      + '</details>';
+
+    pz.innerHTML = headWrapped + carnet;
   }
 
   window.finProjSetScenario = function(s){
@@ -5229,24 +5241,20 @@ function kwLifecycleSyncBtn(){
           + '</div>')
       : '<div class="edit-hint" style="margin-bottom:6px;color:var(--signal);">CA HT indisponible \u2014 clique d\u2019abord \u00ab Charger les donn\u00e9es financi\u00e8res \u00bb puis relance l\u2019analyse pour l\u2019EBITDA.</div>';
     z.innerHTML =
-      '<div class="sec-eyebrow">Brique 2 \u2014 rentabilit\u00e9 & charges</div>'
-      + '<div class="sec-title">Rentabilit\u00e9 (base EBITDA) ' + esc(d.annee) + ' \u2014 YTD</div>'
-      + '<div class="sec-note">EBITDA = CA HT factur\u00e9 (Evoliz) \u2212 charges d\u2019exploitation cash (Qonto, URSSAF r\u00e9int\u00e9gr\u00e9e), cumul YTD. Marge mensuelle et d\u00e9calage 30j sous-traitants : maillon suivant.</div>'
-      + rentaKpis
-      + '<div class="sec-eyebrow" style="margin-top:12px;">D\u00e9tail des charges \u2014 ' + (d.nb_debits||0) + ' d\u00e9bits</div>'
-      + '<div class="sec-note" style="margin-bottom:8px;">Cat\u00e9gorie <b>valid\u00e9e</b> (r\u00e8gles Nelson).</div>'
+      '<details style="border:1px solid rgba(86,10,15,.18);border-radius:12px;padding:0 14px;margin-top:14px;">'
+      + '<summary style="cursor:pointer;list-style:none;font-size:13px;font-weight:600;color:#560A0F;padding:12px 2px;">Contr\u00f4le des charges (mapping EBITDA) <span class="sub-cell" style="font-weight:400;">\u00b7 ' + (d.nb_debits||0) + ' d\u00e9bits \u00b7 charges ' + euro(d.opex_ebitda) + '</span> <span class="edit-hint" style="font-weight:400;">d\u00e9plier \u25b8</span></summary>'
+      + '<div style="padding:2px 0 12px;">'
+      + '<div class="sec-note" style="margin-bottom:8px;">EBITDA = CA HT factur\u00e9 (Evoliz) \u2212 charges d\u2019exploitation cash (Qonto, URSSAF r\u00e9int\u00e9gr\u00e9e), cumul YTD. Cat\u00e9gorie <b>valid\u00e9e</b> (r\u00e8gles Nelson).</div>'
       + '<div class="kpis k4" style="margin-bottom:6px;">'
       +   '<div class="kpi accent"><div class="k-label">Total d\u00e9bits</div><div class="k-val">' + euro(d.total_debits) + '</div></div>'
       +   '<div class="kpi good"><div class="k-label">Charges Expl.</div><div class="k-val">' + euro(d.opex_ebitda) + '</div><div class="k-sub">dans l\u2019EBITDA</div></div>'
       +   '<div class="kpi warn"><div class="k-label">Exclus de l\u2019EBITDA</div><div class="k-val">' + euro(d.exclus) + '</div><div class="k-sub">fisca, tr\u00e9so, bilan, perso, inter</div></div>'
-      +   '<div class="kpi"><div class="k-label">Contreparties</div><div class="k-val">' + grp.length + '</div></div>'
+      +   '<div class="kpi"><div class="k-label">Cat\u00e9gories</div><div class="k-val">' + cats.length + '</div></div>'
       + '</div>'
       + '<div class="panel" style="padding:8px 16px 16px;overflow-x:auto;"><table><thead><tr><th>Cat\u00e9gorie</th><th style="text-align:center;">Nb</th><th style="text-align:right;">Total</th></tr></thead><tbody>' + catRows + '</tbody></table></div>'
-      + '<div class="sec-eyebrow" style="margin-top:12px;">Par contrepartie (les plus gros postes)</div>'
-      + '<div class="panel" style="padding:8px 16px 16px;overflow-x:auto;"><table><thead><tr><th>Contrepartie / libell\u00e9</th><th>Cat\u00e9gorie propos\u00e9e</th><th style="text-align:center;">Nb</th><th style="text-align:right;">Total</th></tr></thead><tbody>' + grpRows + '</tbody></table>'
-      + (d.tronque ? '<div class="edit-hint" style="color:var(--signal);margin-top:8px;">\u26a0 Liste tronqu\u00e9e (beaucoup de transactions) \u2014 les plus gros postes sont l\u00e0, mais le total peut \u00eatre partiel.</div>' : '')
-      + '<div class="edit-hint" style="margin-top:8px;">Rappel : l\u2019URSSAF est r\u00e9int\u00e9gr\u00e9e en charge (d\u00e9cision valid\u00e9e). Prochaine \u00e9tape : figer tes corrections puis EBITDA = CA HT (Evoliz) \u2212 OPEX.</div>'
-      + '<div style="margin-top:10px;"><button class="add-btn" onclick="loadQontoDiag()">\u21bb Recharger</button></div></div>';
+      + '<div class="edit-hint" style="margin-top:8px;">URSSAF r\u00e9int\u00e9gr\u00e9e en charge (d\u00e9cision valid\u00e9e). EBITDA = CA HT (Evoliz) \u2212 OPEX.</div>'
+      + '<div style="margin-top:10px;"><button class="add-btn" onclick="loadQontoDiag()">\u21bb Recharger</button></div>'
+      + '</div></details>';
   };
 
   // Greffe : afficher le bouton diagnostic après chaque chargement finance.
@@ -5762,21 +5770,9 @@ function kwLifecycleSyncBtn(){
       ? '<div class="panel" style="padding:10px 14px;margin-bottom:12px;background:rgba(178,34,34,.07);border:1px solid var(--signal);color:var(--signal);font-size:12.5px;line-height:1.4;">\u26a0 Chargement finance \u2014 ' + statusErr + ' <span class="sub-cell" style="color:var(--signal);">(d\u00e9plie \u00ab D\u00e9tail complet \u00bb pour le contexte)</span></div>'
       : '';
 
-    // barre d'action unique (place EN TETE) : un seul chargement pour tout
-    var actionBar;
-    if(LOADING){
-      actionBar = '<div id="finLoadLabel" style="font-size:12.5px;color:#560A0F;font-weight:600;margin-bottom:7px;">' + (PHASE || 'Chargement\u2026') + '</div>'
-        + '<div style="position:relative;height:10px;border-radius:6px;background:rgba(86,10,15,.10);overflow:hidden;">'
-        +   '<div id="finLoadFill" style="position:absolute;left:0;top:0;height:100%;width:' + PROGRESS + '%;background:linear-gradient(90deg,#560A0F,#EFB810);border-radius:6px;transition:width .35s ease;"></div>'
-        + '</div>'
-        + '<div class="edit-hint" style="margin-top:6px;">Qonto + Evoliz \u2014 quelques secondes.</div>';
-    } else if(hasFinData && diag != null){
-      actionBar = '<button class="per-btn" style="font-size:12px;padding:5px 13px;" onclick="finSynthLoadAll(this)">\u21bb Actualiser</button>'
-        + '<span class="edit-hint" style="margin-left:10px;">Recharge tr\u00e9sorerie, CA, atterrissage et charges/EBITDA en un clic.</span>';
-    } else {
-      actionBar = '<button class="add-btn" onclick="finSynthLoadAll(this)">\u27f1 Charger les donn\u00e9es financi\u00e8res</button>'
-        + '<span class="edit-hint" style="margin-left:10px;">Charge tout en une fois : tr\u00e9sorerie, CA, atterrissage et charges/EBITDA (Qonto + Evoliz).</span>';
-    }
+    // barre d'action : le chargement se pilote desormais par le bouton global (haut du cockpit).
+    // La progression s'affiche sous ce bouton (#kwGlobalProgWrap). Ici : rien.
+    var actionBar = '';
 
     var fresh = '';
     if(CA != null || diag != null){
@@ -5796,8 +5792,14 @@ function kwLifecycleSyncBtn(){
       caNote += '</div>';
     }
 
+    var caCommande = (CA != null) ? land['signe'] : null;
+    // Position de trésorerie remontée en tête (maillon stratégique : finance Humetria)
+    var tresoKpis = '<div class="kpis k2" style="margin-bottom:6px;">'
+      + tile('good', 'Tr\u00e9sorerie (Qonto)', treso || '\u2014', 'solde actuel des comptes')
+      + tile((encours && encours.indexOf('0,00') < 0 && encours !== '\u2014') ? 'warn' : '', 'Encours clients', encours || '\u2014', 'reste d\u00fb TTC \u00b7 d\u00e9tail dans Tr\u00e9sorerie')
+      + '</div>';
     var reelKpis = '<div class="kpis k4" style="margin-bottom:6px;">'
-      + tile('accent', 'CA HT (Evoliz)', CA != null ? euro(CA) : '\u2014')
+      + tile('accent', 'CA HT command\u00e9', caCommande != null ? euro(caCommande) : '\u2014', CA != null ? ('r\u00e9alis\u00e9 : ' + euro(CA)) : null)
       + tile('good', 'Charges Expl.', charges != null ? euro(charges) : '\u2014', 'expl. + URSSAF + sous-trait.')
       + tile(margeCls(marge), 'EBITDA', ebitda != null ? euro(ebitda) : '\u2014', 'CA HT \u2212 charges expl.')
       + tile(margeCls(marge), '% EBITDA', pct(marge), 'r\u00e9f. 2025 ~26%')
@@ -5832,12 +5834,11 @@ function kwLifecycleSyncBtn(){
     sy.innerHTML =
       '<div class="sec-eyebrow">Synth\u00e8se financi\u00e8re ' + YEAR + fresh + '</div>'
       + '<div class="sec-title" style="margin-bottom:2px;">Indicateurs cl\u00e9s</div>'
-      + '<div class="sec-note" style="margin-bottom:10px;">R\u00e9alis\u00e9 YTD, atterrissage (sc\u00e9nario) et position de tr\u00e9sorerie. Tout le d\u00e9tail est dans l\u2019accord\u00e9on ci-dessous.</div>'
+      + '<div class="sec-note" style="margin-bottom:10px;">Position de tr\u00e9sorerie, r\u00e9alis\u00e9 YTD et atterrissage (sc\u00e9nario). Le d\u00e9tail est dans les accord\u00e9ons ci-dessous.</div>'
       + errBox
-      + '<div class="panel" style="padding:12px 14px;margin-bottom:14px;">' + actionBar + '</div>'
-      + '<div class="sec-eyebrow" style="margin:2px 0 4px;">R\u00e9alis\u00e9 \u2014 cumul \u00e0 date</div>' + reelKpis
+      + '<div class="sec-eyebrow" style="margin:2px 0 4px;">Position de tr\u00e9sorerie</div>' + tresoKpis
+      + '<div class="sec-eyebrow" style="margin:14px 0 4px;">R\u00e9alis\u00e9 \u2014 cumul \u00e0 date</div>' + reelKpis
       + '<div class="sec-eyebrow" style="margin:14px 0 4px;">Atterrissage \u2014 sc\u00e9nario ' + ({ facture:'Factur\u00e9', signe:'Command\u00e9', p75:'Pond\u00e9r\u00e9 75%', p50:'Pond\u00e9r\u00e9 50%' }[sc] || sc) + '</div>' + attKpis + caNote
-      + '<div class="sec-eyebrow" style="margin:14px 0 4px;">Position</div>' + posKpis
       + hyp;
 
     window.__finCtx = { baseAnnuel:baseAnnuel, attCharges:attCharges, attCA:attCA, attEbitda:attEbitda, attMarge:attMarge, stPct:stPct, stYTD:stYTD, projetable:projetable, levSal:levSal, levSt:levSt, levRe:levRe, sc:sc };
@@ -5981,7 +5982,7 @@ function kwLifecycleSyncBtn(){
 
     box.innerHTML =
       '<details id="finCPDetails"' + (CP_OPEN ? ' open' : '') + ' ontoggle="cpToggle(this.open)" style="border:1px solid rgba(86,10,15,.18);border-radius:10px;padding:2px 14px;">'
-      + '<summary style="cursor:pointer;font-size:13px;font-weight:600;color:#560A0F;padding:10px 2px;list-style:none;">Projection des charges \u2014 3 leviers' + (nItems ? ' (' + nItems + ') \u00b7 ' + (tot >= 0 ? '+' : '') + euro(tot) : '') + '</summary>'
+      + '<summary style="cursor:pointer;font-size:13px;font-weight:600;color:#560A0F;padding:10px 2px;list-style:none;">Ajout de charges pr\u00e9visionnelles' + (nItems ? ' (' + nItems + ') \u00b7 ' + (tot >= 0 ? '+' : '') + euro(tot) : '') + '</summary>'
       + '<div style="padding-bottom:12px;">'
       + '<div class="edit-hint" style="margin:2px 0 12px;">Ne saisis que les <b>\u00e9carts</b> par rapport \u00e0 aujourd\u2019hui. Seuls les <b>mois \u00e0 venir</b> de chaque levier comptent : au fil des mois (et des rechargements), ce qui est d\u00e9j\u00e0 pay\u00e9 bascule dans la base et n\u2019est <b>plus compt\u00e9 deux fois</b>.</div>'
       + '<div class="panel" style="padding:10px 13px;margin-bottom:14px;background:rgba(239,184,16,.07);border:1px solid rgba(86,10,15,.15);">'
@@ -6249,8 +6250,8 @@ function kwLifecycleSyncBtn(){
     var ctx = window.__finCtx || {};
     var btn = '<button class="per-btn" style="font-size:12px;padding:6px 13px;" onclick="runFinAnalyse()"' + (FA_LOADING ? ' disabled' : '') + '>'
       + (FA_LOADING ? 'Analyse en cours\u2026' : (FA_RESULT ? '\u21bb R\u00e9analyser' : '\u2728 Analyser')) + '</button>';
-    var head = '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px;">'
-      + '<div class="sec-eyebrow" style="margin:0;">Analyse IA \u2014 leviers de la situation & actions</div>' + btn + '</div>';
+    var head = '<div style="display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-bottom:8px;">'
+      + btn + '</div>';
     var b;
     if(FA_LOADING){
       b = '<div style="font-size:12.5px;color:#560A0F;font-weight:600;margin-bottom:7px;">L\u2019IA lit le r\u00e9alis\u00e9, l\u2019atterrissage et les rep\u00e8res 2025\u2026</div>'
@@ -6295,7 +6296,11 @@ function kwLifecycleSyncBtn(){
       b = '<div class="edit-hint">Analyse d\u00e9taill\u00e9e : ce qui explique le CA / la marge actuels (charge des \u00e9quipes, prix de vente, sous-traitance\u2026) et les leviers d\u2019action pour am\u00e9liorer.'
         + (!ctx.projetable ? ' <b>Charge d\u2019abord les donn\u00e9es financi\u00e8res.</b>' : '') + '</div>';
     }
-    box.innerHTML = '<div class="panel" style="padding:14px 16px;">' + head + b + '</div>';
+    box.innerHTML =
+      '<details style="border:1px solid rgba(86,10,15,.18);border-radius:12px;padding:0 14px;">'
+      + '<summary style="cursor:pointer;list-style:none;font-size:13px;font-weight:600;color:#560A0F;padding:12px 2px;">Analyse IA \u2014 leviers de la situation &amp; actions' + (FA_RESULT ? ' <span class="sub-cell" style="font-weight:400;">\u00b7 disponible</span>' : '') + ' <span class="edit-hint" style="font-weight:400;">d\u00e9plier \u25b8</span></summary>'
+      + '<div style="padding:2px 0 14px;">' + head + b + '</div>'
+      + '</details>';
   };
 
   // chargement unifie : finance + charges/EBITDA en une action, avec barre de progression
@@ -7527,8 +7532,10 @@ function kwLifecycleSyncBtn(){
   // + plan de charge + charges/EBITDA). N'appelle PAS l'analyse IA (tokens).
   window.kwRefreshAllFinance = async function(btn){
     var status = document.getElementById('kwRefreshAllStatus');
+    var progWrap = document.getElementById('kwGlobalProgWrap');
     var setS = function(t){ if(status) status.textContent = t; };
     if(btn){ btn.disabled = true; btn.style.opacity = '.6'; btn.style.cursor = 'wait'; }
+    if(progWrap) progWrap.style.display = 'block';
     try {
       // 1) s'assurer d'etre sur l'onglet Tableau de bord (finZone y est rendu)
       var onDash = !!document.getElementById('finZone');
@@ -7552,6 +7559,7 @@ function kwLifecycleSyncBtn(){
       setS('\u26a0 Erreur : ' + ((e && e.message) ? e.message : 'inconnue'));
     } finally {
       if(btn){ btn.disabled = false; btn.style.opacity = '1'; btn.style.cursor = 'pointer'; }
+      if(progWrap) setTimeout(function(){ progWrap.style.display = 'none'; }, 600);
     }
   };
 })();
