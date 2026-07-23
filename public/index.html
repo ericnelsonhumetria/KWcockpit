@@ -7294,36 +7294,29 @@ function kwLifecycleSyncBtn(){
   };
   window.kwPdcMultiApply = async function(){
     var msg = document.getElementById('pdcMultiApplyMsg');
-    if(typeof SB === 'undefined' || !SB){ if(msg) msg.innerHTML = '<div class="edit-hint" style="color:var(--signal);margin-top:8px;">Base indisponible.</div>'; return; }
     var todo = PARSED.filter(function(p){ return MAP[p.sheet]; });
     if(!todo.length){ if(msg) msg.innerHTML = '<div class="edit-hint" style="margin-top:8px;">Associe au moins un consultant à un compte.</div>'; return; }
-    if(msg) msg.innerHTML = '<div class="edit-hint" style="margin-top:8px;">Écriture…</div>';
+    var token = (typeof SB_SESSION !== 'undefined' && SB_SESSION) ? SB_SESSION.access_token : '';
+    if(!token){ if(msg) msg.innerHTML = '<div class="edit-hint" style="color:var(--signal);margin-top:8px;">Session expirée.</div>'; return; }
+    if(msg) msg.innerHTML = '<div class="edit-hint" style="margin-top:8px;">Écriture (serveur)…</div>';
+    var items = todo.map(function(p){
+      var email = MAP[p.sheet];
+      var rows = _expand(email, p.weeks).map(function(r){ return { date_jour: r.date_jour, jours: r.jours }; });
+      return { email: email, rows: rows };
+    });
     try {
-      var mm = await SB.from('pdc_missions').upsert({ code: 'PLANNING', intitule: 'Planning importé (multi-consultants)', client: '', statut: 'En cours' }, { onConflict: 'code' });
-      if(mm.error) throw mm.error;
-    } catch(e){ if(msg) msg.innerHTML = '<div class="edit-hint" style="color:var(--signal);margin-top:8px;">Impossible de créer la mission PLANNING : ' + ((e && e.message) || e) + '</div>'; return; }
-    var done = 0, errs = [], verified = 0, zeros = [];
-    for(var i = 0; i < todo.length; i++){
-      var p = todo[i], email = MAP[p.sheet];
-      try {
-        var del = await SB.from('pdc_charge').delete().eq('email', email).eq('mission_code', 'PLANNING').eq('etat', 'planifie');
-        if(del.error) throw del.error;
-        var rows = _expand(email, p.weeks);
-        for(var c = 0; c < rows.length; c += 400){
-          var up = await SB.from('pdc_charge').upsert(rows.slice(c, c + 400), { onConflict: 'email,date_jour,mission_code,etat' });
-          if(up.error) throw up.error;
-        }
-        var vc = 0;
-        try { var chk = await SB.from('pdc_charge').select('date_jour', { count: 'exact', head: true }).eq('email', email).eq('mission_code', 'PLANNING').eq('etat', 'planifie'); vc = chk.count || 0; } catch(e){}
-        verified += vc;
-        if(vc === 0 && rows.length > 0) zeros.push(p.sheet + ' (' + email + ')');
-        done++;
-      } catch(e){ errs.push(p.sheet + ' : ' + ((e && e.message) || e)); }
-    }
-    var extra = zeros.length ? ' <span style="color:var(--signal);">⚠ Rien persisté pour : ' + zeros.join(', ') + ' — écriture bloquée (droits/RLS sur pdc_charge pour un autre compte). Signale-le-moi.</span>' : '';
-    if(msg) msg.innerHTML = '<div class="save-ok" style="display:block;margin-top:8px;">' + done + ' consultant·s traité·s · <b>' + verified + ' jours vérifiés en base</b>.'
-      + (errs.length ? ' <span style="color:var(--signal);">Erreurs : ' + errs.join(' · ') + '</span>' : '') + extra
-      + ' Recharge « ⟱ Charger la vue consolidée » dans Charge équipe pour voir le résultat (les boutons d\u2019année ne rechargent pas). Projection freelance = jours × TJM.</div>';
+      var r = await fetch('/api/pdc-import', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ items: items }) });
+      var j = null; try { j = await r.json(); } catch(e){}
+      if(!r.ok || !j){ throw new Error((j && j.error) ? j.error : ('HTTP ' + r.status)); }
+      var res = j.results || [];
+      var ok = res.filter(function(x){ return !x.error && (x.verified > 0); });
+      var ko = res.filter(function(x){ return x.error || !(x.verified > 0); });
+      var totalV = res.reduce(function(s, x){ return s + (x.verified || 0); }, 0);
+      var html = '<div class="save-ok" style="display:block;margin-top:8px;"><b>' + ok.length + '/' + res.length + ' consultants écrits · ' + totalV + ' jours vérifiés en base.</b>';
+      if(ko.length){ html += '<div style="color:var(--signal);margin-top:4px;">Non écrits : ' + ko.map(function(x){ return x.email + (x.error ? (' (' + x.error + ')') : ' (0 vérifié)'); }).join(' · ') + '</div>'; }
+      html += '<div class="edit-hint" style="margin-top:4px;">Recharge « ⟱ Charger la vue consolidée » dans Charge équipe (repasse par un autre onglet). Projection freelance = jours × TJM.</div></div>';
+      if(msg) msg.innerHTML = html;
+    } catch(e){ if(msg) msg.innerHTML = '<div class="edit-hint" style="color:var(--signal);margin-top:8px;">Import serveur impossible : ' + ((e && e.message) || e) + '</div>'; }
   };
   window.renderPdcMultiImport = function(){
     var z = document.getElementById('pdcMultiImportZone'); if(!z) return;
