@@ -5721,8 +5721,12 @@ function kwLifecycleSyncBtn(){
     var leviersTot = levSal + levSt + levRe;
     var baseAnnuel = null, stProj = null, stPct = null;
     if(cats != null && attCA != null){
-      var baseYTD = catTotal(cats, 'opex') + catTotal(cats, 'social') + catTotal(cats, 'soustraitance');
-      baseAnnuel = baseYTD / frac * cpAnnu();
+      // Réalisé = factures : opex + social annualisés (run-rate), MAIS soustraitance
+      // figée au YTD (non annualisée). Le forward freelance vient du plan de charge
+      // (levier soustraitants), pas de l'annualisation du passé -> plus de doublon.
+      var baseAnnuelHorsSt = (catTotal(cats, 'opex') + catTotal(cats, 'social')) / frac * cpAnnu();
+      var stYTD = catTotal(cats, 'soustraitance');
+      baseAnnuel = baseAnnuelHorsSt + stYTD;
       attCharges = baseAnnuel + leviersTot;
       attEbitda = attCA - attCharges;
       attMarge = (attCA > 0) ? (attEbitda / attCA * 100) : null;
@@ -5892,11 +5896,15 @@ function kwLifecycleSyncBtn(){
       var ret = (w.countedM <= 0) ? '\u00e9chu, 0 j retenu' : (jr + ' j retenus / ' + (+it.volume || 0));
       return itemRow('soustraitants', it, (it.sens === 'remove' ? 'Retrait' : 'Ajout') + ' \u00b7 ' + euro(+it.tj || 0) + '/j \u00b7 ' + cal + ' \u00b7 ' + ret, impSt(it));
     }).join('');
+    var stEmailOpts = '<option value="">\u2014 sans identit\u00e9 (charge exceptionnelle) \u2014</option>'
+      + (PL_ROSTER || []).map(function(r){ return '<option value="' + escP(r.email) + '">' + escP(r.name) + '</option>'; }).join('');
     var stForm = '<div style="margin-top:8px;">'
       + fld('st_lib', 'Libell\u00e9 (ex : Consultant lean)')
+      + '<div style="margin-bottom:6px;"><select id="st_email" style="width:100%;background:#fff;border:1px solid rgba(86,10,15,.25);border-radius:7px;padding:8px 9px;font-size:13px;">' + stEmailOpts + '</select></div>'
       + '<div style="display:flex;gap:6px;margin-bottom:6px;"><input id="st_tj" inputmode="numeric" placeholder="TJ (\u20ac)" style="flex:1;min-width:0;background:#fff;border:1px solid rgba(86,10,15,.25);border-radius:7px;padding:8px 9px;font-size:13px;"><input id="st_vol" inputmode="numeric" placeholder="volume (j)" style="flex:1;min-width:0;background:#fff;border:1px solid rgba(86,10,15,.25);border-radius:7px;padding:8px 9px;font-size:13px;"></div>'
       + '<div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;"><span class="sub-cell" style="font-size:11px;">de</span>' + moisSel('st_debut', mp) + '<span class="sub-cell" style="font-size:11px;">\u00e0</span>' + moisSel('st_fin', 12) + '</div>'
       + '<div style="display:flex;gap:8px;"><button onclick="cpAdd(\'soustraitants\',\'add\')" class="add-btn" style="flex:1;">+ Ajout</button><button onclick="cpAdd(\'soustraitants\',\'remove\')" class="per-btn" style="flex:1;">\u2212 Retrait</button></div>'
+      + '<div class="edit-hint" style="margin-top:6px;font-size:10.5px;">Une identit\u00e9 = une seule ligne active : si tu r\u00e9importes le plan de charge pour ce freelance, la saisie manuelle est remplac\u00e9e (pas additionn\u00e9e). \u00ab Sans identit\u00e9 \u00bb = charge ponctuelle, jamais d\u00e9doublonn\u00e9e.</div>'
       + '</div>';
 
     // --- Reste des charges ---
@@ -5978,7 +5986,15 @@ function kwLifecycleSyncBtn(){
     } else if(cat === 'soustraitants'){
       var tj = parseFloat(val('st_tj')) || 0, vol = parseFloat(val('st_vol')) || 0;
       if(!tj || !vol) return;
-      CP.soustraitants.push({ id:uid(), libelle:(val('st_lib') || '').trim(), tj:tj, volume:vol, debut:+val('st_debut') || moisProchain(), fin:+val('st_fin') || 12, sens:sens });
+      var stEmail = (val('st_email') || '').trim();
+      if(stEmail){
+        var dejaEmail = (CP.soustraitants || []).filter(function(it){ return it.email === stEmail; });
+        if(dejaEmail.length){
+          if(!confirm('Une ligne existe d\u00e9j\u00e0 pour ce freelance (dont import plan de charge \u00e9ventuel).\nLa remplacer par cette saisie manuelle ?')) return;
+          CP.soustraitants = (CP.soustraitants || []).filter(function(it){ return it.email !== stEmail; });
+        }
+      }
+      CP.soustraitants.push({ id:uid(), email: stEmail || null, libelle:(val('st_lib') || '').trim(), tj:tj, volume:vol, debut:+val('st_debut') || moisProchain(), fin:+val('st_fin') || 12, sens:sens, src:'manuel' });
     } else if(cat === 'reste'){
       var mt = parseFloat(val('re_montant')) || 0;
       if(!mt) return;
@@ -6041,19 +6057,30 @@ function kwLifecycleSyncBtn(){
   };
   window.plCompute = function(){
     var items = PL_ROSTER.filter(function(r){ return r.total > 0 && (+PL_COST[r.email] || 0) > 0; }).map(function(r){
-      return { id: uid(), libelle: 'PDC \u00b7 ' + r.name, tj: +PL_COST[r.email] || 0, volume: r.total, debut: r.debut, fin: r.fin, sens: 'add', src: 'pdc' };
+      return { id: uid(), email: r.email, libelle: 'PDC \u00b7 ' + r.name, tj: +PL_COST[r.email] || 0, volume: r.total, debut: r.debut, fin: r.fin, sens: 'add', src: 'pdc' };
     });
-    var keep = (CP.soustraitants || []).filter(function(it){ return it.src !== 'pdc'; });
+    var pdcEmails = {}; items.forEach(function(it){ if(it.email) pdcEmails[it.email] = 1; });
+    var keep = (CP.soustraitants || []).filter(function(it){ return it.src !== 'pdc' && !(it.email && pdcEmails[it.email]); });
+    var evinces = (CP.soustraitants || []).filter(function(it){ return it.src !== 'pdc' && it.email && pdcEmails[it.email]; });
     var oldPdc = (CP.soustraitants || []).filter(function(it){ return it.src === 'pdc'; });
-    PL_PROPOSAL = { items: items, keep: keep, oldImpact: sumImp(oldPdc, impSt), newImpact: sumImp(items, impSt), oldCount: oldPdc.length };
+    PL_PROPOSAL = { items: items, keep: keep, evinces: evinces, oldImpact: sumImp(oldPdc.concat(evinces), impSt), newImpact: sumImp(items, impSt), oldCount: oldPdc.length + evinces.length };
     window.renderChargesProj(true);
   };
-  window.plApply = function(){
+   window.plApply = function(){
     if(!PL_PROPOSAL) return;
-    CP.soustraitants = PL_PROPOSAL.keep.concat(PL_PROPOSAL.items);
+    // Anti-doublon par identité : on écarte toute ligne existante (manuelle OU pdc)
+    // dont l'email est couvert par l'import plan de charge, puis on ajoute les items pdc.
+    var pdcEmails = {};
+    (PL_PROPOSAL.items || []).forEach(function(it){ if(it.email) pdcEmails[it.email] = 1; });
+    var conserves = (CP.soustraitants || []).filter(function(it){
+      if(it.src === 'pdc') return false;                 // anciennes lignes pdc : remplacées
+      if(it.email && pdcEmails[it.email]) return false;   // manuelle sur un email repris : évincée
+      return true;                                        // manuelle hors périmètre : conservée
+    });
+    CP.soustraitants = conserves.concat(PL_PROPOSAL.items);
     cpSave(); try { window.finSynthRepaint(); } catch(e){}
     PL_PROPOSAL = null; window.renderChargesProj(true);
-  };
+    };
   window.plCancel = function(){ PL_PROPOSAL = null; window.renderChargesProj(true); };
   function plBlock(){
     var head = '<div style="border:1px dashed rgba(86,10,15,.3);border-radius:9px;padding:10px 12px;margin:6px 0 12px;background:rgba(239,184,16,.06);">'
