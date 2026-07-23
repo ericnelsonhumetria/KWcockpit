@@ -59,3 +59,7 @@
   from = "/api/ringover"
   to = "/.netlify/functions/ringover"
   status = 200
+[[redirects]]
+  from = "/api/pdc-import"
+  to = "/.netlify/functions/pdc-import"
+  status = 200
