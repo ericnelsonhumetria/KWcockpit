@@ -12,6 +12,22 @@ function svc() {
   });
 }
 
+// Lecture paginée (contourne la limite PostgREST de 1000 lignes).
+// Enchaîne des .range(from, from+999) jusqu'à épuisement, garde-fou 100 pages.
+async function readAll(sb, table, columns) {
+  const PAGE = 1000, MAX_PAGES = 100;
+  let out = [], from = 0;
+  for (let p = 0; p < MAX_PAGES; p++) {
+    const { data, error } = await sb.from(table).select(columns).range(from, from + PAGE - 1);
+    if (error) throw error;
+    const batch = data || [];
+    out = out.concat(batch);
+    if (batch.length < PAGE) break; // dernière page atteinte
+    from += PAGE;
+  }
+  return out;
+}
+
 async function requireDirection(authHeader) {
   if (!authHeader) return { ok: false, code: 401, msg: 'Non authentifié' };
   const token = authHeader.replace('Bearer ', '').trim();
@@ -44,16 +60,24 @@ exports.handler = async (event) => {
   catch (e) { return { statusCode: 400, headers, body: JSON.stringify({ error: 'Corps invalide' }) }; }
 
   // Lecture serveur (clé service) : renvoie tout le plan de charge, hors RLS.
+  // pdc_charge et pdc_capacite peuvent dépasser 1000 lignes -> lecture paginée.
   if (body && body.action === 'read') {
-    const [ch, cap, mis, aff] = await Promise.all([
-      sb.from('pdc_charge').select('email,date_jour,mission_code,etat,jours'),
-      sb.from('pdc_capacite').select('email,annee,mois,jours_dispo'),
-      sb.from('pdc_missions').select('code,intitule,client,jh_vendus,statut'),
-      sb.from('pdc_affectations').select('email,mission_code'),
-    ]);
-    return { statusCode: 200, headers, body: JSON.stringify({
-      charge: ch.data || [], capacite: cap.data || [], missions: mis.data || [], affectations: aff.data || [],
-    }) };
+    try {
+      const [charge, capacite, mis, aff] = await Promise.all([
+        readAll(sb, 'pdc_charge', 'email,date_jour,mission_code,etat,jours'),
+        readAll(sb, 'pdc_capacite', 'email,annee,mois,jours_dispo'),
+        sb.from('pdc_missions').select('code,intitule,client,jh_vendus,statut'),
+        sb.from('pdc_affectations').select('email,mission_code'),
+      ]);
+      return { statusCode: 200, headers, body: JSON.stringify({
+        charge,
+        capacite,
+        missions: mis.data || [],
+        affectations: aff.data || [],
+      }) };
+    } catch (e) {
+      return { statusCode: 502, headers, body: JSON.stringify({ error: 'Lecture serveur : ' + ((e && e.message) || String(e)) }) };
+    }
   }
 
   const items = Array.isArray(body.items) ? body.items : null;
