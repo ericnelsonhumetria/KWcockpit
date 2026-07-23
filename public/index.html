@@ -3051,6 +3051,7 @@ async function pdcApplyImport(){
 let PDCC = {
   year: new Date().getFullYear(),
   etat: 'planifie',        // heatmap : 'planifie' | 'realise'
+  filtre: 'tous',          // filtre ressource : 'tous' | 'salarie' | 'freelance'
   charge: [],              // [{email,date_jour,mission_code,etat,jours}]
   capacite: {},            // `${email}|${annee}|${mois}` -> jours_dispo
   missions: [],            // [{code,intitule,client,jh_vendus,statut}]
@@ -3140,12 +3141,14 @@ function renderPdcConsView(){
   const zone = document.getElementById('pdccZone');
   if(!zone) return;
   const roster = pdccRoster();
+  const isSal = e => PDCC.salaries.includes(e);
+  // roster filtré pour l'AFFICHAGE des tableaux (les KPIs de synthèse restent sur tout le monde)
+  const rosterFiltre = roster.filter(e => PDCC.filtre === 'tous' || (PDCC.filtre === 'salarie' ? isSal(e) : !isSal(e)));
   const cmap = pdccChargeMap();
   const y = PDCC.year;
 
   // ---- KPIs annee ----
   let capTot=0, chTot=0, capSal=0, chSal=0, surcharge=new Set();
-  const isSal = e => PDCC.salaries.includes(e);
   roster.forEach(e=>{
     for(let mo=1;mo<=12;mo++){
       const cap = PDCC.capacite[`${e}|${y}|${mo}`];
@@ -3176,14 +3179,16 @@ function renderPdcConsView(){
   const years = [...new Set([...Object.keys(PDCC.capacite).map(k=>+k.split('|')[1]), ...PDCC.charge.map(r=>+String(r.date_jour).slice(0,4))])].sort();
   const yearBtns = years.map(yy=>`<button class="per-btn ${yy===y?'on':''}" onclick="pdccSetYear(${yy})">${yy}</button>`).join('');
   const etatBtns = `<div class="seg">${['planifie','realise'].map(e=>`<button class="${PDCC.etat===e?'on':''}" onclick="pdccSetEtat('${e}')">${PDCC_ETAT(e)}</button>`).join('')}</div>`;
+  const filtreBtns = `<div class="seg">${[['tous','Tous'],['salarie','Salariés'],['freelance','Freelances']].map(([k,lbl])=>`<button class="${PDCC.filtre===k?'on':''}" onclick="pdccSetFiltre('${k}')">${lbl}</button>`).join('')}</div>`;
   const ctrl = `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:12px 0;">
       <span class="field-label" style="margin:0;">Annee</span><div class="periode-row">${yearBtns}</div>
+      <span style="display:flex;align-items:center;gap:8px;"><span class="field-label" style="margin:0;">Consultants</span>${filtreBtns}</span>
       <span style="margin-left:auto;display:flex;align-items:center;gap:8px;"><span class="field-label" style="margin:0;">Etat</span>${etatBtns}</span>
     </div>`;
 
   // ---- heatmap ressource x mois ----
   const head = `<th style="min-width:150px;">Ressource</th>`+PDCC_MOIS.map(m=>`<th style="text-align:center;">${m}</th>`).join('')+`<th style="text-align:center;">Annee</th>`;
-  const rows = roster.map(e=>{
+  const rows = rosterFiltre.map(e=>{
     let sj=0, sc=0;
     const cells = [];
     for(let mo=1;mo<=12;mo++){
@@ -3250,7 +3255,49 @@ function renderPdcConsView(){
       <div class="edit-hint" style="margin-top:10px;">Une ressource en surcharge un mois donne = risque de retard ou de qualite ; une mission au-dela du vendu ronge la marge. Ce sont les deux points a arbitrer en priorite.</div>
     </div>`;
 
-  zone.innerHTML = kpi + ctrl + pdccAnalyseBar() + heat + miss + goulets + pdccManageSection();
+  // ---- vue détaillée : 2 prochaines semaines (jours ouvrables), par consultant ----
+  const detail2s = (function(){
+    // 10 prochains jours ouvrables à partir d'aujourd'hui
+    const JOURS = ['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'];
+    const days = [];
+    let cur = new Date(); cur.setHours(0,0,0,0);
+    while(days.length < 10){
+      const dow = cur.getDay();
+      if(dow !== 0 && dow !== 6) days.push(new Date(cur));
+      cur = pdcAdd(cur, 1);
+    }
+    // charge par (email|dateISO), toutes missions confondues, état courant
+    const dmap = {};
+    PDCC.charge.forEach(r=>{
+      if(r.etat !== PDCC.etat) return;
+      const k = `${r.email}|${String(r.date_jour).slice(0,10)}`;
+      dmap[k] = (dmap[k] || 0) + (Number(r.jours) || 0);
+    });
+    const iso = d => pdcISO(d);
+    // en-tête : semaine 1 | semaine 2 groupées
+    const dhead = days.map((d,i)=>{
+      const sep = (i === 5) ? 'border-left:2px solid rgba(86,10,15,.25);' : '';
+      return `<th style="text-align:center;font-size:11px;${sep}">${JOURS[d.getDay()]}<br><span class="sub-cell">${('0'+d.getDate()).slice(-2)}/${('0'+(d.getMonth()+1)).slice(-2)}</span></th>`;
+    }).join('');
+    const drows = rosterFiltre.map(e=>{
+      let tot = 0;
+      const cells = days.map((d,i)=>{
+        const j = dmap[`${e}|${iso(d)}`] || 0;
+        tot += j;
+        const sep = (i === 5) ? 'border-left:2px solid rgba(86,10,15,.25);' : '';
+        const bg = j > 0 ? 'background:rgba(239,184,16,.18);font-weight:600;' : 'color:var(--muted);';
+        return `<td style="text-align:center;${sep}${bg}" title="${j} j le ${iso(d)}">${j > 0 ? (Math.round(j*10)/10) : '·'}</td>`;
+      }).join('');
+      return `<tr><td><b>${pdccName(e)}</b>${isSal(e)?' <span class="pill p-green" style="font-size:9px;padding:1px 6px;">salarie</span>':' <span class="pill p-grey" style="font-size:9px;padding:1px 6px;">freelance</span>'}<br><span class="sub-cell">${e.split('@')[0]}</span></td>${cells}<td style="text-align:center;font-weight:700;">${Math.round(tot*10)/10} j</td></tr>`;
+    }).join('');
+    const wk1 = days[0], wk2 = days[5];
+    return `<div class="sec-eyebrow" style="margin-top:24px;">Détail des 2 prochaines semaines</div>
+      <div class="sec-title">Charge jour par jour &mdash; ${PDCC_ETAT(PDCC.etat)}</div>
+      <div class="sec-note">Jours ouvrables du ${('0'+wk1.getDate()).slice(-2)}/${('0'+(wk1.getMonth()+1)).slice(-2)} au ${('0'+days[9].getDate()).slice(-2)}/${('0'+(days[9].getMonth()+1)).slice(-2)}. Valeur = jours planifiés (toutes missions). « · » = rien de planifié.</div>
+      <div class="panel" style="padding:8px 12px 12px;overflow-x:auto;"><table><thead><tr><th style="min-width:150px;">Ressource</th>${dhead}<th style="text-align:center;">Total</th></tr></thead><tbody>${drows || '<tr><td colspan="12" style="color:var(--muted);padding:14px;">Aucun consultant pour ce filtre.</td></tr>'}</tbody></table></div>`;
+  })();
+
+  zone.innerHTML = kpi + ctrl + pdccAnalyseBar() + heat + detail2s + miss + goulets + pdccManageSection();
 }
 
 function PDCC_ETAT(e){ return e==='planifie' ? 'Planifie' : 'Realise'; }
@@ -3465,6 +3512,7 @@ async function pdccSetCapYear(email){
 
 
 function pdccSetEtat(e){ PDCC.etat = e; renderPdcConsView(); }
+function pdccSetFiltre(f){ PDCC.filtre = f; renderPdcConsView(); }
 
 function pdccAnalyseBar(){
   return `<div class="panel" style="padding:10px 14px;margin-bottom:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
