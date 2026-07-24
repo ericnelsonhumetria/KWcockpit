@@ -5711,15 +5711,15 @@ function kwLifecycleSyncBtn(){
     sy.style.marginBottom = '14px';
     parent.insertBefore(sy, fz);
 
-    var cp = document.createElement('div');
-    cp.id = 'finChargesProj';
-    cp.style.marginBottom = '14px';
-    parent.insertBefore(cp, fz);
-
     var ca = document.createElement('div');
     ca.id = 'finCarnetZone';
     ca.style.marginBottom = '14px';
     parent.insertBefore(ca, fz);
+
+    var cp = document.createElement('div');
+    cp.id = 'finChargesProj';
+    cp.style.marginBottom = '14px';
+    parent.insertBefore(cp, fz);
 
     var det = document.createElement('details');
     det.id = 'finDetailWrap';
@@ -7185,16 +7185,19 @@ function kwLifecycleSyncBtn(){
 
   async function loadTauxCharge(){
     var z = document.getElementById('csCharge'); if(!z) return;
-    if(typeof SB === 'undefined' || !SB){ z.innerHTML = kpiMini('Charge salariés ' + Y, '—', 'base indisponible'); return; }
+    if(typeof SB_SESSION === 'undefined' || !SB_SESSION){ z.innerHTML = kpiMini('Charge salariés ' + Y, '—', 'session indisponible'); return; }
     z.innerHTML = kpiMini('Charge salariés ' + Y, '…', 'chargement');
     try {
-      var res = await Promise.all([
-        SB.from('pdc_charge').select('email,date_jour,etat,jours'),
-        SB.from('pdc_capacite').select('email,annee,mois,jours_dispo'),
-        loadShared('pdc_salaries')
-      ]);
-      var charge = res[0].data || [], cap = res[1].data || [];
-      var sal = Array.isArray(res[2]) ? res[2] : [];
+      // Source paginée (fonction serveur) — même lecture que la vue Charge équipe.
+      // IMPORTANT : ne PAS relire pdc_charge via SB.from() côté client (limite 1000 lignes
+      // + RLS -> la charge salariés, souvent au-delà des 1000 lignes, n'était pas lue -> 0%).
+      var _tok = SB_SESSION.access_token || '';
+      var rr = await fetch('/api/pdc-import', { method:'POST', headers:{ 'Content-Type':'application/json', Authorization:'Bearer ' + _tok }, body: JSON.stringify({ action:'read' }) });
+      var rj = await rr.json();
+      if(!rr.ok) throw new Error((rj && rj.error) ? rj.error : ('HTTP ' + rr.status));
+      var charge = rj.charge || [], cap = rj.capacite || [];
+      var salRaw = await loadShared('pdc_salaries');
+      var sal = Array.isArray(salRaw) ? salRaw : [];
       if(!sal.length){ z.innerHTML = kpiMini('Charge salariés ' + Y, '—', 'aucun salarié défini (Admin)'); return; }
       var salSet = {}; sal.forEach(function(e){ salSet[e] = 1; });
       var capSal = 0;
