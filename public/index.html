@@ -7121,18 +7121,21 @@ function kwLifecycleSyncBtn(){
       + segs + '</div>';
   }
 
-  function ebitdaCardHtml(caReal, opexEbitda, atter){
+  function ebitdaCardHtml(caReal, opexEbitda, atter, sc){
     if(caReal == null || opexEbitda == null) return kpiMini('EBITDA ' + Y, '—', 'CA ou charges indispo');
+    var SCL_E = { facture:'Facturé', signe:'Commandé', p75:'Pond. 75%', p50:'Pond. 50%' };
+    var scl = SCL_E[sc] || 'Commandé';
     var ebitda = caReal - opexEbitda;
     var marge = caReal > 0 ? Math.round(ebitda / caReal * 100) : null;
     var ebitdaFin = (caReal > 0 && atter != null) ? Math.round(atter * (ebitda / caReal)) : null;
-    var col = ebitda >= 0 ? '#2e7d46' : '#b3541e';
+    var margeFin = (atter > 0 && ebitdaFin != null) ? Math.round(ebitdaFin / atter * 100) : marge;
+    var col = (ebitdaFin != null ? ebitdaFin : ebitda) >= 0 ? '#2e7d46' : '#b3541e';
     return '<div style="background:#faf7f2;border:1px solid var(--line);border-radius:10px;padding:12px 14px;height:100%;box-sizing:border-box;">'
-      + '<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;">EBITDA ' + Y + '</div>'
-      + '<div style="font-size:26px;font-weight:800;color:' + col + ';line-height:1.15;margin-top:2px;">' + euroC(ebitda) + '</div>'
-      + '<div style="font-size:11px;color:var(--muted);">marge ' + (marge == null ? '—' : marge + '%') + ' · CA − charges expl.</div>'
-      + '<div style="font-size:11px;color:var(--muted);margin-top:6px;">fin d\'année ~ <span style="font-weight:700;color:#560A0F;">' + (ebitdaFin == null ? '—' : euroC(ebitdaFin)) + '</span></div>'
-      + '<div class="edit-hint" style="margin-top:1px;">estim. : marge actuelle × atterrissage</div></div>';
+      + '<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;">EBITDA ' + Y + ' · ' + scl + '</div>'
+      + '<div style="font-size:26px;font-weight:800;color:' + col + ';line-height:1.15;margin-top:2px;">' + (ebitdaFin == null ? '—' : euroC(ebitdaFin)) + '</div>'
+      + '<div style="font-size:11px;color:var(--muted);">atterrissage · marge ' + (margeFin == null ? '—' : margeFin + '%') + '</div>'
+      + '<div style="font-size:11px;color:var(--muted);margin-top:6px;">réalisé YTD <span style="font-weight:700;color:#560A0F;">' + euroC(ebitda) + '</span> · marge ' + (marge == null ? '—' : marge + '%') + '</div>'
+      + '<div class="edit-hint" style="margin-top:1px;">atterrissage = marge actuelle × CA ' + scl.toLowerCase() + '</div></div>';
   }
 
   async function loadFinanceCards(){
@@ -7157,7 +7160,7 @@ function kwLifecycleSyncBtn(){
     var sc = (typeof window.FIN_PROJ_SCENARIO !== 'undefined' && window.FIN_PROJ_SCENARIO) ? window.FIN_PROJ_SCENARIO : 'signe';
     var at = (window.__csLand[sc] != null) ? window.__csLand[sc] : base;
     if(zc) zc.innerHTML = caCardHtml(caReal, window.__csLand, obj, sc);
-    if(ze) ze.innerHTML = ebitdaCardHtml(caReal, opexEbitda, at);
+    if(ze) ze.innerHTML = ebitdaCardHtml(caReal, opexEbitda, at, sc);
     if(zt){
       var col = (solde == null) ? 'var(--muted)' : (solde < 0 ? '#b3541e' : '#2e7d46');
       zt.innerHTML = kpiMini('Trésorerie (Qonto)', (solde == null ? '—' : euroC(solde)),
@@ -7174,7 +7177,7 @@ function kwLifecycleSyncBtn(){
       var obj = Number(window.FINANCE_OBJECTIF) || 0;
       var at = (window.__csLand[s] != null) ? window.__csLand[s] : (window.__csCaReal || 0);
       if(zc) zc.innerHTML = caCardHtml(window.__csCaReal, window.__csLand, obj, s);
-      if(ze) ze.innerHTML = ebitdaCardHtml(window.__csCaReal, window.__csOpex, at);
+      if(ze) ze.innerHTML = ebitdaCardHtml(window.__csCaReal, window.__csOpex, at, s);
     }
     // propage au reste de l'app si la synthèse financière est montée
     try { if(typeof window.finSynthRepaint === 'function') window.finSynthRepaint(); } catch(e){}
