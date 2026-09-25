@@ -7744,7 +7744,7 @@ function kwLifecycleSyncBtn(){
   var PA_FILTER = { thematique:'', pilote:'', statut:'' };
   var PA_VIEW = 'matrice';   // 'matrice' (Eisenhower) | 'liste'
   var PA_DRAG_ID = null;     // action en cours de glisser-déposer
-  var PA_REC = null, PA_RECORDING = false, PA_BUSY = false, PA_MSG = '';
+  var PA_REC = null, PA_RECORDING = false, PA_BUSY = false, PA_MSG = '', PA_DICT_FINAL = '';
 
   function paEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
   function paAuth(){ return { 'Content-Type':'application/json', Authorization:'Bearer ' + SB_SESSION.access_token }; }
@@ -7805,17 +7805,34 @@ function kwLifecycleSyncBtn(){
   window.paDictate = function(){
     var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if(!SR) return;
-    if(PA_RECORDING && PA_REC){ try{ PA_REC.stop(); }catch(e){} return; }
-    PA_REC = new SR(); PA_REC.lang='fr-FR'; PA_REC.interimResults=true; PA_REC.continuous=true;
-    var base = (document.getElementById('paTexte')||{}).value || '';
-    PA_REC.onresult = function(ev){
-      var txt=''; for(var i=ev.resultIndex;i<ev.results.length;i++){ txt += ev.results[i][0].transcript; }
-      var ta=document.getElementById('paTexte'); if(ta) ta.value = (base?base+' ':'') + txt;
-    };
-    PA_REC.onend = function(){ PA_RECORDING=false; var b=document.getElementById('paMicBtn'); if(b) b.textContent='\ud83c\udfa4 Dicter'; };
-    PA_REC.onerror = function(){ PA_RECORDING=false; var b=document.getElementById('paMicBtn'); if(b) b.textContent='\ud83c\udfa4 Dicter'; };
-    try { PA_REC.start(); PA_RECORDING=true; var b=document.getElementById('paMicBtn'); if(b) b.textContent='\u23f9 Arr\u00eater'; } catch(e){}
+    if(PA_RECORDING){ PA_RECORDING=false; if(PA_REC){ try{ PA_REC.stop(); }catch(e){} } var bs=document.getElementById('paMicBtn'); if(bs) bs.textContent='\ud83c\udfa4 Dicter'; return; }
+    var ta0 = document.getElementById('paTexte');
+    PA_DICT_FINAL = ta0 ? ta0.value.replace(/\s+$/,'') : '';
+    PA_RECORDING = true;
+    var bstart=document.getElementById('paMicBtn'); if(bstart) bstart.textContent='\u23f9 Arr\u00eater';
+    paStartRec(SR);
   };
+  function paStartRec(SR){
+    PA_REC = new SR(); PA_REC.lang='fr-FR'; PA_REC.interimResults=true; PA_REC.continuous=true;
+    PA_REC.onresult = function(ev){
+      var interim='';
+      for(var i=ev.resultIndex; i<ev.results.length; i++){
+        var r=ev.results[i];
+        if(r.isFinal){ var seg=(r[0].transcript||'').trim(); if(seg){ PA_DICT_FINAL += (PA_DICT_FINAL && !/\s$/.test(PA_DICT_FINAL) ? ' ' : '') + seg; } }
+        else { interim += r[0].transcript; }
+      }
+      var ta=document.getElementById('paTexte');
+      if(ta) ta.value = PA_DICT_FINAL + (interim ? (PA_DICT_FINAL ? ' ' : '') + interim : '');
+    };
+    PA_REC.onerror = function(e){
+      if(e && (e.error==='not-allowed' || e.error==='service-not-allowed')){ PA_RECORDING=false; var b=document.getElementById('paMicBtn'); if(b) b.textContent='\ud83c\udfa4 Dicter'; }
+    };
+    PA_REC.onend = function(){
+      if(PA_RECORDING){ try{ paStartRec(SR); return; }catch(e){} }
+      var b=document.getElementById('paMicBtn'); if(b) b.textContent='\ud83c\udfa4 Dicter';
+    };
+    try{ PA_REC.start(); }catch(e){}
+  }
 
   window.paReformulate = async function(){
     if(PA_BUSY) return;
