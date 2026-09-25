@@ -647,7 +647,7 @@ function render(role){
   if(role !== 'najoua' && role !== 'paul' && role !== 'juliette'){
     const dojoTab = document.createElement('button');
     dojoTab.className = 'tab'; dojoTab.dataset.tab = 'dojo';
-    dojoTab.setAttribute('onclick', "window.location.href='/dojo/'");
+    dojoTab.setAttribute('onclick', "switchTab('dojo')");
     dojoTab.innerHTML = 'Dojo ↗';
     tabsEl.appendChild(dojoTab);
   }
@@ -758,6 +758,12 @@ function renderTab(){
     document.getElementById('view').innerHTML = renderActions(CURRENT_ROLE, 'mine');
   } else if(CURRENT_TAB==='plandaction'){
     if(window.renderPlanAction) window.renderPlanAction();
+  } else if(CURRENT_TAB==='dojo'){
+    document.getElementById('view').innerHTML =
+      '<div class="sec-eyebrow">Go Gemba</div>'
+      + '<div class="sec-title">Dojo</div>'
+      + '<div class="sec-note">Simulation de coaching manag\u00e9rial, assist\u00e9e par IA.</div>'
+      + '<iframe id="dojoFrame" title="Dojo" src="/dojo/" style="width:100%;height:78vh;min-height:620px;border:1px solid rgba(86,10,15,.15);border-radius:10px;margin-top:8px;display:block;background:#fff;"></iframe>';
   } else if(CURRENT_TAB==='reunion'){
     document.getElementById('view').innerHTML = renderReunion();
     initReunion();
