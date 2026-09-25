@@ -652,9 +652,10 @@ function render(role){
     tabsEl.appendChild(dojoTab);
   }
   // onglet Plan de charge : espace personnel ; pas pour Najoua
+  const PDC_TAB_ENABLED = false;   // MASQUE pour le moment ; repasser a true pour reafficher
   const oldPdc = tabsEl.querySelector('[data-tab="pdc"]');
   if(oldPdc) oldPdc.remove();
-  if(role !== 'najoua' && role !== 'paul' && role !== 'juliette'){
+  if(PDC_TAB_ENABLED && role !== 'najoua' && role !== 'paul' && role !== 'juliette'){
     const pdcTab = document.createElement('button');
     pdcTab.className = 'tab'; pdcTab.dataset.tab = 'pdc';
     pdcTab.setAttribute('onclick', "switchTab('pdc')");
@@ -674,9 +675,10 @@ function render(role){
     tabsEl.appendChild(depTab);
   }
   // onglet Charge equipe : vue consolidee, reservee direction (eric) et Audrey
+  const PDCC_TAB_ENABLED = false;   // MASQUE pour le moment ; repasser a true pour reafficher
   const oldPdcc = tabsEl.querySelector('[data-tab="pdccons"]');
   if(oldPdcc) oldPdcc.remove();
-  if(role==='eric' || role==='audrey'){
+  if(PDCC_TAB_ENABLED && (role==='eric' || role==='audrey')){
     const pdccTab = document.createElement('button');
     pdccTab.className = 'tab'; pdccTab.dataset.tab = 'pdccons';
     pdccTab.setAttribute('onclick', "switchTab('pdccons')");
