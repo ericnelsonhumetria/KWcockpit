@@ -10,6 +10,11 @@
 //
 // Renvoie : stock (deals par étape), flux (R1 des 7 derniers jours),
 // et taux de transformation vs cibles (R1->R2 33%, R2->proposition 50%).
+//
+// PROFILS : chaque deal porte son propriétaire (hubspot_owner_id), résolu en nom
+// via /crm/v3/owners. Le même bloc d'indicateurs est calculé pour Équipe / Paul
+// INGRASSIA / Aurélie LOPEZ, exposé dans `profils`. Le niveau racine = Équipe
+// (rétrocompatible avec loadRespCommerce et l'ancien rendu).
 
 const { createClient } = require('@supabase/supabase-js');
 
@@ -36,7 +41,7 @@ async function fetchWithTimeout(url, options, ms) {
   finally { clearTimeout(t); }
 }
 
-// Normalise un libellé d'étape pour comparaison souple (sans accents/casse)
+// Normalise un libellé pour comparaison souple (sans accents/casse)
 function norm(s) {
   return String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
 }
@@ -54,15 +59,48 @@ async function getStages(headers) {
   return { pipelineId: pipeline.id, stages, allPipelines: pipelines };
 }
 
+// Carte { ownerId -> { name (normalisé), email, display } } pour attribuer chaque deal.
+async function getOwners(headers) {
+  const map = {};
+  let after = null, pages = 0;
+  do {
+    const url = new URL('https://api.hubapi.com/crm/v3/owners');
+    url.searchParams.set('limit', '100');
+    if (after) url.searchParams.set('after', after);
+    let res;
+    try { res = await fetchWithTimeout(url.toString(), { headers }, 9000); }
+    catch (e) { break; }
+    if (!res.ok) break;
+    const data = await res.json();
+    (data.results || []).forEach(o => {
+      const display = ((o.firstName || '') + ' ' + (o.lastName || '')).trim();
+      map[String(o.id)] = { name: norm(display), last: norm(o.lastName || ''), email: (o.email || '').toLowerCase(), display };
+    });
+    after = data.paging && data.paging.next ? data.paging.next.after : null;
+    pages += 1;
+  } while (after && pages < 10);
+  return map;
+}
+
+// Attribue un deal à un profil à partir du nom du propriétaire.
+// Correspondance sur le NOM DE FAMILLE (INGRASSIA / LOPEZ) — le plus fiable ;
+// repli sur le prénom. Tout le reste -> 'autre' (non attribué).
+function bucketFor(ownerId, owners) {
+  const o = ownerId ? owners[String(ownerId)] : null;
+  if (!o) return 'autre';
+  const n = o.name, last = o.last;
+  if (last === 'ingrassia' || last.includes('ingrassia') || n.includes('paul ingrassia')) return 'paul';
+  if (last === 'lopez' || last.includes('lopez') || n.includes('aurelie lopez')) return 'aurelie';
+  return 'autre';
+}
+
 // Récupère tous les deals du pipeline (paginé, borné).
-// stageDateIds : ids d'étape dont on veut la DATE D'ENTREE (hs_date_entered_<id>) pour la cohorte.
-// On demande aussi les appels associés (associations=calls) pour tracer les pitchs.
 async function getDeals(headers, pipelineId, stageDateIds) {
   const all = [];
   let after = null;
   let pages = 0;
   const deadline = Date.now() + 18000;
-  const props = ['dealstage', 'pipeline', 'createdate', 'amount', 'dealname'];
+  const props = ['dealstage', 'pipeline', 'createdate', 'amount', 'dealname', 'hubspot_owner_id'];
   (stageDateIds || []).forEach(id => { if (id) props.push('hs_date_entered_' + id); });
   do {
     const url = new URL('https://api.hubapi.com/crm/v3/objects/deals');
@@ -87,6 +125,7 @@ async function getDeals(headers, pipelineId, stageDateIds) {
           stage: p.dealstage,
           createdate: p.createdate,
           amount: Number(p.amount || 0),
+          ownerId: p.hubspot_owner_id || null,
           entered: entered,
           callIds: callIds,
         });
@@ -99,8 +138,6 @@ async function getDeals(headers, pipelineId, stageDateIds) {
 }
 
 // Ensemble des ids d'appels >= 90 s (pitchs), via l'API de recherche des calls.
-// Best-effort : en cas d'echec, renvoie un set vide (l'entonnoir cohorte reste valide,
-// seule la tracabilite du pitch est indisponible).
 async function getPitchCallIds(headers) {
   const ids = new Set();
   let after = null, pages = 0;
@@ -133,7 +170,6 @@ exports.handler = async (event) => {
   };
   if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers: cors };
 
-  const params = event.queryStringParameters || {};
   const token = process.env.HUBSPOT_TOKEN;
   const headers = { Accept: 'application/json', Authorization: `Bearer ${token}` };
 
@@ -157,16 +193,15 @@ exports.handler = async (event) => {
     const idFinal = stageIdFor('finalisation des conditions');
     const idGagne = stageIdFor('gagnee');
     const idPerdu = stageIdFor('perdu');
-    // Chemin principal de progression (ordre commercial). Un deal dont le stade COURANT
-    // est dans "depuis R2" a donc atteint R2 ; idem "depuis Offre". Stades hors chemin
-    // (perdu, suite R1, nurturing, no-show) non comptés : voir _diag.cohorte_perdus.
     const depuisR2 = [idR2, idProp, idObj, idFinal, idGagne].filter(Boolean);
     const depuisOffre = [idProp, idObj, idFinal, idGagne].filter(Boolean);
 
-    // deals avec dates d'entree de stade (cohorte) + appels associes (pitchs)
+    // deals + propriétaires + appels associés (pitchs)
+    const owners = await getOwners(headers);
     const deals = await getDeals(headers, pipelineId, [idR1, idR2, idProp]);
+    deals.forEach(d => { d.bucket = bucketFor(d.ownerId, owners); });
 
-    // Fenêtre de période (createdate) — calculée tôt car utilisée par la cohorte ET r1_periode
+    // Fenêtre de période (createdate)
     const now = Date.now();
     const qp = event.queryStringParameters || {};
     let periodStart = null;
@@ -176,108 +211,123 @@ exports.handler = async (event) => {
     else if (qp.days) { const dd = parseInt(qp.days, 10); if (dd >= 1 && dd <= 400) periodStart = now - dd * 24 * 3600 * 1000; }
 
     const pitchSet = await getPitchCallIds(headers);
-
-    // STOCK : nombre de deals par étape (libellé lisible)
-    const stock = {};
-    Object.entries(stages).forEach(([id, label]) => {
-      stock[label] = deals.filter(d => d.stage === id).length;
-    });
-
-    // FLUX : deals créés dans les 7 derniers jours ET actuellement en R1
     const septJours = 7 * 24 * 3600 * 1000;
-    const fluxR1 = deals.filter(d =>
-      d.stage === idR1 && d.createdate && (now - new Date(d.createdate).getTime()) <= septJours
-    ).length;
-
-    // Volumes pour les taux (stock actuel par étape clé)
-    const nbR1 = idR1 ? deals.filter(d => d.stage === idR1).length : 0;
-    const nbR2 = idR2 ? deals.filter(d => d.stage === idR2).length : 0;
-    const nbProp = idProp ? deals.filter(d => d.stage === idProp).length : 0;
-
-    // R1 PRIS SUR UNE PERIODE : createdate >= periodStart (calculé plus haut).
-    let r1Periode = null;
-    if (periodStart != null) {
-      r1Periode = deals.filter(d => d.createdate && new Date(d.createdate).getTime() >= periodStart).length;
-    }
-    // R1 par mois (annee civile courante), sur createdate
     const anneeN = new Date().getFullYear();
-    const r1ParMois = {}, r2ParMois = {}, offreParMois = {};
-    deals.forEach(d => {
-      if (!d.createdate) return;
-      const dt = new Date(d.createdate);
-      if (isNaN(dt.getTime()) || dt.getFullYear() !== anneeN) return;
-      const ym = dt.getFullYear() + '-' + ('0' + (dt.getMonth() + 1)).slice(-2);
-      r1ParMois[ym] = (r1ParMois[ym] || 0) + 1;
-      if (depuisR2.length && depuisR2.includes(d.stage)) r2ParMois[ym] = (r2ParMois[ym] || 0) + 1;
-      if (depuisOffre.length && depuisOffre.includes(d.stage)) offreParMois[ym] = (offreParMois[ym] || 0) + 1;
-    });
 
-    // ENTONNOIR DE COHORTE (non faussée) :
-    // NB cohorte : ancrée sur createdate (= R1 pris chez KW). hs_date_entered_<R1>
-    // n'est PAS enregistré dans ce CRM => createdate, signal fiable, cohérent avec
-    // r1_periode/r1_par_mois. Progression R2/Offre via STADE COURANT (chemin principal) :
-    // borne basse — les deals perdus ne sont pas attribués à un stade atteint (cf. _diag).
-    let entonnoir = null;
-    {
-      const inPeriode = (ts) => {
-        if (!ts) return false;
-        const t = new Date(ts).getTime();
-        if (isNaN(t)) return false;
-        return periodStart == null ? true : t >= periodStart;
-      };
-      const cohorte = deals.filter(d => inPeriode(d.createdate));
-      const cR1 = cohorte.length;
-      const cR1Pitch = cohorte.filter(d => d.callIds.some(id => pitchSet.has(id))).length;
-      // R2 / Offre : deal dont le STADE COURANT est à R2-ou-au-delà / Offre-ou-au-delà
-      // (chemin principal). Borne basse : les perdus ne sont pas attribués (cf. _diag).
-      const cR2 = depuisR2.length ? cohorte.filter(d => depuisR2.includes(d.stage)).length : null;
-      const cOffre = depuisOffre.length ? cohorte.filter(d => depuisOffre.includes(d.stage)).length : null;
-      // Diagnostic (retirable une fois calibré) :
-      const cPerdus = idPerdu ? cohorte.filter(d => d.stage === idPerdu).length : null;
-      const cGagnes = idGagne ? cohorte.filter(d => d.stage === idGagne).length : null;
-      entonnoir = {
-        periode: qp.period || (qp.days ? (qp.days + 'd') : 'tout'),
-        r1: cR1,
-        r1_avec_pitch: cR1Pitch,
-        r2: cR2,
-        offre: cOffre,
-        taux_pitch_r1: cR1 ? Math.round(cR1Pitch / cR1 * 100) : null,                // % des R1 tracés à un pitch loggé
-        taux_r1_r2: (cR1 && cR2 != null) ? Math.round(cR2 / cR1 * 100) : null,        // borne basse (stade courant)
-        taux_r2_offre: (cR2 && cOffre != null) ? Math.round(cOffre / cR2 * 100) : null, // borne basse (stade courant)
-        pitch_traceable: pitchSet.size > 0,                                          // false si l'API calls a échoué
-        ancre: 'createdate',
-        methode_progression: 'stade_courant',
-        borne: 'basse',                                                              // perdus non attribués
-        cible_r1_r2: 33,
-        cible_r2_offre: 50,
-        _diag: {
-          cohorte_taille: cR1,
-          cohorte_perdus: cPerdus,        // deals de la cohorte déjà en "Fermé perdu" (angle mort de la borne basse)
-          cohorte_gagnes: cGagnes,        // deals de la cohorte déjà gagnés
-        },
+    // ---- Bloc d'indicateurs calculé pour un sous-ensemble de deals (Équipe / Paul / Aurélie) ----
+    // Structure IDENTIQUE à l'ancienne réponse : on conserve les indicateurs en place.
+    function kpi(sub) {
+      // STOCK : nombre de deals par étape (toutes les étapes du pipeline, même à 0)
+      const stock = {};
+      Object.entries(stages).forEach(([id, label]) => {
+        stock[label] = sub.filter(d => d.stage === id).length;
+      });
+
+      const fluxR1 = sub.filter(d =>
+        d.stage === idR1 && d.createdate && (now - new Date(d.createdate).getTime()) <= septJours
+      ).length;
+
+      const nbR1 = idR1 ? sub.filter(d => d.stage === idR1).length : 0;
+      const nbR2 = idR2 ? sub.filter(d => d.stage === idR2).length : 0;
+      const nbProp = idProp ? sub.filter(d => d.stage === idProp).length : 0;
+
+      let r1Periode = null;
+      if (periodStart != null) {
+        r1Periode = sub.filter(d => d.createdate && new Date(d.createdate).getTime() >= periodStart).length;
+      }
+
+      const r1ParMois = {}, r2ParMois = {}, offreParMois = {};
+      sub.forEach(d => {
+        if (!d.createdate) return;
+        const dt = new Date(d.createdate);
+        if (isNaN(dt.getTime()) || dt.getFullYear() !== anneeN) return;
+        const ym = dt.getFullYear() + '-' + ('0' + (dt.getMonth() + 1)).slice(-2);
+        r1ParMois[ym] = (r1ParMois[ym] || 0) + 1;
+        if (depuisR2.length && depuisR2.includes(d.stage)) r2ParMois[ym] = (r2ParMois[ym] || 0) + 1;
+        if (depuisOffre.length && depuisOffre.includes(d.stage)) offreParMois[ym] = (offreParMois[ym] || 0) + 1;
+      });
+
+      let entonnoir = null;
+      {
+        const inPeriode = (ts) => {
+          if (!ts) return false;
+          const t = new Date(ts).getTime();
+          if (isNaN(t)) return false;
+          return periodStart == null ? true : t >= periodStart;
+        };
+        const cohorte = sub.filter(d => inPeriode(d.createdate));
+        const cR1 = cohorte.length;
+        const cR1Pitch = cohorte.filter(d => d.callIds.some(id => pitchSet.has(id))).length;
+        const cR2 = depuisR2.length ? cohorte.filter(d => depuisR2.includes(d.stage)).length : null;
+        const cOffre = depuisOffre.length ? cohorte.filter(d => depuisOffre.includes(d.stage)).length : null;
+        const cPerdus = idPerdu ? cohorte.filter(d => d.stage === idPerdu).length : null;
+        const cGagnes = idGagne ? cohorte.filter(d => d.stage === idGagne).length : null;
+        entonnoir = {
+          periode: qp.period || (qp.days ? (qp.days + 'd') : 'tout'),
+          r1: cR1,
+          r1_avec_pitch: cR1Pitch,
+          r2: cR2,
+          offre: cOffre,
+          taux_pitch_r1: cR1 ? Math.round(cR1Pitch / cR1 * 100) : null,
+          taux_r1_r2: (cR1 && cR2 != null) ? Math.round(cR2 / cR1 * 100) : null,
+          taux_r2_offre: (cR2 && cOffre != null) ? Math.round(cOffre / cR2 * 100) : null,
+          pitch_traceable: pitchSet.size > 0,
+          ancre: 'createdate',
+          methode_progression: 'stade_courant',
+          borne: 'basse',
+          cible_r1_r2: 33,
+          cible_r2_offre: 50,
+          _diag: { cohorte_taille: cR1, cohorte_perdus: cPerdus, cohorte_gagnes: cGagnes },
+        };
+      }
+
+      return {
+        stock,
+        flux_r1_7j: fluxR1,
+        cible_r1_hebdo: 8,
+        r1_periode: r1Periode,
+        r1_par_mois: r1ParMois,
+        r2_par_mois: r2ParMois,
+        offre_par_mois: offreParMois,
+        entonnoir: entonnoir,
+        volumes: { r1: nbR1, r2: nbR2, proposition: nbProp },
+        taux_r1_vers_r2: nbR1 > 0 ? Math.round((nbR2 / nbR1) * 100) : null,
+        taux_r2_vers_proposition: nbR2 > 0 ? Math.round((nbProp / nbR2) * 100) : null,
+        cible_r1_vers_r2: 33,
+        cible_r2_vers_proposition: 50,
+        gagnees: idGagne ? sub.filter(d => d.stage === idGagne).length : 0,
+        perdues: idPerdu ? sub.filter(d => d.stage === idPerdu).length : 0,
       };
     }
+
+    const dealsPaul = deals.filter(d => d.bucket === 'paul');
+    const dealsAurelie = deals.filter(d => d.bucket === 'aurelie');
+    const nonAttribues = deals.filter(d => d.bucket === 'autre').length;
+
+    const equipe = kpi(deals);
+
+    // Noms d'affichage résolus (repli sur libellé par défaut si l'owner n'existe pas encore)
+    const ownerDisplay = (last) => {
+      const hit = Object.values(owners).find(o => o.last.includes(last));
+      return hit ? hit.display : null;
+    };
 
     return {
       statusCode: 200,
       headers: { ...cors, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        stock,                        // { "R1": 11, "Évaluation des besoins": 11, ... }
-        flux_r1_7j: fluxR1,           // R1 des 7 derniers jours
-        cible_r1_hebdo: 8,
-        r1_periode: r1Periode,        // R1 pris sur la periode demandee (createdate), null si non demandee
-        r1_par_mois: r1ParMois,       // { "2026-01": 3, ... } annee civile courante
-        r2_par_mois: r2ParMois,       // R2 (stade courant, atteint) par mois de création
-        offre_par_mois: offreParMois, // Offre (stade courant, atteint) par mois de création
-        entonnoir: entonnoir,         // cohorte R1->R2->Offre (dates d'entree) + tracabilite pitch
-        volumes: { r1: nbR1, r2: nbR2, proposition: nbProp },
-        // taux indicatifs sur le stock (à interpréter avec prudence, cf. note)
-        taux_r1_vers_r2: nbR1 > 0 ? Math.round((nbR2 / nbR1) * 100) : null,
-        taux_r2_vers_proposition: nbR2 > 0 ? Math.round((nbProp / nbR2) * 100) : null,
-        cible_r1_vers_r2: 33,
-        cible_r2_vers_proposition: 50,
-        gagnees: idGagne ? deals.filter(d => d.stage === idGagne).length : 0,
-        perdues: idPerdu ? deals.filter(d => d.stage === idPerdu).length : 0,
+        ...equipe, // niveau racine = Équipe (rétrocompatible)
+        profils: {
+          equipe: equipe,
+          paul: kpi(dealsPaul),
+          aurelie: kpi(dealsAurelie),
+        },
+        owners: {
+          paul: ownerDisplay('ingrassia') || 'Paul INGRASSIA',
+          aurelie: ownerDisplay('lopez') || 'Aurélie LOPEZ',
+          non_attribues: nonAttribues,       // deals du pipeline sans propriétaire Paul/Aurélie
+          total_deals: deals.length,
+        },
       }),
     };
   } catch (e) {
