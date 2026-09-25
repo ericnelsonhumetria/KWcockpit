@@ -4288,9 +4288,9 @@ async function createCandidat(){
 }
 
 function copyLien(link){
-  if(navigator.clipboard && navigator.clipboard.writeText){
-    navigator.clipboard.writeText(link).then(function(){ if(typeof flashSync==='function') flashSync('✓ lien copié'); }).catch(function(){ prompt('Copiez le lien :', link); });
-  } else { prompt('Copiez le lien :', link); }
+  var copied=false;
+  try { if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(link); copied=true; } } catch(e){}
+  window.prompt(copied ? 'Lien copié ✓ — vérifiez ou recopiez (Ctrl/Cmd+C) :' : 'Lien du candidat (Ctrl/Cmd+C pour copier) :', link);
 }
 
 async function archiveCandidat(id){
