@@ -7735,6 +7735,7 @@ function kwLifecycleSyncBtn(){
   var PA_REFS = null, PA_LIST = [], PA_DRAFT = null;
   var PA_FILTER = { thematique:'', pilote:'', statut:'' };
   var PA_VIEW = 'matrice';   // 'matrice' (Eisenhower) | 'liste'
+  var PA_DRAG_ID = null;     // action en cours de glisser-déposer
   var PA_REC = null, PA_RECORDING = false, PA_BUSY = false, PA_MSG = '';
 
   function paEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
@@ -7957,17 +7958,17 @@ function kwLifecycleSyncBtn(){
     var today=paToday(); var overdue=a.echeance && a.echeance<today && !done;
     var meta = paEsc(paPiloteNom(a.pilote_id)) + (a.echeance ? (' \u00b7 '+(overdue?'<span style="color:var(--signal);font-weight:600;">\u00e9ch. '+paEsc(a.echeance)+' (retard)</span>':'\u00e9ch. '+paEsc(a.echeance))) : '');
     var statOpts=[['a_faire','\u00c0 faire'],['en_cours','En cours'],['fait','Fait'],['abandonne','Abandonn\u00e9']].map(function(s){return '<option value="'+s[0]+'"'+(a.statut===s[0]?' selected':'')+'>'+s[1]+'</option>';}).join('');
-    return '<div style="background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:8px;padding:7px 9px;margin-bottom:6px;'+(done?'opacity:.5;':'')+'">'
+    return '<div draggable="true" ondragstart="paDragStart(event,\''+a.id+'\')" style="background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:8px;padding:7px 9px;margin-bottom:6px;cursor:grab;'+(done?'opacity:.5;':'')+'">'
       + '<div style="font-size:12.5px;font-weight:600;color:#333;'+(done?'text-decoration:line-through;':'')+'">'+paEsc(a.libelle)+'</div>'
       + '<div style="display:flex;align-items:center;gap:6px;margin-top:4px;">'
       +   '<span class="edit-hint" style="flex:1;min-width:0;">'+meta+'</span>'
-      +   '<select onchange="paSetStatut(\''+a.id+'\',this.value)" style="font-size:10.5px;padding:2px 4px;border:1px solid rgba(86,10,15,.25);border-radius:6px;font-family:inherit;flex:0 0 auto;width:90px;">'+statOpts+'</select>'
-      +   '<button onclick="paArchive(\''+a.id+'\')" title="Archiver" type="button" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;flex:0 0 auto;padding:2px;">\u2715</button>'
+      +   '<select draggable="false" onmousedown="event.stopPropagation()" onchange="paSetStatut(\''+a.id+'\',this.value)" style="font-size:10.5px;padding:2px 4px;border:1px solid rgba(86,10,15,.25);border-radius:6px;font-family:inherit;flex:0 0 auto;width:90px;">'+statOpts+'</select>'
+      +   '<button draggable="false" onmousedown="event.stopPropagation()" onclick="paArchive(\''+a.id+'\')" title="Archiver" type="button" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;flex:0 0 auto;padding:2px;">\u2715</button>'
       + '</div></div>';
   }
-  function paQuadrant(title, sub, color, actions){
+  function paQuadrant(title, sub, color, actions, key){
     var body = actions.length ? actions.map(paCell).join('') : '<div class="edit-hint" style="padding:4px 2px;">\u2014</div>';
-    return '<div style="border:2px solid '+color+';border-radius:12px;padding:10px 12px;min-width:0;display:flex;flex-direction:column;">'
+    return '<div ondragover="paDragOver(event)" ondragleave="paDragLeave(event)" ondrop="paDrop(event,\''+key+'\')" style="border:2px solid '+color+';border-radius:12px;padding:10px 12px;min-width:0;display:flex;flex-direction:column;">'
       + '<div style="font-weight:700;color:'+color+';font-size:13px;">'+title+' <span style="font-weight:400;color:var(--muted);font-size:11px;">('+actions.length+')</span></div>'
       + '<div class="edit-hint" style="margin:1px 0 8px;">'+sub+'</div>'
       + '<div style="overflow-y:auto;max-height:340px;">'+body+'</div>'
@@ -7982,10 +7983,10 @@ function kwLifecycleSyncBtn(){
     });
     // Positions Eisenhower : haut = important, droite = urgent
     var grid = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">'
-      + paQuadrant('Q2 \u00b7 Planifier',  'Important, non urgent',     '#EFB810', q2)
-      + paQuadrant('Q1 \u00b7 Faire',      'Important & urgent',        '#c0392b', q1)
-      + paQuadrant('Q4 \u00b7 Plus tard',  'Non important, non urgent', '#2980b9', q4)
-      + paQuadrant('Q3 \u00b7 D\u00e9l\u00e9guer',  'Non important, urgent',     '#2e7d46', q3)
+      + paQuadrant('Q2 \u00b7 Planifier',  'Important, non urgent',     '#EFB810', q2, 'q2')
+      + paQuadrant('Q1 \u00b7 Faire',      'Important & urgent',        '#c0392b', q1, 'q1')
+      + paQuadrant('Q4 \u00b7 Plus tard',  'Non important, non urgent', '#2980b9', q4, 'q4')
+      + paQuadrant('Q3 \u00b7 D\u00e9l\u00e9guer',  'Non important, urgent',     '#2e7d46', q3, 'q3')
       + '</div>';
     var vAxis = '<div style="display:flex;flex-direction:column;justify-content:space-between;align-items:center;padding:4px 0;flex:0 0 22px;">'
       + '<span style="font-size:13px;color:#560A0F;font-weight:700;">+</span>'
@@ -8000,8 +8001,37 @@ function kwLifecycleSyncBtn(){
       +   '<span style="font-weight:700;color:#560A0F;font-size:12px;letter-spacing:3px;">URGENT \u2192</span>'
       +   '<span style="font-size:11px;color:#c0392b;font-weight:700;">urgent +</span>'
       + '</div></div>';
-    var legend = '<div class="edit-hint" style="margin-top:8px;">Important = priorit\u00e9 haute ou normale (axe vertical) \u00b7 Urgent = \u00e9ch\u00e9ance dans '+PA_URGENT_DAYS+' j ou d\u00e9pass\u00e9e (axe horizontal). Change la priorit\u00e9 / l\u2019\u00e9ch\u00e9ance pour d\u00e9placer une action.</div>';
+    var legend = '<div class="edit-hint" style="margin-top:8px;">Glisse une action d\u2019un quadrant \u00e0 l\u2019autre pour la reclasser (ajuste priorit\u00e9 + \u00e9ch\u00e9ance). Important = priorit\u00e9 haute ou normale (axe vertical) \u00b7 Urgent = \u00e9ch\u00e9ance dans '+PA_URGENT_DAYS+' j ou d\u00e9pass\u00e9e (axe horizontal).</div>';
     return paFiltersHtml() + '<div class="edit-hint" style="margin:2px 0 2px;">'+rows.length+' action(s)</div>' + matrix + hAxis + legend;
+  }
+
+  // Glisser-déposer entre quadrants : ajuste priorité (importance) et échéance (urgence)
+  window.paDragStart = function(ev, id){
+    PA_DRAG_ID = id;
+    try { ev.dataTransfer.setData('text/plain', id); ev.dataTransfer.effectAllowed = 'move'; } catch(e){}
+  };
+  window.paDragOver = function(ev){ ev.preventDefault(); try{ ev.dataTransfer.dropEffect='move'; }catch(e){} ev.currentTarget.style.background='rgba(86,10,15,.05)'; };
+  window.paDragLeave = function(ev){ ev.currentTarget.style.background=''; };
+  window.paDrop = async function(ev, quad){
+    ev.preventDefault(); ev.currentTarget.style.background='';
+    var id=''; try{ id = ev.dataTransfer.getData('text/plain'); }catch(e){}
+    if(!id) id = PA_DRAG_ID; PA_DRAG_ID = null;
+    if(!id) return;
+    await paMoveTo(id, quad);
+  };
+  async function paMoveTo(id, quad){
+    var a = PA_LIST.find(function(x){return x.id===id;}); if(!a) return;
+    var imp = (quad==='q1' || quad==='q2');
+    var urg = (quad==='q1' || quad==='q3');
+    var patch = { priorite: imp ? (a.priorite<=2 ? a.priorite : 2) : 3 };
+    var wasUrgent = paIsUrgent(a);
+    if(urg && !wasUrgent){ var d=new Date(); d.setDate(d.getDate()+2); patch.echeance = d.toISOString().slice(0,10); }
+    else if(!urg && wasUrgent){ patch.echeance = null; }
+    try {
+      var r = await SB.from('actions').update(patch).eq('id', id);
+      if(r.error) throw r.error;
+      Object.assign(a, patch); PA_MSG=''; paRepaint();
+    } catch(e){ PA_MSG = 'D\u00e9placement refus\u00e9 : ' + (e.message||e); paRepaint(); }
   }
 
   window.paSetStatut = async function(id, statut){
