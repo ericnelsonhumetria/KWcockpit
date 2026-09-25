@@ -725,6 +725,8 @@ function openSubview(role){
 }
 
 function renderTab(){
+  var grb = document.getElementById('kwGlobalRefreshBar');
+  if(grb) grb.style.display = (CURRENT_ROLE==='eric' && CURRENT_TAB==='dash') ? '' : 'none';
   if(CURRENT_TAB==='dash'){
     document.getElementById('view').innerHTML = VIEWS[CURRENT_ROLE]();
     if(CURRENT_ROLE==='paul' || CURRENT_ROLE==='eric') animateBars();
@@ -7909,8 +7911,8 @@ function kwLifecycleSyncBtn(){
       +     (a.echeance?(' \u00b7 <span style="'+(overdue?'color:var(--signal);font-weight:600;':'')+'">\u00e9ch. '+paEsc(a.echeance)+(overdue?' \u2014 en retard':'')+'</span>'):'')
       +   '</div>'
       + '</div>'
-      + '<select onchange="paSetStatut(\''+a.id+'\',this.value)" style="font-size:11.5px;padding:4px 6px;border:1px solid rgba(86,10,15,.25);border-radius:7px;font-family:inherit;">'+statOpts+'</select>'
-      + '<button onclick="paArchive(\''+a.id+'\')" title="Archiver" type="button" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:15px;line-height:1;padding:4px;">\u2715</button>'
+      + '<select onchange="paSetStatut(\''+a.id+'\',this.value)" style="font-size:11.5px;padding:4px 6px;border:1px solid rgba(86,10,15,.25);border-radius:7px;font-family:inherit;flex:0 0 auto;width:118px;">'+statOpts+'</select>'
+      + '<button onclick="paArchive(\''+a.id+'\')" title="Archiver" type="button" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:15px;line-height:1;padding:4px;flex:0 0 auto;">\u2715</button>'
       + '</div>';
   }
   window.paSetStatut = async function(id, statut){
