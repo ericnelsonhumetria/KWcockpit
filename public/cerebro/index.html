@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>CEREBRO - Kaizen Way</title>
 <style>html,body{margin:0;background:#0c0a0b;}</style>
-<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-<script src="https://unpkg.com/@babel/standalone@7.26/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7/babel.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
   window.CEREBRO_SB = window.supabase.createClient(
@@ -17,7 +17,7 @@
   // Sous-onglets autorises selon le role recu du Cockpit (UX ; l'isolation reelle = RLS Brique B)
   (function(){
     var role = new URLSearchParams(location.search).get('role') || '';
-    var map = { eric:['comptes','evenements'], direction:['comptes','evenements'],
+    var map = { eric:['comptes','evenements','talents'], direction:['comptes','evenements','talents'],
                 paul:['comptes'], juliette:['evenements'] };
     window.CEREBRO_ALLOWED = map[role] || ['comptes','evenements'];
   })();
@@ -965,6 +965,7 @@ Signaux : ${(result.signals || []).join(" ; ") || "—"}`;
         <div className="hr-tabs">
           {CEREBRO_ALLOWED.indexOf("comptes") >= 0 && <button className={tab === "comptes" ? "on" : ""} onClick={() => setTab("comptes")}>Business</button>}
           {CEREBRO_ALLOWED.indexOf("evenements") >= 0 && <button className={tab === "evenements" ? "on" : ""} onClick={() => setTab("evenements")}>Events</button>}
+          {CEREBRO_ALLOWED.indexOf("talents") >= 0 && <button className={tab === "talents" ? "on" : ""} onClick={() => setTab("talents")}>People</button>}
         </div>
 
         {tab === "comptes" && (<>
@@ -1297,6 +1298,100 @@ Signaux : ${(result.signals || []).join(" ; ") || "—"}`;
               );
             })}
             <p className="hr-caption">Impact = estimation de cadrage. « Vérifier » constitue le dossier : dates, lieu, deadline, coût, audience, opportunité et lien officiel. Les faits datés viennent de la recherche web — jamais inventés ; reconfirme une deadline avant de bloquer ton planning.</p>
+          </div>
+        )}
+
+        </>)}
+
+        {tab === "talents" && (<>
+
+        {/* Import réseau */}
+        <div className="hr-card cerebro">
+          <p className="hr-cerebro-title">◎ CEREBRO PEOPLE</p>
+          <p className="hr-cerebro-sub">Tes ex-clients, alumni et contacts des 50+ sites — là où tu as déjà vu qui fitte. Importe l'export de tes relations LinkedIn : ta donnée, pas du scraping.</p>
+          <label className="hr-btn" style={{ display: "inline-block" }}>
+            Importer un CSV (relations LinkedIn / HubSpot)
+            <input type="file" accept=".csv,text/csv" onChange={importContacts} style={{ display: "none" }} />
+          </label>
+          <span style={{ marginLeft: 14 }}><button className="hr-link" onClick={() => setShowKw(v => !v)}>{showKw ? "masquer les mots-clés" : "mots-clés de filtrage ▸"}</button></span>
+          {contacts.length > 0 && <span style={{ marginLeft: 14 }}><button className="hr-link" onClick={() => { persistContacts([]); setImportMsg(""); }}>vider les contacts</button></span>}
+          {showKw && <textarea className="hr-textarea" style={{ minHeight: 80 }} value={netKeywords} onChange={e => persistNetKw(e.target.value)} placeholder="mots-clés de poste (un par ligne ou séparés par des virgules)" />}
+          {netErr && <p className="hr-err">{netErr}</p>}
+          {importMsg && <p className="hr-caption" style={{ color: "var(--cyan)", marginTop: 10 }}>{importMsg}</p>}
+          <p className="hr-caption" style={{ marginTop: 10 }}>LinkedIn : Réglages → Confidentialité des données → Obtenir une copie de vos données → Connexions. Le CSV est lu sur ton appareil et sauvegardé localement (rien n'est envoyé en ligne). Réimporte d'autres fichiers pour les fusionner.</p>
+        </div>
+
+        {/* Contacts filtrés */}
+        {contacts.length > 0 && (() => {
+          const kws = netKeywords.split(/[\n,]/).map(s => s.trim().toLowerCase()).filter(Boolean);
+          const inNet = new Set(network.map(n => n.id));
+          const matches = contacts
+            .filter(c => c.position && kws.some(k => c.position.toLowerCase().includes(k)) && !inNet.has((c.name + "|" + c.company).toLowerCase()))
+            .map(c => ({ ...c, aff: affinityScore(c.position) }))
+            .sort((a, b) => b.aff - a.aff);
+          return (
+            <div style={{ marginBottom: 16 }}>
+              <p className="hr-section-title" style={{ padding: "0 4px" }}>{matches.length} contacts au profil ciblé · {contacts.length} importés</p>
+              <p className="hr-caption" style={{ padding: "0 4px", marginBottom: 8 }}>Affinité = correspondance de l'intitulé avec le profil transfo/lean/excellence-op. C'est un tri pour prioriser qui regarder — pas un verdict. Le vrai fit se note dans le Vivier.</p>
+              {matches.slice(0, 60).map((c, i) => {
+                const col = talentVerdict(c.aff).color;
+                return (
+                  <div key={i} className="hr-cb" style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <span title="Affinité de poste" style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 15, fontWeight: 600, color: col, width: 30, textAlign: "right", flexShrink: 0 }}>{c.aff}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="hr-cb-name">{c.name}</div>
+                      <div className="hr-cb-meta" style={{ color: "var(--mute)" }}>{[c.position, c.company].filter(Boolean).join(" · ")}</div>
+                    </div>
+                    <button className="hr-mini" onClick={() => addToNetwork(c)}>+ Vivier</button>
+                  </div>
+                );
+              })}
+              {matches.length > 60 && <p className="hr-caption">Affichage des 60 mieux classés — affine les mots-clés pour resserrer.</p>}
+              {matches.length === 0 && <p className="hr-caption">Aucun contact ne matche les mots-clés. Élargis-les, ou vérifie que le CSV contient bien une colonne de poste.</p>}
+            </div>
+          );
+        })()}
+
+        {/* Vivier scoré terrain */}
+        {network.length > 0 && (
+          <div>
+            <p className="hr-section-title" style={{ padding: "0 4px" }}>Vivier · {network.length}</p>
+            {[...network].sort((a, b) => netScore(b.tags) - netScore(a.tags)).map(n => {
+              const sc = netScore(n.tags); const v = talentVerdict(sc);
+              return (
+                <div key={n.id} className="hr-cb">
+                  <div className="hr-cb-head">
+                    <span className="hr-cb-score" style={{ color: v.color }}>{sc}</span>
+                    <div className="hr-cb-mid">
+                      <div className="hr-cb-name">{n.name}</div>
+                      <div className="hr-cb-meta" style={{ color: "var(--mute)" }}>{[n.position, n.company].filter(Boolean).join(" · ")}</div>
+                    </div>
+                    <span className="hr-badge" style={{ color: v.color, background: v.color + "22" }}>{v.label}</span>
+                    <button className="hr-del" onClick={() => removeNetwork(n.id)} title="Retirer">×</button>
+                  </div>
+                  {NET_FIELDS.map(f => (
+                    <div key={f.key} className="hr-nettag">
+                      <span className="hr-nettag-k">{f.label}</span>
+                      <div className="hr-seg">
+                        {f.opts.map(o => <button key={o} className={n.tags[f.key] === o ? "on" : ""} onClick={() => setTag(n.id, f.key, o)}>{o}</button>)}
+                      </div>
+                    </div>
+                  ))}
+                  <div className="hr-cb-actions">
+                    <button className="hr-mini" onClick={() => draftReconnect(n.id)} disabled={draftingId === n.id}>
+                      {draftingId === n.id ? <><span className="hr-spin" />…</> : (n.draft ? "Régénérer la reprise ▸" : "Rédiger la reprise de contact ▸")}
+                    </button>
+                  </div>
+                  {Array.isArray(n.draft) && n.draft.map((d, i) => (
+                    <div key={i} className="hr-variant">
+                      <p className="hr-variant-label"><span>{d.label}</span><button className="hr-copy" onClick={() => copyText("nd" + n.id + i, d.body)}>{copied === "nd" + n.id + i ? "copié ✓" : "copier"}</button></p>
+                      <p className="hr-variant-body">{d.body}</p>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+            <p className="hr-caption">Score = TON évaluation terrain (tu as vu ces gens travailler), pas une devinette de l'IA. Remplace tout [marqueur] par votre projet réel avant d'envoyer.</p>
           </div>
         )}
 
