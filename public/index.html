@@ -7949,6 +7949,8 @@ function kwLifecycleSyncBtn(){
   // ---------- Vue Matrice d'Eisenhower ----------
   var PA_URGENT_DAYS = 7;
   function paIsUrgent(a){
+    if(a.urgent_override === true) return true;    // urgence fixée manuellement (drag)
+    if(a.urgent_override === false) return false;
     if(!a.echeance) return false;
     var t = new Date(a.echeance + 'T00:00:00'); if(isNaN(t.getTime())) return false;
     var lim = new Date(); lim.setHours(0,0,0,0); lim.setDate(lim.getDate() + PA_URGENT_DAYS);
@@ -8049,9 +8051,7 @@ function kwLifecycleSyncBtn(){
     var imp = (quad==='q1' || quad==='q2');
     var urg = (quad==='q1' || quad==='q3');
     var patch = { priorite: imp ? (a.priorite<=2 ? a.priorite : 2) : 3 };
-    var wasUrgent = paIsUrgent(a);
-    if(urg && !wasUrgent){ var d=new Date(); d.setDate(d.getDate()+2); patch.echeance = d.toISOString().slice(0,10); }
-    else if(!urg && wasUrgent){ patch.echeance = null; }
+    patch.urgent_override = urg;   // fixe l'urgence sans toucher a l'echeance -> la date reste affichee
     try {
       var r = await SB.from('actions').update(patch).eq('id', id);
       if(r.error) throw r.error;
