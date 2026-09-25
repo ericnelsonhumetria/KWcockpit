@@ -63,3 +63,8 @@
   from = "/api/pdc-import"
   to = "/.netlify/functions/pdc-import"
   status = 200
+
+[[redirects]]
+  from = "/api/action-ia"
+  to = "/.netlify/functions/action-ia"
+  status = 200
