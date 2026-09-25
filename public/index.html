@@ -7980,14 +7980,28 @@ function kwLifecycleSyncBtn(){
       var imp=paIsImportant(a), urg=paIsUrgent(a);
       if(imp&&urg) q1.push(a); else if(imp&&!urg) q2.push(a); else if(!imp&&urg) q3.push(a); else q4.push(a);
     });
-    var grid = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:4px;">'
-      + paQuadrant('Q1 \u00b7 Faire',      'Important & urgent',        '#c0392b', q1)
+    // Positions Eisenhower : haut = important, droite = urgent
+    var grid = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">'
       + paQuadrant('Q2 \u00b7 Planifier',  'Important, non urgent',     '#EFB810', q2)
-      + paQuadrant('Q3 \u00b7 D\u00e9l\u00e9guer',  'Non important, urgent',     '#2e7d46', q3)
+      + paQuadrant('Q1 \u00b7 Faire',      'Important & urgent',        '#c0392b', q1)
       + paQuadrant('Q4 \u00b7 Plus tard',  'Non important, non urgent', '#2980b9', q4)
+      + paQuadrant('Q3 \u00b7 D\u00e9l\u00e9guer',  'Non important, urgent',     '#2e7d46', q3)
       + '</div>';
-    var legend = '<div class="edit-hint" style="margin-top:8px;">Important = priorit\u00e9 haute ou normale \u00b7 Urgent = \u00e9ch\u00e9ance dans '+PA_URGENT_DAYS+' j ou d\u00e9pass\u00e9e. Change la priorit\u00e9 / l\u2019\u00e9ch\u00e9ance d\u2019une action pour la d\u00e9placer de quadrant.</div>';
-    return paFiltersHtml() + '<div class="edit-hint" style="margin:2px 0 2px;">'+rows.length+' action(s)</div>' + grid + legend;
+    var vAxis = '<div style="display:flex;flex-direction:column;justify-content:space-between;align-items:center;padding:4px 0;flex:0 0 22px;">'
+      + '<span style="font-size:13px;color:#560A0F;font-weight:700;">+</span>'
+      + '<span style="writing-mode:vertical-rl;transform:rotate(180deg);font-weight:700;color:#560A0F;font-size:12px;letter-spacing:3px;white-space:nowrap;">IMPORTANT</span>'
+      + '<span style="font-size:15px;color:var(--muted);font-weight:700;">\u2013</span>'
+      + '</div>';
+    var matrix = '<div style="display:flex;gap:6px;align-items:stretch;margin-top:4px;">' + vAxis + '<div style="flex:1;min-width:0;">' + grid + '</div></div>';
+    var hAxis = '<div style="display:flex;gap:6px;margin-top:6px;">'
+      + '<div style="flex:0 0 22px;"></div>'
+      + '<div style="flex:1;display:flex;justify-content:space-between;align-items:center;">'
+      +   '<span style="font-size:11px;color:var(--muted);font-weight:700;">\u2013 non urgent</span>'
+      +   '<span style="font-weight:700;color:#560A0F;font-size:12px;letter-spacing:3px;">URGENT \u2192</span>'
+      +   '<span style="font-size:11px;color:#c0392b;font-weight:700;">urgent +</span>'
+      + '</div></div>';
+    var legend = '<div class="edit-hint" style="margin-top:8px;">Important = priorit\u00e9 haute ou normale (axe vertical) \u00b7 Urgent = \u00e9ch\u00e9ance dans '+PA_URGENT_DAYS+' j ou d\u00e9pass\u00e9e (axe horizontal). Change la priorit\u00e9 / l\u2019\u00e9ch\u00e9ance pour d\u00e9placer une action.</div>';
+    return paFiltersHtml() + '<div class="edit-hint" style="margin:2px 0 2px;">'+rows.length+' action(s)</div>' + matrix + hAxis + legend;
   }
 
   window.paSetStatut = async function(id, statut){
