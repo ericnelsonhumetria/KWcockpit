@@ -72,10 +72,12 @@ RÈGLES :
 - "thematique" : un code de la liste ci-dessus, ou "autre".
 - "pilote_nom" : le NOM EXACT d'un pilote de la liste (pas l'alias), ou null si aucun n'est clairement désigné. N'invente jamais un pilote.
 - "echeance" : "YYYY-MM-DD" si une date ou un délai est exprimé, calculé depuis la date du jour ; sinon null.
-- "priorite" : 1 (haute/urgent), 2 (normale, défaut), 3 (basse).
+- "priorite" : reflète l'IMPORTANCE de l'action d'après le contexte — 1 (haute : enjeu fort, impact client / CA / risque), 2 (normale, défaut), 3 (basse : accessoire). C'est l'axe "Important" de la matrice d'Eisenhower.
+- "echeance" : reflète l'URGENCE. Si une date/délai est exprimé, calcule-la. Si le contexte rend l'action urgente (dépendance bloquante, deadline proche, client en attente) mais qu'aucune date n'est dite, propose une date rapprochée réaliste (dans 1 à 3 jours). Si ce n'est ni daté ni urgent, laisse null. C'est l'axe "Urgent".
+- "justification" : UNE phrase courte expliquant ton classement importance + urgence au regard du contexte (ex : "Impact CA fort et client en attente → important et urgent").
 
 FORMAT : réponds UNIQUEMENT en JSON valide, sans texte ni Markdown autour, sans virgule finale :
-{"libelle":"...","thematique":"code","pilote_nom":null,"echeance":null,"priorite":2}`;
+{"libelle":"...","thematique":"code","pilote_nom":null,"echeance":null,"priorite":2,"justification":"..."}`;
 }
 
 exports.handler = async (event) => {
@@ -144,8 +146,9 @@ exports.handler = async (event) => {
     }
     let priorite = parseInt(out.priorite, 10);
     if (!(priorite === 1 || priorite === 2 || priorite === 3)) priorite = 2;
+    let justification = (typeof out.justification === 'string') ? out.justification.trim().slice(0, 240) : '';
 
-    return { statusCode: 200, headers, body: JSON.stringify({ libelle, thematique, pilote_nom, echeance, priorite }) };
+    return { statusCode: 200, headers, body: JSON.stringify({ libelle, thematique, pilote_nom, echeance, priorite, justification }) };
   } catch (e) {
     clearTimeout(tid);
     const m = e.name === 'AbortError' ? 'Délai dépassé — réessaie.' : 'Erreur réseau : ' + e.message;
