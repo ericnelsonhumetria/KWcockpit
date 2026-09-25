@@ -7,9 +7,14 @@
 // Renvoie aussi une ventilation mois par mois (byMonth).
 // La cle API RingOver reste cote serveur.
 //
+// PROFILS : chaque appel est attribue a l'agent RingOver qui l'a passe. Le meme bloc
+// d'indicateurs est calcule pour Equipe / Paul INGRASSIA / Aurelie LOPEZ, expose dans `profils`.
+// Le niveau racine = Equipe (retrocompatible avec loadRespCommerce et l'ancien front).
+// `diag` liste les agents reellement detectes (outil de reglage, supprimable ensuite).
+//
 // Appel (GET) : /api/ringover?period=7d|30d|ytd&direction=out
 // Sortie : { periode, appels, decroches, pitchs, taux_decroche, taux_pitch_sur_decroche,
-//            byMonth:[{ym, appels, decroches, pitchs}] }
+//            byMonth:[...], profils:{equipe,paul,aurelie}, diag:{agents, sample_keys, has_user} }
 //
 // Prerequis : RINGOVER_API_KEY (droits sur les appels), scope Functions.
 // API : base https://public-api.ringover.com/v2 , auth header Authorization: <cle> (sans "Bearer").
@@ -47,8 +52,6 @@ function isAnswered(c) {
   if (ls) return ls === 'ANSWERED';
   return inCall(c) > 0;
 }
-// Vraie conversation : decroche (ANSWERED) ET au moins 30 s en ligne.
-// Ecarte les decroches-raccroches immediats, pour un decompte fidele.
 function isConversation(c) { return isAnswered(c) && inCall(c) >= 30; }
 function monthOf(c) {
   var d = c.start_time || c.start || c.creation_date || c.date || c.answered_time || '';
@@ -64,6 +67,32 @@ function windows(start, end, maxDays) {
     cur = new Date(w2.getTime() + 1000);
   }
   return res.length ? res : [[new Date(start), new Date(end)]];
+}
+
+// --- Attribution par agent RingOver ---
+function norm(s) { return String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim(); }
+
+// Nom lisible de l'agent, en testant les emplacements possibles d'un appel RingOver.
+function agentName(c) {
+  var u = c.user || c.agent || c.owner || c.from_user || c.member || null;
+  if (u && typeof u === 'object') {
+    var nm = u.concat_name
+      || ((u.firstname || u.first_name || '') + ' ' + (u.lastname || u.last_name || '')).trim()
+      || u.name || u.email || (u.user_id != null ? ('user ' + u.user_id) : '');
+    if (nm) return String(nm).trim();
+  }
+  var flat = c.user_name || c.agent_name || c.username || c.owner_name || c.member_name || null;
+  if (flat) return String(flat).trim();
+  var id = (c.user_id != null) ? c.user_id : (u && u.user_id != null ? u.user_id : null);
+  return id != null ? ('user ' + id) : '';
+}
+// Correspondance sur le nom de famille (INGRASSIA / LOPEZ) puis le prénom.
+function bucketOf(name) {
+  var n = norm(name);
+  if (!n) return 'autre';
+  if (n.indexOf('ingrassia') >= 0 || n.indexOf('paul') >= 0) return 'paul';
+  if (n.indexOf('lopez') >= 0 || n.indexOf('aurelie') >= 0) return 'aurelie';
+  return 'autre';
 }
 
 exports.handler = async (event) => {
@@ -141,31 +170,54 @@ exports.handler = async (event) => {
     return direction === 'out' ? (d.indexOf('out') >= 0) : (d.indexOf('in') >= 0);
   });
 
-  var appels = scoped.length;
-  var decroches = scoped.filter(isConversation).length;
-  var pitchs = scoped.filter(function (c) { return inCall(c) >= 90; }).length;
+  // attribution par agent
+  scoped.forEach(function (c) { c._bucket = bucketOf(agentName(c)); });
 
-  // ventilation mois par mois
-  var bm = {};
-  scoped.forEach(function (c) {
-    var ym = monthOf(c);
-    if (!ym) return;
-    if (!bm[ym]) bm[ym] = { ym: ym, appels: 0, decroches: 0, pitchs: 0 };
-    bm[ym].appels++;
-    if (isConversation(c)) bm[ym].decroches++;
-    if (inCall(c) >= 90) bm[ym].pitchs++;
-  });
-  var byMonth = Object.keys(bm).sort().map(function (k) { return bm[k]; });
-
-  return {
-    statusCode: 200, headers, body: JSON.stringify({
-      periode: { start: start.toISOString(), end: end.toISOString(), period: period, direction: direction },
+  // Bloc d'indicateurs pour un sous-ensemble d'appels (structure identique à l'ancienne réponse)
+  function kpi(sub) {
+    var appels = sub.length;
+    var decroches = sub.filter(isConversation).length;
+    var pitchs = sub.filter(function (c) { return inCall(c) >= 90; }).length;
+    var bm = {};
+    sub.forEach(function (c) {
+      var ym = monthOf(c);
+      if (!ym) return;
+      if (!bm[ym]) bm[ym] = { ym: ym, appels: 0, decroches: 0, pitchs: 0 };
+      bm[ym].appels++;
+      if (isConversation(c)) bm[ym].decroches++;
+      if (inCall(c) >= 90) bm[ym].pitchs++;
+    });
+    var byMonth = Object.keys(bm).sort().map(function (k) { return bm[k]; });
+    return {
       appels: appels,
       decroches: decroches,
       pitchs: pitchs,
       taux_decroche: appels ? Math.round(decroches / appels * 100) : 0,
       taux_pitch_sur_decroche: decroches ? Math.round(pitchs / decroches * 100) : 0,
       byMonth: byMonth,
+    };
+  }
+
+  var equipe = kpi(scoped);
+  var paul = kpi(scoped.filter(function (c) { return c._bucket === 'paul'; }));
+  var aurelie = kpi(scoped.filter(function (c) { return c._bucket === 'aurelie'; }));
+
+  // Diagnostic : agents réellement détectés (pour vérifier/ajuster le mapping)
+  var agents = {};
+  scoped.forEach(function (c) { var nm = agentName(c) || 'inconnu'; agents[nm] = (agents[nm] || 0) + 1; });
+  var sampleKeys = scoped.length ? Object.keys(scoped[0]) : [];
+
+  return {
+    statusCode: 200, headers, body: JSON.stringify({
+      periode: { start: start.toISOString(), end: end.toISOString(), period: period, direction: direction },
+      appels: equipe.appels,                 // niveau racine = Équipe (rétrocompatible)
+      decroches: equipe.decroches,
+      pitchs: equipe.pitchs,
+      taux_decroche: equipe.taux_decroche,
+      taux_pitch_sur_decroche: equipe.taux_pitch_sur_decroche,
+      byMonth: equipe.byMonth,
+      profils: { equipe: equipe, paul: paul, aurelie: aurelie },
+      diag: { agents: agents, sample_keys: sampleKeys, has_user: !!(scoped[0] && scoped[0].user) },
     }),
   };
 };
