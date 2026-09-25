@@ -1746,68 +1746,42 @@ async function loadHubspot(){
     if(res.status === 403){ zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Accès refusé.</div>'; return; }
     if(!res.ok){ zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Erreur HubSpot (' + res.status + ').</div>'; return; }
     const h = await res.json();
-    HUB_DATA = h;
-    HUB_SEL = 'equipe';
-    HUB_FLUX_R1 = h.flux_r1_7j || 0;           // indicateur Paul : basé sur l'équipe, inchangé par le sélecteur
-    try { refreshIndicateurs('paul'); } catch(e){}
-    renderHub();
+
+    // Chemin visuel : parcours du deal, du R1 aux issues Gagnée / Perdue
+    const stock = h.stock || {};
+    const cheminMilieu = ['R1','A recontacter suite R1','Nurturing suite R1','Évaluation des besoins','Présentation de solutions','Traitement des objections','Finalisation des conditions'];
+    const nodes = cheminMilieu.filter(e => e in stock).map((e,idx)=>{
+      const cls = idx===0 ? 'start' : 'mid';
+      return `<div class="path-node ${cls}"><div class="pn-label">${e}</div><div class="pn-val">${stock[e]||0}</div></div>`;
+    }).join('');
+    // Deux issues terminales côte à côte
+    const gagnees = stock['Fermées gagnées'] || h.gagnees || 0;
+    const perdues = stock['Fermé perdu'] || h.perdues || 0;
+    const noshow = stock['No Show / A repositionner'] || 0;
+    const issues = `<div class="path-branch">
+        <div class="path-node win end"><div class="pn-label">Gagnée</div><div class="pn-val">${gagnees}</div></div>
+        <div class="path-node lose end"><div class="pn-label">Perdue</div><div class="pn-val">${perdues}</div></div>
+      </div>`;
+
+    const fluxOk = (h.flux_r1_7j || 0) >= (h.cible_r1_hebdo || 8);
+    HUB_FLUX_R1 = h.flux_r1_7j || 0;
+    refreshIndicateurs('paul');
+
+    zone.innerHTML = `
+      <div class="kpis k4">
+        <div class="kpi ${fluxOk?'good':'warn'}"><div class="k-label">R1 cette semaine</div><div class="k-val" style="color:${fluxOk?'#2e7d46':'var(--signal)'}">${h.flux_r1_7j||0} <small style="color:var(--muted)">/ ${h.cible_r1_hebdo||8}</small></div><div class="k-trend ${fluxOk?'up':''}">${fluxOk?'▲ cible atteinte':'sous la cible'}</div></div>
+        <div class="kpi"><div class="k-label">R1 (stock)</div><div class="k-val">${h.volumes?h.volumes.r1:0}</div><div class="k-trend">en cours</div></div>
+        <div class="kpi"><div class="k-label">R2 · qualif. (stock)</div><div class="k-val">${h.volumes?h.volumes.r2:0}</div><div class="k-trend">Évaluation des besoins</div></div>
+        <div class="kpi accent"><div class="k-label">Propositions (stock)</div><div class="k-val">${h.volumes?h.volumes.proposition:0}</div><div class="k-trend">Présentation de solutions</div></div>
+      </div>
+      <div class="panel" style="padding:14px 16px; margin-top:12px;">
+        <div class="sec-note" style="margin:2px 0 4px">Parcours des affaires — du R1 aux issues</div>
+        <div class="path">${nodes}${issues}</div>
+        <div class="edit-hint" style="margin-top:10px;">No Show / à repositionner : <b>${noshow}</b> &nbsp;·&nbsp; <button class="add-btn" onclick="loadHubspot()">↻ Actualiser</button> &nbsp; Lecture seule depuis HubSpot. Le « R1 cette semaine » suit votre objectif de 8/sem.</div>
+      </div>`;
   } catch(err){
     zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Connexion impossible à HubSpot.</div>';
   }
-}
-
-// Sélecteur de profil (Équipe / Paul INGRASSIA / Aurélie LOPEZ) — attribution = propriétaire du deal.
-// La structure d'indicateurs est strictement conservée ; seul le jeu de données affiché change.
-function hubSelData(){
-  if(!HUB_DATA) return null;
-  if(HUB_DATA.profils && HUB_DATA.profils[HUB_SEL]) return HUB_DATA.profils[HUB_SEL];
-  return HUB_DATA; // rétrocompat : ancien backend sans profils
-}
-window.hubSetProfil = function(sel){ HUB_SEL = sel; renderHub(); };
-function renderHub(){
-  const zone = document.getElementById('hubZone');
-  if(!zone || !HUB_DATA) return;
-  const d = hubSelData() || {};
-  const ow = HUB_DATA.owners || {};
-  const hasProfils = !!HUB_DATA.profils;
-
-  const chip = (val,label)=>{ const on = HUB_SEL===val; return `<button onclick="hubSetProfil('${val}')" style="font-size:12px;padding:5px 12px;border-radius:999px;border:1px solid ${on?'#560A0F':'rgba(86,10,15,.28)'};background:${on?'#560A0F':'#fff'};color:${on?'#fff':'#560A0F'};cursor:pointer;font-family:inherit;font-weight:${on?'600':'400'};">${label}</button>`; };
-  const selector = hasProfils ? ('<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;align-items:center;">'
-      + '<span class="edit-hint" style="margin-right:2px;">Profil :</span>'
-      + chip('equipe','Équipe')
-      + chip('paul', escP(ow.paul||'Paul'))
-      + chip('aurelie', escP(ow.aurelie||'Aurélie'))
-      + '</div>') : '';
-  const naHint = (hasProfils && HUB_SEL==='equipe' && ow.non_attribues) ? ('<div class="edit-hint" style="margin-bottom:8px;">' + ow.non_attribues + ' deal(s) sans propriétaire Paul/Aurélie — comptés uniquement en Équipe.</div>') : '';
-
-  const stock = d.stock || {};
-  const cheminMilieu = ['R1','A recontacter suite R1','Nurturing suite R1','Évaluation des besoins','Présentation de solutions','Traitement des objections','Finalisation des conditions'];
-  const nodes = cheminMilieu.filter(e => e in stock).map((e,idx)=>{
-    const cls = idx===0 ? 'start' : 'mid';
-    return `<div class="path-node ${cls}"><div class="pn-label">${e}</div><div class="pn-val">${stock[e]||0}</div></div>`;
-  }).join('');
-  const gagnees = stock['Fermées gagnées'] || d.gagnees || 0;
-  const perdues = stock['Fermé perdu'] || d.perdues || 0;
-  const noshow = stock['No Show / A repositionner'] || 0;
-  const issues = `<div class="path-branch">
-      <div class="path-node win end"><div class="pn-label">Gagnée</div><div class="pn-val">${gagnees}</div></div>
-      <div class="path-node lose end"><div class="pn-label">Perdue</div><div class="pn-val">${perdues}</div></div>
-    </div>`;
-  const fluxOk = (d.flux_r1_7j || 0) >= (d.cible_r1_hebdo || 8);
-  const suffixe = HUB_SEL==='equipe' ? "l'équipe suit l'objectif de 8/sem." : 'objectif de 8/sem.';
-
-  zone.innerHTML = selector + naHint + `
-    <div class="kpis k4">
-      <div class="kpi ${fluxOk?'good':'warn'}"><div class="k-label">R1 cette semaine</div><div class="k-val" style="color:${fluxOk?'#2e7d46':'var(--signal)'}">${d.flux_r1_7j||0} <small style="color:var(--muted)">/ ${d.cible_r1_hebdo||8}</small></div><div class="k-trend ${fluxOk?'up':''}">${fluxOk?'▲ cible atteinte':'sous la cible'}</div></div>
-      <div class="kpi"><div class="k-label">R1 (stock)</div><div class="k-val">${d.volumes?d.volumes.r1:0}</div><div class="k-trend">en cours</div></div>
-      <div class="kpi"><div class="k-label">R2 · qualif. (stock)</div><div class="k-val">${d.volumes?d.volumes.r2:0}</div><div class="k-trend">Évaluation des besoins</div></div>
-      <div class="kpi accent"><div class="k-label">Propositions (stock)</div><div class="k-val">${d.volumes?d.volumes.proposition:0}</div><div class="k-trend">Présentation de solutions</div></div>
-    </div>
-    <div class="panel" style="padding:14px 16px; margin-top:12px;">
-      <div class="sec-note" style="margin:2px 0 4px">Parcours des affaires — du R1 aux issues</div>
-      <div class="path">${nodes}${issues}</div>
-      <div class="edit-hint" style="margin-top:10px;">No Show / à repositionner : <b>${noshow}</b> &nbsp;·&nbsp; <button class="add-btn" onclick="loadHubspot()">↻ Actualiser</button> &nbsp; Lecture seule depuis HubSpot. Le « R1 cette semaine » ${suffixe}</div>
-    </div>`;
 }
 
 async function loadFinance(){
@@ -2116,7 +2090,6 @@ let MY_ROLE = null;        // rôle courant qui édite ses objectifs
 // rend un tableau d'objectifs filtré sur le responsable du rôle, éditable
 /* ===== Bloc d'indicateurs = objectifs validés (par profil) ===== */
 let HUB_FLUX_R1 = null;   // dernier flux R1 HubSpot connu (rempli par loadRespCommerce/loadHubspot)
-let HUB_DATA = null, HUB_SEL = 'equipe';   // réponse HubSpot complète + profil affiché (Équipe / Paul / Aurélie)
 
 // couleur d'un objectif : valeur réelle si connue (R1), sinon statut
 function objCouleur(o){
@@ -7071,6 +7044,8 @@ function kwLifecycleSyncBtn(){
   var SYNTH_PERIOD = 'ytd';   // fenetre de la vitalite commerciale (reglable : 7d | 30d | ytd)
   var SYNTH_PERIODS = [['7d','7 jours'],['30d','30 jours'],['ytd','Depuis le 1er janvier']];
   var CHART_RING = null;   // byMonth annuel (ytd) mis en cache pour le graphique (indépendant du sélecteur)
+  var VIT_SEL = 'equipe';           // profil affiché dans la vitalité commerciale : equipe | paul | aurelie
+  var VIT_RING = null, VIT_HUB = null;   // dernières données RingOver / HubSpot (re-render sans refetch)
   var Y = new Date().getFullYear();
   function synthPeriodSel(){
     return '<div class="seg" style="margin:2px 0 8px;">'
@@ -7257,7 +7232,10 @@ function kwLifecycleSyncBtn(){
   }
   function arrow(){ return '<div style="display:flex;align-items:center;color:#EFB810;font-size:18px;font-weight:700;padding:0 1px;">&rarr;</div>'; }
   function vitaliteHtml(ring, hub){
-    var ent = (hub && hub.entonnoir) ? hub.entonnoir : null;
+    var perso = (VIT_SEL !== 'equipe');
+    var prof = (hub && hub.profils && hub.profils[VIT_SEL]) ? hub.profils[VIT_SEL] : null;
+    var src = perso ? prof : hub;                       // source des chiffres HubSpot (R1/R2/Offre) selon le profil
+    var ent = (src && src.entonnoir) ? src.entonnoir : null;
     var perLbl = ({'7d':'7 jours','30d':'30 jours','ytd':'YTD'})[SYNTH_PERIOD] || SYNTH_PERIOD;
     var cohLbl = ({'7d':'sur les 7 derniers jours','30d':'sur les 30 derniers jours','ytd':'depuis le 1er janvier'})[SYNTH_PERIOD] || 'sur la période';
     if((!ring || ring.error) && !ent){ return '<div class="panel" style="padding:12px 14px;color:var(--signal);">Vitalité indisponible' + (ring && ring.error ? (' : ' + ring.error) : '') + '. <button class="add-btn" onclick="loadVitalite()">↻ Réessayer</button></div>'; }
@@ -7268,13 +7246,13 @@ function kwLifecycleSyncBtn(){
       coh = true; r1 = ent.r1; r2 = ent.r2; offre = ent.offre;
       tR1R2 = ent.taux_r1_r2; tR2O = ent.taux_r2_offre;
     } else {
-      r1 = (hub && hub.r1_periode != null) ? hub.r1_periode : null;
-      r2 = (hub && hub.volumes) ? (hub.volumes.r2 || 0) : null;
-      offre = (hub && hub.volumes) ? (hub.volumes.proposition || 0) : null;
-      tR1R2 = (hub && hub.taux_r1_vers_r2 != null) ? hub.taux_r1_vers_r2 : null;
-      tR2O = (hub && hub.taux_r2_vers_proposition != null) ? hub.taux_r2_vers_proposition : null;
+      r1 = (src && src.r1_periode != null) ? src.r1_periode : null;
+      r2 = (src && src.volumes) ? (src.volumes.r2 || 0) : null;
+      offre = (src && src.volumes) ? (src.volumes.proposition || 0) : null;
+      tR1R2 = (src && src.taux_r1_vers_r2 != null) ? src.taux_r1_vers_r2 : null;
+      tR2O = (src && src.taux_r2_vers_proposition != null) ? src.taux_r2_vers_proposition : null;
     }
-    var tPR1 = (pitchs && r1 != null && pitchs > 0) ? Math.round(r1 / pitchs * 100) : null;
+    var tPR1 = (!perso && pitchs && r1 != null && pitchs > 0) ? Math.round(r1 / pitchs * 100) : null;
     var tPA = (appels && pitchs != null && appels > 0) ? Math.round(pitchs / appels * 100) : null;
     var funnel = '<div style="display:flex;flex-wrap:wrap;align-items:stretch;gap:6px;margin-top:6px;">'
       + step('Appels', (appels == null ? null : appels), null, null, perLbl) + arrow()
@@ -7289,7 +7267,8 @@ function kwLifecycleSyncBtn(){
     } else {
       note = 'Pitchs et R1 = flux (RingOver / HubSpot) · R1&rarr;R2 et R2&rarr;Offre = taux du pipeline (cibles 33 % / 50 %). Entonnoir de cohorte indisponible : déployer hubspot.js.';
     }
-    return funnel + '<div class="edit-hint" style="margin-top:8px;">' + note + ' <button class="add-btn" onclick="loadVitalite()">↻ Actualiser</button></div>';
+    var persoNote = perso ? ('<b>' + escP((hub && hub.owners && hub.owners[VIT_SEL]) || VIT_SEL) + '</b> — Appels/Pitchs = équipe (RingOver, non ventilé par propriétaire) ; R1/R2/Offre = ce profil (HubSpot). ') : '';
+    return funnel + '<div class="edit-hint" style="margin-top:8px;">' + persoNote + note + ' <button class="add-btn" onclick="loadVitalite()">↻ Actualiser</button></div>';
   }
   async function chartRingByMonth(){
     if(CHART_RING) return CHART_RING;
@@ -7349,7 +7328,8 @@ function kwLifecycleSyncBtn(){
       if(!rr.ok) ring = { error: (ring && ring.error) || ('erreur ' + rr.status) };
       var hub = null;
       try { var hr = await fetch('/api/hubspot?period=' + SYNTH_PERIOD, { headers: auth() }); if(hr.ok) hub = await hr.json(); } catch(e){}
-      z.innerHTML = sel + vitaliteHtml(ring, hub) + '<div id="csVitChart"></div>';
+      VIT_RING = ring; VIT_HUB = hub;
+      renderVitalite();
       try {
         if(SYNTH_PERIOD === 'ytd' && ring && Array.isArray(ring.byMonth)) CHART_RING = ring.byMonth;
         var bym = CHART_RING || (await chartRingByMonth());
@@ -7359,6 +7339,26 @@ function kwLifecycleSyncBtn(){
     } catch(e){ z.innerHTML = sel + '<div class="panel" style="padding:12px 14px;color:var(--signal)">Vitalité injoignable. <button class="add-btn" onclick="loadVitalite()">↻ Réessayer</button></div>'; }
   }
   window.loadVitalite = loadVitalite;
+
+  // Sélecteur de profil (Équipe / Paul INGRASSIA / Aurélie LOPEZ) sur la vitalité commerciale.
+  // Attribution = propriétaire du deal côté HubSpot. Ne ventile que R1/R2/Offre (source HubSpot) ;
+  // Appels/Pitchs restent équipe (source RingOver, non attribuable par propriétaire HubSpot).
+  function vitProfilSel(){
+    if(!VIT_HUB || !VIT_HUB.profils) return '';
+    var ow = VIT_HUB.owners || {};
+    function chip(val, label){ var on = (VIT_SEL === val); return '<button onclick="vitSetProfil(\'' + val + '\')" style="font-size:12px;padding:5px 12px;border-radius:999px;border:1px solid ' + (on?'#560A0F':'rgba(86,10,15,.28)') + ';background:' + (on?'#560A0F':'#fff') + ';color:' + (on?'#fff':'#560A0F') + ';cursor:pointer;font-family:inherit;font-weight:' + (on?'600':'400') + ';margin-right:6px;">' + label + '</button>'; }
+    return '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:2px;margin:2px 0 10px;"><span class="edit-hint" style="margin-right:4px;">Profil :</span>'
+      + chip('equipe','Équipe') + chip('paul', escP(ow.paul || 'Paul')) + chip('aurelie', escP(ow.aurelie || 'Aurélie')) + '</div>';
+  }
+  function renderVitalite(){
+    var z = document.getElementById('csVitalite'); if(!z) return;
+    z.innerHTML = synthPeriodSel() + vitProfilSel() + vitaliteHtml(VIT_RING, VIT_HUB) + '<div id="csVitChart"></div>';
+    try {
+      var cz = document.getElementById('csVitChart');
+      if(cz) cz.innerHTML = vitaliteChartHtml(CHART_RING || [], VIT_HUB);   // graphique mensuel : reste équipe
+    } catch(e){}
+  }
+  window.vitSetProfil = function(sel){ VIT_SEL = sel; renderVitalite(); };
 
   function loadCockpitSynth(){
     var host = document.getElementById('cockpitSynth'); if(!host) return;
