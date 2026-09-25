@@ -7734,6 +7734,7 @@ function kwLifecycleSyncBtn(){
 (function(){
   var PA_REFS = null, PA_LIST = [], PA_DRAFT = null;
   var PA_FILTER = { thematique:'', pilote:'', statut:'' };
+  var PA_VIEW = 'matrice';   // 'matrice' (Eisenhower) | 'liste'
   var PA_REC = null, PA_RECORDING = false, PA_BUSY = false, PA_MSG = '';
 
   function paEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
@@ -7773,7 +7774,7 @@ function kwLifecycleSyncBtn(){
 
   function paRepaint(){
     var v = document.getElementById('view'); if(!v) return;
-    v.innerHTML = paShell(paCaptureHtml() + paDraftHtml() + paListHtml());
+    v.innerHTML = paShell(paCaptureHtml() + paDraftHtml() + paViewToggle() + (PA_VIEW==='matrice' ? paMatrixHtml() : paListHtml()));
   }
 
   // ---------- Capture ----------
@@ -7820,7 +7821,7 @@ function kwLifecycleSyncBtn(){
       }) });
       var j=null; try{ j=await res.json(); }catch(e){}
       if(!res.ok) throw new Error((j&&j.error)?j.error:('HTTP '+res.status));
-      PA_DRAFT = { texte_brut:texte, libelle:j.libelle, thematique:j.thematique, pilote_id:paPiloteId(j.pilote_nom), echeance:j.echeance, priorite:j.priorite };
+      PA_DRAFT = { texte_brut:texte, libelle:j.libelle, thematique:j.thematique, pilote_id:paPiloteId(j.pilote_nom), echeance:j.echeance, priorite:j.priorite, justification:j.justification };
     } catch(e){ PA_MSG='Reformulation impossible : ' + (e.message||e); }
     PA_BUSY=false; paRepaint();
   };
@@ -7837,11 +7838,15 @@ function kwLifecycleSyncBtn(){
   function paDraftHtml(){
     if(!PA_DRAFT) return '';
     var d = PA_DRAFT;
+    var q = paQuadrantOf(d.priorite, d.echeance);
+    var classif = '<div style="font-size:12px;margin:0 0 6px;">Classement sugg\u00e9r\u00e9 par l\u2019IA : <span style="color:'+q.col+';font-weight:700;">'+q.n+' \u00b7 '+q.lbl+'</span></div>'
+      + (d.justification ? '<div class="edit-hint" style="margin:-2px 0 8px;">'+paEsc(d.justification)+'</div>' : '');
     var themeOpts = (PA_REFS.thematiques||[]).map(function(t){return '<option value="'+t.code+'"'+(t.code===d.thematique?' selected':'')+'>'+paEsc(t.libelle)+'</option>';}).join('');
     var piloteOpts = '<option value="">\u2014 non attribu\u00e9</option>' + (PA_REFS.pilotes||[]).map(function(p){return '<option value="'+p.id+'"'+(p.id===d.pilote_id?' selected':'')+'>'+paEsc(p.nom)+'</option>';}).join('');
     var prioOpts = [[1,'Haute'],[2,'Normale'],[3,'Basse']].map(function(o){return '<option value="'+o[0]+'"'+(o[0]===d.priorite?' selected':'')+'>'+o[1]+'</option>';}).join('');
     return '<div class="panel" style="padding:14px 16px;margin-top:12px;border:1px solid #EFB810;">'
       + '<div class="sec-eyebrow" style="margin:0 0 8px;">Brouillon \u2014 valide ou corrige avant d\u2019enregistrer</div>'
+      + classif
       + paField('Libell\u00e9','<input id="padLib" type="text" value="'+paEsc(d.libelle)+'" style="'+paSelStyle()+'">')
       + '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;">'
       +   paField('Th\u00e9matique','<select id="padTheme" style="'+paSelStyle()+'">'+themeOpts+'</select>')
@@ -7915,6 +7920,76 @@ function kwLifecycleSyncBtn(){
       + '<button onclick="paArchive(\''+a.id+'\')" title="Archiver" type="button" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:15px;line-height:1;padding:4px;flex:0 0 auto;">\u2715</button>'
       + '</div>';
   }
+  // ---------- Vue Matrice d'Eisenhower ----------
+  var PA_URGENT_DAYS = 7;
+  function paIsUrgent(a){
+    if(!a.echeance) return false;
+    var t = new Date(a.echeance + 'T00:00:00'); if(isNaN(t.getTime())) return false;
+    var lim = new Date(); lim.setHours(0,0,0,0); lim.setDate(lim.getDate() + PA_URGENT_DAYS);
+    return t <= lim;                 // dans les 7 jours ou dépassée
+  }
+  function paIsImportant(a){ return (a.priorite||2) <= 2; }   // haute ou normale
+  function paQuadrantOf(prio, ech){
+    var a = { priorite: prio, echeance: ech };
+    var imp = paIsImportant(a), urg = paIsUrgent(a);
+    if(imp&&urg) return { n:'Q1', lbl:'Faire \u2014 important & urgent', col:'#c0392b' };
+    if(imp&&!urg) return { n:'Q2', lbl:'Planifier \u2014 important, non urgent', col:'#EFB810' };
+    if(!imp&&urg) return { n:'Q3', lbl:'D\u00e9l\u00e9guer \u2014 non important, urgent', col:'#2e7d46' };
+    return { n:'Q4', lbl:'Plus tard \u2014 non important, non urgent', col:'#2980b9' };
+  }
+  window.paSetView = function(v){ PA_VIEW = v; paRepaint(); };
+  function paViewToggle(){
+    function chip(val,label){ var on=(PA_VIEW===val); return '<button onclick="paSetView(\''+val+'\')" style="font-size:12px;padding:5px 12px;border-radius:999px;border:1px solid '+(on?'#560A0F':'rgba(86,10,15,.28)')+';background:'+(on?'#560A0F':'#fff')+';color:'+(on?'#fff':'#560A0F')+';cursor:pointer;font-family:inherit;font-weight:'+(on?'600':'400')+';margin-right:6px;">'+label+'</button>'; }
+    return '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:2px;margin:16px 0 2px;"><span class="edit-hint" style="margin-right:4px;">Vue :</span>'+chip('matrice','Matrice Eisenhower')+chip('liste','Liste')+'</div>';
+  }
+  function paFiltersHtml(){
+    var themeF = '<option value="">Toutes th\u00e9matiques</option>' + (PA_REFS.thematiques||[]).map(function(t){return '<option value="'+t.code+'"'+(PA_FILTER.thematique===t.code?' selected':'')+'>'+paEsc(t.libelle)+'</option>';}).join('');
+    var pilF = '<option value="">Tous pilotes</option>' + (PA_REFS.pilotes||[]).map(function(p){return '<option value="'+p.id+'"'+(PA_FILTER.pilote===p.id?' selected':'')+'>'+paEsc(p.nom)+'</option>';}).join('');
+    var statF = '<option value="">Tous statuts</option>' + [['a_faire','\u00c0 faire'],['en_cours','En cours'],['fait','Fait'],['abandonne','Abandonn\u00e9']].map(function(s){return '<option value="'+s[0]+'"'+(PA_FILTER.statut===s[0]?' selected':'')+'>'+s[1]+'</option>';}).join('');
+    return '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 4px;">'
+      + '<select onchange="paSetFilter(\'thematique\',this.value)" style="'+paSelStyle()+'width:auto;">'+themeF+'</select>'
+      + '<select onchange="paSetFilter(\'pilote\',this.value)" style="'+paSelStyle()+'width:auto;">'+pilF+'</select>'
+      + '<select onchange="paSetFilter(\'statut\',this.value)" style="'+paSelStyle()+'width:auto;">'+statF+'</select>'
+      + '</div>';
+  }
+  function paCell(a){
+    var done=(a.statut==='fait'||a.statut==='abandonne');
+    var today=paToday(); var overdue=a.echeance && a.echeance<today && !done;
+    var meta = paEsc(paPiloteNom(a.pilote_id)) + (a.echeance ? (' \u00b7 '+(overdue?'<span style="color:var(--signal);font-weight:600;">\u00e9ch. '+paEsc(a.echeance)+' (retard)</span>':'\u00e9ch. '+paEsc(a.echeance))) : '');
+    var statOpts=[['a_faire','\u00c0 faire'],['en_cours','En cours'],['fait','Fait'],['abandonne','Abandonn\u00e9']].map(function(s){return '<option value="'+s[0]+'"'+(a.statut===s[0]?' selected':'')+'>'+s[1]+'</option>';}).join('');
+    return '<div style="background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:8px;padding:7px 9px;margin-bottom:6px;'+(done?'opacity:.5;':'')+'">'
+      + '<div style="font-size:12.5px;font-weight:600;color:#333;'+(done?'text-decoration:line-through;':'')+'">'+paEsc(a.libelle)+'</div>'
+      + '<div style="display:flex;align-items:center;gap:6px;margin-top:4px;">'
+      +   '<span class="edit-hint" style="flex:1;min-width:0;">'+meta+'</span>'
+      +   '<select onchange="paSetStatut(\''+a.id+'\',this.value)" style="font-size:10.5px;padding:2px 4px;border:1px solid rgba(86,10,15,.25);border-radius:6px;font-family:inherit;flex:0 0 auto;width:90px;">'+statOpts+'</select>'
+      +   '<button onclick="paArchive(\''+a.id+'\')" title="Archiver" type="button" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;flex:0 0 auto;padding:2px;">\u2715</button>'
+      + '</div></div>';
+  }
+  function paQuadrant(title, sub, color, actions){
+    var body = actions.length ? actions.map(paCell).join('') : '<div class="edit-hint" style="padding:4px 2px;">\u2014</div>';
+    return '<div style="border:2px solid '+color+';border-radius:12px;padding:10px 12px;min-width:0;display:flex;flex-direction:column;">'
+      + '<div style="font-weight:700;color:'+color+';font-size:13px;">'+title+' <span style="font-weight:400;color:var(--muted);font-size:11px;">('+actions.length+')</span></div>'
+      + '<div class="edit-hint" style="margin:1px 0 8px;">'+sub+'</div>'
+      + '<div style="overflow-y:auto;max-height:340px;">'+body+'</div>'
+      + '</div>';
+  }
+  function paMatrixHtml(){
+    var rows = PA_LIST.filter(paMatch);
+    var q1=[],q2=[],q3=[],q4=[];
+    rows.forEach(function(a){
+      var imp=paIsImportant(a), urg=paIsUrgent(a);
+      if(imp&&urg) q1.push(a); else if(imp&&!urg) q2.push(a); else if(!imp&&urg) q3.push(a); else q4.push(a);
+    });
+    var grid = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:4px;">'
+      + paQuadrant('Q1 \u00b7 Faire',      'Important & urgent',        '#c0392b', q1)
+      + paQuadrant('Q2 \u00b7 Planifier',  'Important, non urgent',     '#EFB810', q2)
+      + paQuadrant('Q3 \u00b7 D\u00e9l\u00e9guer',  'Non important, urgent',     '#2e7d46', q3)
+      + paQuadrant('Q4 \u00b7 Plus tard',  'Non important, non urgent', '#2980b9', q4)
+      + '</div>';
+    var legend = '<div class="edit-hint" style="margin-top:8px;">Important = priorit\u00e9 haute ou normale \u00b7 Urgent = \u00e9ch\u00e9ance dans '+PA_URGENT_DAYS+' j ou d\u00e9pass\u00e9e. Change la priorit\u00e9 / l\u2019\u00e9ch\u00e9ance d\u2019une action pour la d\u00e9placer de quadrant.</div>';
+    return paFiltersHtml() + '<div class="edit-hint" style="margin:2px 0 2px;">'+rows.length+' action(s)</div>' + grid + legend;
+  }
+
   window.paSetStatut = async function(id, statut){
     try { var r = await SB.from('actions').update({statut:statut}).eq('id',id); if(r.error) throw r.error;
       var a = PA_LIST.find(function(x){return x.id===id;}); if(a) a.statut=statut; paRepaint();
