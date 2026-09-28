@@ -1548,7 +1548,7 @@ function renderAdmin(users){
 }
 function renderAdminPilotes(users){
   var z=document.getElementById('adminPilotesZone'); if(!z) return;
-  z.innerHTML='<div class="panel" style="padding:12px 16px 16px;margin-top:16px;"><div class="sec-title" style="font-size:16px;">Inviter un utilisateur</div><div class="sec-note">Envoie une invitation par e-mail : la personne définit elle-même son mot de passe. Tout utilisateur invité devient automatiquement sélectionnable comme pilote dans CR &amp; Actions et Clap!.</div><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px;"><label style="font-size:11px;color:var(--muted);">E-mail<div style="margin-top:2px;"><input id="invEmail" type="email" placeholder="prenom.nom@kaizen-way.com" style="font-size:13px;padding:6px 9px;border:1px solid rgba(86,10,15,.25);border-radius:8px;min-width:240px;"></div></label><label style="font-size:11px;color:var(--muted);">Rôle<div style="margin-top:2px;"><select id="invRole" style="font-size:13px;padding:6px 9px;border:1px solid rgba(86,10,15,.25);border-radius:8px;"><option value="Commerce">Commerce</option><option value="Mktg et Produit">Mktg et Produit</option><option value="Communication">Communication</option><option value="Méthodes">Méthodes</option><option value="RH">RH</option><option value="Administration des affaires">Administration des affaires</option><option value="CEO">CEO</option><option value="CTO">CTO</option><option value="consultant">consultant</option></select></div></label><button class="add-btn" onclick="paAdminInvite()" type="button">✉️ Inviter</button><span id="invMsg" class="edit-hint"></span></div></div>'+'<div class="panel" style="padding:12px 16px 16px;margin-top:16px;"><div class="sec-title" style="font-size:16px;">Relance des pilotes par mail</div><div class="sec-note">Envoie un e-mail à chaque pilote avec le rappel de ses actions en cours et leurs échéances (un mail par pilote). Le nombre de mails et d\'actions s\'affiche avant l\'envoi pour confirmation.</div><div style="margin-top:10px;"><button class="add-btn" onclick="paRelancePilotes()" type="button">\ud83d\udce7 Relancer les pilotes</button> <span id="relMsg" class="edit-hint"></span></div></div>';
+  z.innerHTML='<div class="panel" style="padding:12px 16px 16px;margin-top:16px;"><div class="sec-title" style="font-size:16px;">Inviter un utilisateur</div><div class="sec-note">Envoie une invitation par e-mail : la personne définit elle-même son mot de passe. Tout utilisateur invité devient automatiquement sélectionnable comme pilote dans CR &amp; Actions et Clap!.</div><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px;"><label style="font-size:11px;color:var(--muted);">E-mail<div style="margin-top:2px;"><input id="invEmail" type="email" placeholder="prenom.nom@kaizen-way.com" style="font-size:13px;padding:6px 9px;border:1px solid rgba(86,10,15,.25);border-radius:8px;min-width:240px;"></div></label><label style="font-size:11px;color:var(--muted);">Rôle<div style="margin-top:2px;"><select id="invRole" style="font-size:13px;padding:6px 9px;border:1px solid rgba(86,10,15,.25);border-radius:8px;"><option value="Commerce">Commerce</option><option value="Mktg et Produit">Mktg et Produit</option><option value="Communication">Communication</option><option value="Méthodes">Méthodes</option><option value="RH">RH</option><option value="Administration des affaires">Administration des affaires</option><option value="CEO">CEO</option><option value="CTO">CTO</option><option value="consultant">consultant</option></select></div></label><button class="add-btn" onclick="paAdminInvite()" type="button">✉️ Inviter</button><span id="invMsg" class="edit-hint"></span></div></div>'+'<div class="panel" style="padding:12px 16px 16px;margin-top:16px;"><div class="sec-title" style="font-size:16px;">Relance des pilotes par mail</div><div class="sec-note">Envoie un e-mail à chaque pilote avec le rappel de ses actions en cours et leurs échéances (un mail par pilote). Le nombre de mails et d\'actions s\'affiche avant l\'envoi pour confirmation.</div><div style="margin-top:10px;"><button class="add-btn" onclick="paRelancePreview()" type="button">📧 Préparer la relance</button> <span id="relMsg" class="edit-hint"></span></div><div id="relZone" style="margin-top:10px;"></div></div>';
 }
 window.paAdminAddPilote=function(){
   var e=document.getElementById('apNom'); var nom=e?e.value.trim():''; var uid=(document.getElementById('apUser')||{}).value||null;
@@ -1573,24 +1573,42 @@ window.paAdminLinkPilote=function(id,uid){ var em=(ADMIN_USERS.find(function(u){
     try{ var r=await SB.from('role_access').upsert(rows,{onConflict:'role'}); if(r.error) throw r.error; await loadTabAccess(); if(m){ m.style.color='#2e7d46'; m.textContent='Accès enregistrés (effet à la prochaine connexion).'; } }
     catch(e){ if(m){ m.style.color='var(--signal)'; m.textContent='Refusé : '+(e.message||e); } }
   };
-  window.paRelancePilotes=async function(){
-    var m=document.getElementById('relMsg');
-    if(m){ m.style.color='var(--muted)'; m.textContent='Calcul du nombre de mails…'; }
+  window.paRelancePreview=async function(){
+    var z=document.getElementById('relZone'); var m=document.getElementById('relMsg');
+    if(m){ m.style.color='var(--muted)'; m.textContent='Calcul…'; } if(z) z.innerHTML='';
     try{
-      var r1=await fetch('/api/action-relance',{method:'POST',headers:{Authorization:'Bearer '+SB_SESSION.access_token,'Content-Type':'application/json'},body:JSON.stringify({send:false})});
-      var j1=null; try{ j1=await r1.json(); }catch(x){} if(!r1.ok) throw new Error((j1&&j1.error)?j1.error:('HTTP '+r1.status));
-      if(!j1.pilotes){ if(m){ m.style.color='var(--muted)'; m.textContent='Aucun pilote avec e-mail et actions en cours.'; } return; }
-      var note='Envoyer '+j1.pilotes+' mail(s) \u2014 un par pilote \u2014 pour '+j1.actions+' action(s) au total ?'+((j1.skipped&&j1.skipped.length)?('\n\n'+j1.skipped.length+' pilote(s) sans e-mail seront ignorés.'):'');
-      if(!confirm(note)){ if(m){ m.style.color='var(--muted)'; m.textContent='Annulé.'; } return; }
-      if(m){ m.style.color='var(--muted)'; m.textContent='Envoi en cours…'; }
-      var r2=await fetch('/api/action-relance',{method:'POST',headers:{Authorization:'Bearer '+SB_SESSION.access_token,'Content-Type':'application/json'},body:JSON.stringify({send:true})});
-      var j2=null; try{ j2=await r2.json(); }catch(x){} if(!r2.ok) throw new Error((j2&&j2.error)?j2.error:('HTTP '+r2.status));
-      var res='\u2713 '+j2.sent+' mail(s) envoyé(s) pour '+j2.actions+' action(s).';
-      if(j2.errors&&j2.errors.length) res+=' '+j2.errors.length+' échec(s) : '+j2.errors.map(function(e){return e.email;}).join(', ');
-      if(m){ m.style.color=(j2.errors&&j2.errors.length)?'var(--signal)':'#2e7d46'; m.textContent=res; }
+      var r=await fetch('/api/action-relance',{method:'POST',headers:{Authorization:'Bearer '+SB_SESSION.access_token,'Content-Type':'application/json'},body:JSON.stringify({send:false})});
+      var j=null; try{ j=await r.json(); }catch(x){} if(!r.ok) throw new Error((j&&j.error)?j.error:('HTTP '+r.status));
+      if(m) m.textContent='';
+      var bd=j.breakdown||[];
+      if(!bd.length){ if(z) z.innerHTML='<div class="edit-hint">Aucun pilote avec e-mail et actions en cours.</div>'; return; }
+      var rows=bd.map(function(p){ return '<label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px;"><input type="checkbox" class="relPil" value="'+p.pilote_id+'" checked> '+escP(p.nom)+' <span class="edit-hint">('+p.count+' action'+(p.count>1?'s':'')+' · '+escP(p.email)+')</span></label>'; }).join('');
+      var skip=(j.skipped&&j.skipped.length)?('<div class="edit-hint" style="margin-top:6px;color:var(--signal);">'+j.skipped.length+' pilote(s) sans e-mail ignorés : '+j.skipped.map(function(x){return escP(x.nom);}).join(', ')+'</div>'):'';
+      z.innerHTML='<div class="panel" style="padding:10px 14px;background:rgba(239,184,16,.08);border:1px solid rgba(239,184,16,.4);">'
+        +'<div style="font-weight:700;color:#560A0F;margin-bottom:6px;">'+bd.length+' pilote(s) · '+j.actions+' action(s) au total</div>'
+        +'<div style="margin:2px 0 6px;"><button class="add-btn sm ghost" onclick="paRelanceToggleAll()" type="button">Tout cocher / décocher</button></div>'
+        +rows+skip
+        +'<div style="margin-top:10px;"><button class="add-btn" onclick="paRelanceSend()" type="button">Envoyer aux sélectionnés</button> <span id="relSend" class="edit-hint"></span></div></div>';
     }catch(e){ if(m){ m.style.color='var(--signal)'; m.textContent='Échec : '+(e.message||e); } }
   };
-  window.paAdminInvite=async function(){
+  window.paRelanceToggleAll=function(){ var cbs=document.querySelectorAll('.relPil'); var anyOff=false; cbs.forEach(function(c){ if(!c.checked) anyOff=true; }); cbs.forEach(function(c){ c.checked=anyOff; }); };
+  window.paRelanceSend=async function(){
+    var cbs=document.querySelectorAll('.relPil'); var ids=[]; cbs.forEach(function(c){ if(c.checked) ids.push(c.value); });
+    var out=document.getElementById('relSend');
+    if(!ids.length){ if(out){ out.style.color='var(--signal)'; out.textContent='Aucun pilote sélectionné.'; } return; }
+    if(!confirm('Envoyer '+ids.length+' mail(s) — un par pilote sélectionné ?')) return;
+    var sent=0, act=0, errs=[];
+    for(var i2=0;i2<ids.length;i2++){
+      if(out){ out.style.color='var(--muted)'; out.textContent='Envoi '+(i2+1)+'/'+ids.length+'…'; }
+      try{
+        var r=await fetch('/api/action-relance',{method:'POST',headers:{Authorization:'Bearer '+SB_SESSION.access_token,'Content-Type':'application/json'},body:JSON.stringify({send:true, pilote_ids:[ids[i2]]})});
+        var j=null; try{ j=await r.json(); }catch(x){} if(!r.ok) throw new Error((j&&j.error)?j.error:('HTTP '+r.status));
+        sent+=(j.sent||0); act+=(j.actions||0); if(j.errors&&j.errors.length) errs=errs.concat(j.errors);
+      }catch(e){ errs.push({error:(e.message||e)}); }
+    }
+    if(out){ out.style.color=errs.length?'var(--signal)':'#2e7d46'; out.textContent='\u2713 '+sent+' mail(s) envoyé(s) ('+act+' actions).'+(errs.length?(' '+errs.length+' échec(s).'):''); }
+  };
+    window.paAdminInvite=async function(){
     var e1=document.getElementById('invEmail'); var email=e1?e1.value.trim().toLowerCase():''; var role=(document.getElementById('invRole')||{}).value||''; var m=document.getElementById('invMsg');
     if(!email){ if(m){m.style.color='var(--signal)';m.textContent='E-mail requis.';} return; }
     if(m){ m.style.color='var(--muted)'; m.textContent='Envoi…'; }
