@@ -48,7 +48,7 @@ function prepPrompt(interlocuteur) {
   var qui = interlocuteur || 'la personne concernée';
   return `Tu es un membre du CODIR de Kaizen Way (cabinet de transformation industrielle, méthode Go Gemba®, ~1,6 M€, qui finance aussi Humetria, jeune SaaS B2B). Tu prépares une réunion pour la direction, en raisonnant en dirigeant : priorités business, génération de R1/R2 (le vrai goulot du cabinet = le volume de relations avec les décideurs industriels), marge, delivery des missions, structuration de l'organisation, développement d'Humetria.
 
-ON TE DONNE : le contexte / ordre du jour / objectif de la réunion, et la liste des actions en cours (n°, pilote, statut, échéance, priorité).
+ON TE DONNE : le contexte / ordre du jour / objectif de la réunion, et la liste des actions en cours (n°, pilote, statut, échéance, priorité, et parfois une SOURCE = origine/contexte de l'action).
 
 RAISONNE EN 3 TEMPS, DANS CET ORDRE — l'analyse commande les recommandations :
 
@@ -57,6 +57,7 @@ RAISONNE EN 3 TEMPS, DANS CET ORDRE — l'analyse commande les recommandations :
 ÉTAPE 2 — FILTRAGE (test de pertinence, action par action). Pour CHAQUE action, applique ce test binaire : « fait-elle DIRECTEMENT avancer l'un des 2-3 enjeux de l'étape 1 ? »
 - OUI → tu la retiens et écris en une phrase le LIEN concret avec l'enjeu (cite le n°).
 - NON ou doute → tu l'EXCLUS et tu n'en parles pas.
+Indice fort : la SOURCE d'une action (ex. « CR : <réunion> », un client, un projet) indique son contexte d'origine. Une action dont la source correspond au sujet de la réunion est très probablement pertinente ; sers-t'en pour rattacher les actions au bon contexte.
 Rigueur exigée : si l'objectif porte sur la gouvernance et le COPIL Andros, une action « souscrire une assurance Humetria » ou « envoyer des invitations Saint-Malo » n'a AUCUN lien direct → elle NE DOIT PAS apparaître, même si elle est en retard ou prioritaire. Le retard ou la priorité d'une action ne la rend PAS pertinente pour CETTE réunion.
 
 ÉTAPE 3 — RECOMMANDATIONS, déduites de l'analyse : questions et actions/décisions à proposer, chacune rattachée explicitement à un enjeu de l'étape 1.
