@@ -8311,6 +8311,7 @@ function kwLifecycleSyncBtn(){
 (function(){
   var CR_ROOT='view', CR_REFS=null, CR_LIST=[], CR_CUR=null, CR_BUSY=false, CR_MSG='';
   var CR_REC=null, CR_RECORDING=false, CR_DICT='';
+  var CR_EDIT_PREP=false, CR_EDIT_SYNTH=false;
 
   function e(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
   function auth(){ return {'Content-Type':'application/json', Authorization:'Bearer '+SB_SESSION.access_token}; }
@@ -8325,7 +8326,7 @@ function kwLifecycleSyncBtn(){
   }
   function md(txt){
     var raw=String(txt==null?'':txt);
-    function inl(t){ return e(t).replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/`([^`]+)`/g,'<code style="background:rgba(86,10,15,.06);padding:1px 4px;border-radius:4px;">$1</code>'); }
+    function inl(t){ return e(t).replace(/!\[([^\]]*)\]\(([^)]+)\)/g,'<img alt="$1" src="$2" style="max-width:100%;border-radius:8px;margin:6px 0;display:block;">').replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/`([^`]+)`/g,'<code style="background:rgba(86,10,15,.06);padding:1px 4px;border-radius:4px;">$1</code>'); }
     var lines=raw.split(/\r?\n/), out=[], i=0;
     var H={'#':'font-size:17px;font-weight:800;color:#560A0F;margin:14px 0 6px;','##':'font-size:15px;font-weight:800;color:#560A0F;margin:14px 0 6px;border-bottom:2px solid rgba(86,10,15,.15);padding-bottom:3px;','###':'font-size:13.5px;font-weight:700;color:#8a1a22;margin:10px 0 4px;'};
     while(i<lines.length){ var l=lines[i];
@@ -8433,14 +8434,14 @@ function kwLifecycleSyncBtn(){
       +'<div class="sec-note" style="margin:0 0 6px;">Colle le contexte, l\'ordre du jour et l\'objectif. L\'IA met en avant les actions de l\'interlocuteur, puis de l\'équipe, et suggère des questions.</div>'
       +'<textarea id="crContexte" rows="4" placeholder="Contexte / ordre du jour / objectif de la réunion…" style="'+sel()+'resize:vertical;">'+e(d.contexte||'')+'</textarea>'
       +'<div style="margin-top:8px;"><button class="add-btn" onclick="crPrep()" type="button"'+(CR_BUSY?' disabled':'')+'>'+(CR_BUSY?'… analyse':'🧠 Préparer avec l\'IA')+'</button></div>'
-      +(d.preparation?('<div style="margin-top:10px;border-top:1px solid rgba(86,10,15,.12);padding-top:10px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><b style="color:#560A0F;">Note de préparation</b><div><button class="add-btn sm" onclick="crCopyPrep()" type="button">📋 Copier</button> <button class="add-btn sm" onclick="crMail(\'prep\')" type="button">📧 Envoyer</button></div></div>'+md(d.preparation)+'</div>'):'')
+      +crPrepBlock(d)
       +'</div>'
       // Réalisation & synthèse
       +'<div class="panel" style="padding:12px 16px;margin-top:12px;"><div class="sec-eyebrow" style="margin:0 0 6px;">2 · Réalisation & synthèse</div>'
       +'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">'+mic+'<span class="edit-hint">'+(SR?'Clique, parle, reclique pour arrêter.':'Dictée indisponible sur ce navigateur — saisis ci-dessous.')+'</span></div>'
       +'<textarea id="crTranscript" rows="5" placeholder="Transcription des échanges (dictée ou saisie)…" style="'+sel()+'resize:vertical;">'+e(d.transcription||'')+'</textarea>'
       +(lockedOther ? ('<div style="background:#fdecea;border:1px solid #c0392b;border-radius:8px;padding:8px 12px;margin-top:8px;color:#c0392b;font-size:12.5px;">⚠ Transcription en cours par <b>'+e(crLockName(d.transcription_par))+'</b> depuis '+crLockHeure(d)+'. <button class="add-btn sm" onclick="crTakeOver()" type="button" style="margin-left:6px;">Prendre la main</button></div>') : ('<div style="margin-top:8px;"><button class="add-btn" onclick="crSynth()" type="button"'+(CR_BUSY?' disabled':'')+'>'+(CR_BUSY?'… synthèse':'✨ Générer la synthèse + les actions')+'</button></div>'))
-      +(d.synthese?('<div style="margin-top:10px;border-top:1px solid rgba(86,10,15,.12);padding-top:10px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><b style="color:#560A0F;">Compte-rendu</b><button class="add-btn sm" onclick="crCopy()" type="button">📋 Copier</button> <button class="add-btn sm" onclick="crMail(\'synthese\')" type="button">📧 Envoyer</button></div>'+md(d.synthese)+actionsBloc+'</div>'):'')
+      +crSynthBlock(d)
       +'</div>'
       +'<div style="display:flex;gap:8px;margin-top:12px;"><button class="add-btn" onclick="crSave()" type="button">✓ Enregistrer le CR</button><button class="add-btn sm" onclick="crBack()" type="button" style="background:#fff;color:#560A0F;">Fermer</button></div>';
   }
@@ -8472,21 +8473,12 @@ function kwLifecycleSyncBtn(){
         pilotes:(CR_REFS.pilotes||[]).map(function(p){return {nom:p.nom};}), thematiques:(CR_REFS.thematiques||[]).map(function(t){return {code:t.code,libelle:t.libelle};}) })});
       var j=null; try{ j=await res.json(); }catch(x){}
       if(!res.ok) throw new Error((j&&j.error)?j.error:('HTTP '+res.status));
-      // Créer les actions décidées dans la feuille Actions
-      var nums=[], recap=[];
-      var list=Array.isArray(j.actions_decidees)?j.actions_decidees:[];
-      for(var i=0;i<list.length;i++){ var a=list[i];
-        var pid=a.pilote_nom?piloteId(a.pilote_nom):null;
-        var row={ texte_brut:'[CR] '+a.libelle, libelle:a.libelle, thematique:a.thematique||'autre', pilote_id:pid, echeance:a.echeance||null, priorite:a.priorite||2, statut:'a_faire', tags:[] };
-        try { var r=await SB.from('actions').insert(row).select('numero,pilote_id,priorite,echeance').single();
-          if(!r.error&&r.data){ nums.push(r.data.numero); recap.push('- #'+r.data.numero+' — '+a.libelle+(a.pilote_nom?(' — '+a.pilote_nom):'')+' — '+crQuad(r.data.priorite,r.data.echeance)); } } catch(x){}
-      }
-      var cr=(j.compte_rendu||'');
-      if(recap.length) cr += '\n\n## Actions décidées\n'+recap.join('\n');
-      CR_CUR.synthese=cr; CR_CUR.actions_numeros=nums; CR_CUR.statut='tenue';
+      CR_CUR.synthese=j.compte_rendu||'';
+      CR_CUR.actions_draft=(Array.isArray(j.actions_decidees)?j.actions_decidees:[]).map(function(a){ return { libelle:a.libelle||'', pilote_id:(a.pilote_nom?piloteId(a.pilote_nom):null), thematique:a.thematique||'autre', echeance:a.echeance||'', priorite:a.priorite||2, include:true }; });
+      CR_CUR.statut='tenue';
       await crSaveSilent();
     } catch(err){ CR_MSG='Synthèse impossible : '+(err.message||err); }
-    CR_BUSY=false; crRepaint();
+    CR_BUSY=false; CR_EDIT_SYNTH=false; crRepaint();
   };
 
   // ---------- Persistance ----------
@@ -8519,6 +8511,107 @@ function kwLifecycleSyncBtn(){
     CR_REC.onend=function(){ if(CR_RECORDING){ try{ crStartRec(SR); return; }catch(x){} } var b=document.getElementById('crMic'); if(b) b.textContent='🎤 Dicter les échanges'; };
     try{ CR_REC.start(); }catch(x){}
   }
+  // ===== Éditabilité (prépa / synthèse / actions) + images =====
+  function crPrepBlock(d){
+    if(!d.preparation && !CR_EDIT_PREP) return '';
+    var body, btns;
+    if(CR_EDIT_PREP){
+      body='<textarea id="crPrepEdit" rows="14" style="'+sel()+'resize:vertical;font-family:inherit;line-height:1.5;">'+e(d.preparation||'')+'</textarea>'
+        +'<div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap;"><button class="add-btn" onclick="crSavePrep()" type="button">✓ Enregistrer</button><button class="add-btn sm" onclick="crAddImage(\'prep\')" type="button" style="background:#fff;color:#560A0F;">🖼 Joindre une image</button><button class="add-btn sm" onclick="crCancelEdit()" type="button" style="background:#fff;color:#560A0F;">Annuler</button></div>';
+      btns='';
+    } else {
+      body=md(d.preparation||'');
+      btns='<button class="add-btn sm" onclick="crEditPrep()" type="button">✏️ Modifier</button> <button class="add-btn sm" onclick="crCopyPrep()" type="button">📋 Copier</button> <button class="add-btn sm" onclick="crMail(\'prep\')" type="button">📧 Envoyer</button>';
+    }
+    return '<div style="margin-top:10px;border-top:1px solid rgba(86,10,15,.12);padding-top:10px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:6px;"><b style="color:#560A0F;">Note de préparation</b><div>'+btns+'</div></div>'+body+'</div>';
+  }
+
+  function crSynthBlock(d){
+    var draft=(d.actions_draft&&d.actions_draft.length)?crActionsReview(d):'';
+    var recap=(d.actions_numeros&&d.actions_numeros.length)?('<div class="edit-hint" style="margin-top:8px;">Actions créées dans la feuille Actions : '+d.actions_numeros.map(function(n){return '#'+n;}).join(', ')+'</div>'):'';
+    if(!d.synthese && !CR_EDIT_SYNTH) return draft;
+    var body, btns;
+    if(CR_EDIT_SYNTH){
+      body='<textarea id="crSynthEdit" rows="16" style="'+sel()+'resize:vertical;font-family:inherit;line-height:1.5;">'+e(d.synthese||'')+'</textarea>'
+        +'<div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap;"><button class="add-btn" onclick="crSaveSynth()" type="button">✓ Enregistrer</button><button class="add-btn sm" onclick="crAddImage(\'synthese\')" type="button" style="background:#fff;color:#560A0F;">🖼 Joindre une image</button><button class="add-btn sm" onclick="crCancelEdit()" type="button" style="background:#fff;color:#560A0F;">Annuler</button></div>';
+      btns='';
+    } else {
+      body=md(d.synthese||'');
+      btns='<button class="add-btn sm" onclick="crEditSynth()" type="button">✏️ Modifier</button> <button class="add-btn sm" onclick="crCopy()" type="button">📋 Copier</button> <button class="add-btn sm" onclick="crMail(\'synthese\')" type="button">📧 Envoyer</button>';
+    }
+    return '<div style="margin-top:10px;border-top:1px solid rgba(86,10,15,.12);padding-top:10px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:6px;"><b style="color:#560A0F;">Compte-rendu</b><div>'+btns+'</div></div>'+body+recap+draft+'</div>';
+  }
+
+  function crActionsReview(d){
+    function themeOpts(s){ return (CR_REFS.thematiques||[]).map(function(t){return '<option value="'+t.code+'"'+(t.code===s?' selected':'')+'>'+e(t.libelle)+'</option>';}).join(''); }
+    function pilOpts(s){ return '<option value="">— pilote —</option>'+(CR_REFS.pilotes||[]).map(function(p){return '<option value="'+p.id+'"'+(p.id===s?' selected':'')+'>'+e(p.nom)+'</option>';}).join(''); }
+    function prioOpts(s){ return [[1,'Haute'],[2,'Normale'],[3,'Basse']].map(function(o){return '<option value="'+o[0]+'"'+(o[0]===s?' selected':'')+'>'+o[1]+'</option>';}).join(''); }
+    var rows=d.actions_draft.map(function(a,i){
+      return '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:6px 0;border-bottom:1px solid rgba(86,10,15,.08);">'
+        +'<input type="checkbox" onchange="crDraftToggle('+i+')"'+(a.include?' checked':'')+' title="Inclure">'
+        +'<input type="text" value="'+e(a.libelle||'')+'" onchange="crDraftField('+i+',\'libelle\',this.value)" placeholder="Action" style="flex:2;min-width:200px;'+sel()+'">'
+        +'<select onchange="crDraftField('+i+',\'pilote_id\',this.value)" style="min-width:130px;'+sel()+'width:auto;">'+pilOpts(a.pilote_id)+'</select>'
+        +'<select onchange="crDraftField('+i+',\'thematique\',this.value)" style="min-width:120px;'+sel()+'width:auto;">'+themeOpts(a.thematique)+'</select>'
+        +'<input type="date" value="'+(a.echeance||'')+'" onchange="crDraftField('+i+',\'echeance\',this.value)" style="'+sel()+'width:auto;">'
+        +'<select onchange="crDraftField('+i+',\'priorite\',this.value)" style="'+sel()+'width:auto;">'+prioOpts(a.priorite)+'</select>'
+        +'<button class="add-btn sm" onclick="crDraftRemove('+i+')" type="button" style="background:#fff;color:#560A0F;">✕</button></div>';
+    }).join('');
+    return '<div style="margin-top:12px;background:rgba(239,184,16,.10);border:1px solid rgba(239,184,16,.45);border-radius:8px;padding:10px 12px;">'
+      +'<div style="font-weight:700;color:#560A0F;margin-bottom:4px;">Actions décidées à créer <span class="edit-hint" style="font-weight:400;">— modifie, coche, supprime ou ajoute, puis crée-les</span></div>'
+      +rows
+      +'<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"><button class="add-btn sm" onclick="crDraftAdd()" type="button" style="background:#fff;color:#560A0F;">+ Ajouter une action</button><button class="add-btn" onclick="crCreateActions()" type="button"'+(CR_BUSY?' disabled':'')+'>'+(CR_BUSY?'… création':'✓ Créer les actions cochées')+'</button></div></div>';
+  }
+
+  window.crEditPrep=function(){ CR_EDIT_PREP=true; crRepaint(); };
+  window.crSavePrep=function(){ var t=document.getElementById('crPrepEdit'); if(t) CR_CUR.preparation=t.value; crReadHeader(); CR_EDIT_PREP=false; crSaveSilent().then(crRepaint).catch(function(err){ CR_MSG='Enregistrement refusé : '+(err.message||err); crRepaint(); }); };
+  window.crEditSynth=function(){ CR_EDIT_SYNTH=true; crRepaint(); };
+  window.crSaveSynth=function(){ var t=document.getElementById('crSynthEdit'); if(t) CR_CUR.synthese=t.value; crReadHeader(); CR_EDIT_SYNTH=false; crSaveSilent().then(crRepaint).catch(function(err){ CR_MSG='Enregistrement refusé : '+(err.message||err); crRepaint(); }); };
+  window.crCancelEdit=function(){ CR_EDIT_PREP=false; CR_EDIT_SYNTH=false; crRepaint(); };
+
+  window.crDraftField=function(i,f,v){ var a=CR_CUR&&CR_CUR.actions_draft&&CR_CUR.actions_draft[i]; if(!a) return; if(f==='priorite') a[f]=parseInt(v,10)||2; else if(f==='pilote_id') a[f]=v||null; else a[f]=v; };
+  window.crDraftToggle=function(i){ var a=CR_CUR&&CR_CUR.actions_draft&&CR_CUR.actions_draft[i]; if(a){ a.include=!a.include; crRepaint(); } };
+  window.crDraftRemove=function(i){ if(CR_CUR&&CR_CUR.actions_draft){ CR_CUR.actions_draft.splice(i,1); crRepaint(); } };
+  window.crDraftAdd=function(){ if(!CR_CUR.actions_draft) CR_CUR.actions_draft=[]; CR_CUR.actions_draft.push({libelle:'',pilote_id:null,thematique:'autre',echeance:'',priorite:2,include:true}); crRepaint(); };
+  window.crCreateActions=async function(){
+    if(CR_BUSY) return; crReadHeader();
+    var drafts=(CR_CUR.actions_draft||[]).filter(function(a){return a.include && a.libelle && a.libelle.trim();});
+    if(!drafts.length){ CR_MSG='Aucune action cochée à créer.'; crRepaint(); return; }
+    CR_BUSY=true; CR_MSG=''; crRepaint();
+    var nums=CR_CUR.actions_numeros?CR_CUR.actions_numeros.slice():[], recap=[];
+    for(var i=0;i<drafts.length;i++){ var a=drafts[i];
+      var row={ texte_brut:'[CR] '+a.libelle.trim(), libelle:a.libelle.trim(), thematique:a.thematique||'autre', pilote_id:a.pilote_id||null, echeance:a.echeance||null, priorite:a.priorite||2, statut:'a_faire', tags:[] };
+      try { var r=await SB.from('actions').insert(row).select('numero,pilote_id,priorite,echeance').single();
+        if(!r.error&&r.data){ nums.push(r.data.numero); recap.push('- #'+r.data.numero+' — '+a.libelle.trim()+(piloteNom(a.pilote_id)?(' — '+piloteNom(a.pilote_id)):'')+' — '+crQuad(r.data.priorite,r.data.echeance)); } } catch(x){}
+    }
+    if(recap.length){ CR_CUR.synthese=(CR_CUR.synthese||'')+'\n\n## Actions décidées\n'+recap.join('\n'); }
+    CR_CUR.actions_numeros=nums; CR_CUR.actions_draft=[];
+    try{ await crSaveSilent(); }catch(x){}
+    CR_BUSY=false; CR_MSG=recap.length+' action(s) créée(s) dans la feuille Actions.'; crRepaint();
+  };
+
+  window.crAddImage=function(target){
+    var inp=document.createElement('input'); inp.type='file'; inp.accept='image/*';
+    inp.onchange=function(){ var f=inp.files&&inp.files[0]; if(f) crUploadImage(f,target); };
+    inp.click();
+  };
+  async function crUploadImage(file,target){
+    try{
+      if(!CR_CUR.id){ await crSaveSilent(); }
+      if(file.size>5*1024*1024) throw new Error('image > 5 Mo');
+      var ext=((file.name||'img').split('.').pop()||'png').toLowerCase().replace(/[^a-z0-9]/g,'')||'png';
+      var path='cr/'+CR_CUR.id+'/'+Date.now()+'.'+ext;
+      var up=await SB.storage.from('cr-images').upload(path,file,{upsert:true,contentType:file.type||'image/png'});
+      if(up.error) throw up.error;
+      var pub=SB.storage.from('cr-images').getPublicUrl(path);
+      var url=(pub&&pub.data)?pub.data.publicUrl:'';
+      if(!url) throw new Error('URL publique indisponible');
+      var img='\n\n![image]('+url+')\n';
+      if(target==='prep'){ var tp=document.getElementById('crPrepEdit'); if(tp){ tp.value+=img; CR_CUR.preparation=tp.value; } else CR_CUR.preparation=(CR_CUR.preparation||'')+img; }
+      else { var ts=document.getElementById('crSynthEdit'); if(ts){ ts.value+=img; CR_CUR.synthese=ts.value; } else CR_CUR.synthese=(CR_CUR.synthese||'')+img; }
+      await crSaveSilent(); crRepaint();
+    }catch(err){ CR_MSG='Image refusée : '+(err.message||err)+' (le bucket « cr-images » doit exister et être public).'; crRepaint(); }
+  }
+
 })();
 
 </script>
