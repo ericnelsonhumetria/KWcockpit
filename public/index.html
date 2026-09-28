@@ -729,6 +729,16 @@ function openSubview(role){
 function renderTab(){
   var grb = document.getElementById('kwGlobalRefreshBar');
   if(grb) grb.style.display = (CURRENT_ROLE==='eric' && CURRENT_TAB==='dash') ? '' : 'none';
+  var paFab = document.getElementById('paFab');
+  if(!paFab){
+    paFab = document.createElement('button');
+    paFab.id='paFab'; paFab.type='button'; paFab.title='Plan d\u2019action';
+    paFab.innerHTML='\u2795 Action';
+    paFab.setAttribute('onclick','if(window.openPlanModal) openPlanModal();');
+    paFab.style.cssText='position:fixed;right:18px;bottom:18px;z-index:9000;background:#560A0F;color:#fff;border:none;border-radius:999px;padding:12px 18px;font-size:14px;font-weight:600;box-shadow:0 6px 18px rgba(0,0,0,.25);cursor:pointer;';
+    document.body.appendChild(paFab);
+  }
+  paFab.style.display = (CURRENT_TAB==='plandaction') ? 'none' : '';
   if(CURRENT_TAB==='dash'){
     document.getElementById('view').innerHTML = VIEWS[CURRENT_ROLE]();
     if(CURRENT_ROLE==='paul' || CURRENT_ROLE==='eric') animateBars();
@@ -7744,12 +7754,15 @@ function kwLifecycleSyncBtn(){
 (function(){
   var PA_REFS=null, PA_LIST=[], PA_ARCHIVED=[], PA_DRAFT=null, PA_EDIT=null;
   var PA_FILTER={thematique:'',pilote:'',statut:'',quadrant:''}, PA_SEARCH='';
-  var PA_VIEW='matrice';           // matrice | liste | kanban | archive
+  var PA_VIEW='matrice';           // matrice | liste | kanban | periode | archive
+  var PA_ROOT='view';
+  var PA_PERIOD={gran:'mois', from:'', to:''};
   var PA_DRAG_ID=null;
   var PA_REC=null, PA_RECORDING=false, PA_DICT_FINAL='', PA_BUSY=false, PA_MSG='';
+  var PA_AUTO_TIMER=null, PA_AUTODRAFT_ID=null;
   var PA_DRAFTTXT_KEY='kw:pa:brouillon:v1';
   var PA_URGENT_DAYS=7;
-  var PA_STATUTS=[['a_faire','À faire'],['en_attente','En attente'],['en_cours','En cours'],['fait','Fait'],['abandonne','Abandonné']];
+  var PA_STATUTS=[['brouillon','Brouillon'],['a_faire','À faire'],['en_attente','En attente'],['en_cours','En cours'],['fait','Fait'],['abandonne','Abandonné']];
 
   function paEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
   function paAuth(){ return {'Content-Type':'application/json', Authorization:'Bearer '+SB_SESSION.access_token}; }
@@ -7758,6 +7771,15 @@ function kwLifecycleSyncBtn(){
   function paThemeLib(code){ var t=((PA_REFS&&PA_REFS.thematiques)||[]).find(function(x){return x.code===code;}); return t?t.libelle:code; }
   function paPiloteNom(id){ if(!id) return 'non attribué'; var p=((PA_REFS&&PA_REFS.pilotes)||[]).find(function(x){return x.id===id;}); return p?p.nom:'—'; }
   function paPiloteId(nom){ var p=((PA_REFS&&PA_REFS.pilotes)||[]).find(function(x){return x.nom===nom;}); return p?p.id:null; }
+  function paMyPiloteId(){ var uid=(SB_SESSION&&SB_SESSION.user&&SB_SESSION.user.id)||null; if(!uid) return null; var p=((PA_REFS&&PA_REFS.pilotes)||[]).find(function(x){return x.user_id===uid;}); return p?p.id:null; }
+  function paIsDir(){ try { return (CURRENT_ROLE==='eric'||CURRENT_ROLE==='direction'); } catch(e){ return false; } }
+  function paCanEdit(a){ return paIsDir() || (!!a.pilote_id && a.pilote_id===paMyPiloteId()); }
+  function paCtrlsCompact(a){
+    if(!paCanEdit(a)) return '<span class="edit-hint" style="flex:0 0 auto;align-self:center;">'+paStatutLabel(a.statut)+'</span>';
+    return '<button onclick="paEdit(\''+a.id+'\')" draggable="false" onmousedown="event.stopPropagation()" type="button" class="add-btn sm" style="flex:0 0 auto;background:#fff;color:#560A0F;">Modifier</button>'
+      + '<select onchange="paSetStatut(\''+a.id+'\',this.value)" draggable="false" onmousedown="event.stopPropagation()" style="font-size:10.5px;padding:2px 4px;border:1px solid rgba(86,10,15,.25);border-radius:6px;font-family:inherit;flex:0 0 auto;width:96px;">'+paStatutOptions(a.statut)+'</select>'
+      + '<button onclick="paArchive(\''+a.id+'\')" draggable="false" onmousedown="event.stopPropagation()" title="Archiver" type="button" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;flex:0 0 auto;padding:2px;">\u2715</button>';
+  }
   function paStatutLabel(s){ var f=PA_STATUTS.find(function(x){return x[0]===s;}); return f?f[1]:s; }
   function paStatutOptions(cur){ return PA_STATUTS.map(function(o){return '<option value="'+o[0]+'"'+(cur===o[0]?' selected':'')+'>'+o[1]+'</option>';}).join(''); }
   function paOpen(a){ return a.statut==='a_faire'||a.statut==='en_cours'||a.statut==='en_attente'; }
@@ -7765,6 +7787,11 @@ function kwLifecycleSyncBtn(){
   function paTags(a){ return Array.isArray(a.tags)?a.tags:[]; }
   function paSlug(s){ return String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,40); }
 
+  var PA_MONTHS=['janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre'];
+  function paYmd(d){ return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2); }
+  function paD(dstr){ var d=new Date(dstr+'T00:00:00'); return isNaN(d.getTime())?null:d; }
+  function paWeekInfo(d){ var x=new Date(d.getFullYear(),d.getMonth(),d.getDate()); var day=(x.getDay()+6)%7; x.setDate(x.getDate()-day); return {key:paYmd(x), lbl:'Semaine du '+x.getDate()+' '+PA_MONTHS[x.getMonth()]}; }
+  function paMonthInfo(d){ return {key:d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2), lbl:PA_MONTHS[d.getMonth()]+' '+d.getFullYear()}; }
   function paIsUrgent(a){
     if(a.urgent_override===true) return true;
     if(a.urgent_override===false) return false;
@@ -7785,7 +7812,7 @@ function kwLifecycleSyncBtn(){
 
   async function paLoadRefs(){
     var th=await SB.from('action_thematiques').select('code,libelle,ordre').eq('actif',true).order('ordre',{ascending:true});
-    var pi=await SB.from('action_pilotes').select('id,nom,alias,actif').eq('actif',true).order('nom',{ascending:true});
+    var pi=await SB.from('action_pilotes').select('id,nom,alias,actif,user_id').eq('actif',true).order('nom',{ascending:true});
     PA_REFS={thematiques:(th&&th.data)||[], pilotes:(pi&&pi.data)||[]};
   }
   async function paLoadList(){
@@ -7796,6 +7823,19 @@ function kwLifecycleSyncBtn(){
     var q=await SB.from('actions').select('*').not('archived_at','is',null).order('archived_at',{ascending:false});
     PA_ARCHIVED=(q&&q.data)?q.data:[];
   }
+  async function paReclaimAuto(){
+    var uid=(SB_SESSION&&SB_SESSION.user&&SB_SESSION.user.id)||null; if(!uid) return;
+    try { var q=await SB.from('actions').select('id').is('archived_at',null).eq('statut','brouillon').eq('created_by',uid).contains('tags',['_auto']).order('numero',{ascending:false}).limit(1);
+      if(q&&q.data&&q.data.length) PA_AUTODRAFT_ID=q.data[0].id; } catch(e){}
+  }
+  async function paAutoSave(){
+    var ta=document.getElementById('paTexte'); var t=ta?ta.value.trim():''; if(!t) return;
+    try {
+      if(PA_AUTODRAFT_ID){ await SB.from('actions').update({texte_brut:t, libelle:t.slice(0,180)}).eq('id',PA_AUTODRAFT_ID); }
+      else { var r=await SB.from('actions').insert({texte_brut:t, libelle:t.slice(0,180), statut:'brouillon', pilote_id:paMyPiloteId(), tags:['_auto']}).select('id').single();
+        if(!r.error&&r.data){ PA_AUTODRAFT_ID=r.data.id; await paLoadList(); if(PA_VIEW!=='archive') paRenderResults(); } }
+    } catch(e){}
+  }
 
   // ---------- Shell + rendu ----------
   function paShell(inner){
@@ -7804,15 +7844,18 @@ function kwLifecycleSyncBtn(){
       + '<div class="sec-note">Dicte ou saisis une action ; l\u2019IA la reformule et la classe ; tu valides avant enregistrement.</div>'
       + inner;
   }
-  window.renderPlanAction=async function(){
-    var v=document.getElementById('view'); if(!v) return;
+  window.renderPlanAction=async function(rootId){
+    PA_ROOT=rootId||'view';
+    var v=document.getElementById(PA_ROOT); if(!v) return;
     v.innerHTML=paShell('<div class="edit-hint" style="padding:10px 2px;">Chargement\u2026</div>');
     PA_MSG='';
     try { await paLoadRefs(); await paLoadList(); } catch(e){ PA_MSG='Chargement impossible : '+(e.message||e); }
+    try { await paReclaimAuto(); } catch(e){}
+    if(!PA_AUTO_TIMER) PA_AUTO_TIMER=setInterval(paAutoSave,10000);
     paRepaint();
   };
   function paRepaint(){
-    var v=document.getElementById('view'); if(!v) return;
+    var v=document.getElementById(PA_ROOT); if(!v) return;
     v.innerHTML=paShell(paCaptureHtml() + paFormZoneHtml() + paControlsHtml() + '<div id="paResults"></div>');
     paRenderResults();
   }
@@ -7820,7 +7863,7 @@ function kwLifecycleSyncBtn(){
     var r=document.getElementById('paResults'); if(!r) return;
     if(PA_VIEW==='archive'){ r.innerHTML=paArchiveHtml(); return; }
     var stats=paStatsHtml(PA_LIST.filter(paMatch));
-    r.innerHTML = stats + (PA_VIEW==='kanban' ? paKanbanHtml() : (PA_VIEW==='liste' ? paListHtml() : paMatrixHtml()));
+    r.innerHTML = stats + (PA_VIEW==='periode' ? paPeriodeHtml() : (PA_VIEW==='kanban' ? paKanbanHtml() : (PA_VIEW==='liste' ? paListHtml() : paMatrixHtml())));
   }
 
   // ---------- Capture (vocal + texte + IA) ----------
@@ -7835,6 +7878,7 @@ function kwLifecycleSyncBtn(){
       + '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">'
       +   '<button class="add-btn" onclick="paReformulate()" type="button"'+(PA_BUSY?' disabled':'')+'>'+(PA_BUSY?'\u2026 analyse':'\u2728 Reformuler par l\u2019IA')+'</button>'
       +   '<button class="add-btn sm" onclick="paQuickSave()" type="button" style="background:#fff;color:#560A0F;">Saisir sans IA</button>'
+      +   '<button class="add-btn sm" onclick="paQuickDraft()" type="button" style="background:#fff;color:#560A0F;">\ud83d\udcbe Brouillon</button>'
       + '</div>'
       + (PA_MSG?'<div class="edit-hint" style="color:var(--signal);margin-top:6px;">'+paEsc(PA_MSG)+'</div>':'')
       + '</div>';
@@ -7889,6 +7933,12 @@ function kwLifecycleSyncBtn(){
     paRepaint();
   };
 
+  window.paQuickDraft=async function(){
+    var ta=document.getElementById('paTexte'); var texte=ta?ta.value.trim():'';
+    if(!texte){ PA_MSG='Rien à enregistrer en brouillon.'; paRepaint(); return; }
+    var row={texte_brut:texte, libelle:texte, thematique:'autre', projet:null, pilote_id:paMyPiloteId(), echeance:null, priorite:2, statut:'brouillon', tags:[], commentaire:null, confidentiel:false};
+    try{ if(PA_AUTODRAFT_ID){ var ru=await SB.from('actions').update({libelle:texte, texte_brut:texte, tags:[], pilote_id:paMyPiloteId()}).eq('id',PA_AUTODRAFT_ID); if(ru.error) throw ru.error; PA_AUTODRAFT_ID=null; } else { var r=await SB.from('actions').insert(row); if(r.error) throw r.error; } if(ta) ta.value=''; paClearDraftTxt(); PA_MSG=''; await paLoadList(); paRepaint(); }catch(e){ PA_MSG='Brouillon refusé : '+(e.message||e); paRepaint(); }
+  };
   // ---------- Formulaire (nouveau + édition) ----------
   function paFormZoneHtml(){
     if(PA_EDIT) return paFormHtml(PA_EDIT,'edit');
@@ -7921,6 +7971,7 @@ function kwLifecycleSyncBtn(){
       + '<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:#560A0F;margin-top:8px;cursor:pointer;"><input id="pfConf" type="checkbox"'+(d.confidentiel?' checked':'')+'> \ud83d\udd12 Confidentiel (visible seulement de l\u2019émetteur, du pilote et de la direction)</label>'
       + '<div style="display:flex;gap:8px;margin-top:10px;">'
       +   '<button class="add-btn" onclick="paSaveForm(\''+mode+'\')" type="button">\u2713 '+(mode==='edit'?'Enregistrer les modifications':'Enregistrer l\u2019action')+'</button>'
+      +   (mode!=='edit' ? '<button class="add-btn sm" onclick="paSaveForm(\'draft\')" type="button" style="background:#fff;color:#560A0F;">\ud83d\udcbe Brouillon</button>' : '')
       +   '<button class="add-btn sm" onclick="paCancelForm()" type="button" style="background:#fff;color:#560A0F;">Annuler</button>'
       + '</div></div>';
   }
@@ -7955,13 +8006,15 @@ function kwLifecycleSyncBtn(){
   window.paSaveForm=async function(mode){
     var f=paReadForm();
     if(!f.libelle){ PA_MSG='Le libellé est vide.'; paRepaint(); return; }
+    if(mode==='draft') f.statut='brouillon';
+    if(!f.pilote_id && mode!=='edit') f.pilote_id=paMyPiloteId();
     try {
       if(mode==='edit'){
         var r=await SB.from('actions').update(f).eq('id',PA_EDIT.id); if(r.error) throw r.error;
         PA_EDIT=null;
       } else {
         var row={texte_brut:PA_DRAFT.texte_brut, libelle:f.libelle, thematique:f.thematique, projet:f.projet, pilote_id:f.pilote_id, echeance:f.echeance, priorite:f.priorite, statut:f.statut, tags:f.tags, commentaire:f.commentaire, confidentiel:f.confidentiel};
-        var r2=await SB.from('actions').insert(row); if(r2.error) throw r2.error;
+        if(PA_AUTODRAFT_ID){ var ru=await SB.from('actions').update(row).eq('id',PA_AUTODRAFT_ID); if(ru.error) throw ru.error; PA_AUTODRAFT_ID=null; } else { var r2=await SB.from('actions').insert(row); if(r2.error) throw r2.error; }
         PA_DRAFT=null; var ta=document.getElementById('paTexte'); if(ta) ta.value=''; paClearDraftTxt();
       }
       PA_MSG=''; await paLoadList(); paRepaint();
@@ -7980,7 +8033,7 @@ function kwLifecycleSyncBtn(){
   window.paSetView=async function(v){ PA_VIEW=v; if(v==='archive'){ try{ await paLoadArchived(); }catch(e){ PA_MSG='Chargement des archives impossible : '+(e.message||e); } } paRepaint(); };
   function paViewToggle(){
     function chip(val,label){ var on=(PA_VIEW===val); return '<button onclick="paSetView(\''+val+'\')" style="font-size:12px;padding:5px 12px;border-radius:999px;border:1px solid '+(on?'#560A0F':'rgba(86,10,15,.28)')+';background:'+(on?'#560A0F':'#fff')+';color:'+(on?'#fff':'#560A0F')+';cursor:pointer;font-family:inherit;font-weight:'+(on?'600':'400')+';margin-right:6px;">'+label+'</button>'; }
-    return '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:2px;margin:16px 0 2px;"><span class="edit-hint" style="margin-right:4px;">Vue :</span>'+chip('matrice','Matrice')+chip('liste','Liste')+chip('kanban','Kanban')+chip('archive','Archivées')+'</div>';
+    return '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:2px;margin:16px 0 2px;"><span class="edit-hint" style="margin-right:4px;">Vue :</span>'+chip('matrice','Matrice')+chip('liste','Liste')+chip('kanban','Kanban')+chip('periode','Période')+chip('archive','Archivées')+'</div>';
   }
   function paFiltersHtml(){
     var themeF='<option value="">Toutes thématiques</option>'+(PA_REFS.thematiques||[]).map(function(t){return '<option value="'+t.code+'"'+(PA_FILTER.thematique===t.code?' selected':'')+'>'+paEsc(t.libelle)+'</option>';}).join('');
@@ -8042,7 +8095,7 @@ function kwLifecycleSyncBtn(){
     bits.push('<span style="color:'+prioCol+';">'+prioTxt+'</span>');
     if(a.echeance) bits.push('<span style="'+(over?'color:var(--signal);font-weight:700;':'')+'">éch. '+paEsc(a.echeance)+(over?' — en retard':'')+'</span>');
     var s=bits.join(' · ');
-    var tags=paTags(a); if(tags.length) s+= ' · '+tags.map(function(t){return '<span style="background:rgba(86,10,15,.08);border-radius:4px;padding:0 4px;font-size:10px;">#'+paEsc(t)+'</span>';}).join(' ');
+    var tags=paTags(a).filter(function(t){return t.indexOf('_')!==0;}); if(tags.length) s+= ' · '+tags.map(function(t){return '<span style="background:rgba(86,10,15,.08);border-radius:4px;padding:0 4px;font-size:10px;">#'+paEsc(t)+'</span>';}).join(' ');
     return s;
   }
   function paTitleLine(a,done){
@@ -8052,6 +8105,7 @@ function kwLifecycleSyncBtn(){
       + (a.commentaire?' <span title="Commentaire">\ud83d\udcac</span>':'');
   }
   function paActionButtons(a){
+    if(!paCanEdit(a)) return '<span class="edit-hint" style="flex:0 0 auto;align-self:center;">'+paStatutLabel(a.statut)+'</span>';
     return '<select onchange="paSetStatut(\''+a.id+'\',this.value)" draggable="false" onmousedown="event.stopPropagation()" style="font-size:11px;padding:3px 5px;border:1px solid rgba(86,10,15,.25);border-radius:6px;font-family:inherit;flex:0 0 auto;width:104px;">'+paStatutOptions(a.statut)+'</select>'
       + '<button onclick="paEdit(\''+a.id+'\')" draggable="false" onmousedown="event.stopPropagation()" title="Modifier" type="button" class="add-btn sm" style="flex:0 0 auto;background:#fff;color:#560A0F;">Modifier</button>'
       + '<button onclick="paArchive(\''+a.id+'\')" draggable="false" onmousedown="event.stopPropagation()" title="Archiver" type="button" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;flex:0 0 auto;padding:2px;">\u2715</button>';
@@ -8073,13 +8127,11 @@ function kwLifecycleSyncBtn(){
   // ---------- Vue Matrice ----------
   function paCell(a){
     var done=(a.statut==='fait'||a.statut==='abandonne'); var over=paOverdue(a);
-    return '<div draggable="true" ondragstart="paDragStart(event,\''+a.id+'\')" style="background:'+(over?'#fdecea':'#fff')+';border:1px solid rgba(0,0,0,.08);border-radius:8px;padding:7px 9px;margin-bottom:6px;cursor:grab;'+(done?'opacity:.5;':'')+'">'
+    return '<div draggable="'+(paCanEdit(a)?'true':'false')+'" ondragstart="paDragStart(event,\''+a.id+'\')" style="background:'+(over?'#fdecea':'#fff')+';border:1px solid rgba(0,0,0,.08);border-radius:8px;padding:7px 9px;margin-bottom:6px;cursor:grab;'+(done?'opacity:.5;':'')+'">'
       + '<div>'+paTitleLine(a,done)+'</div>'
       + '<div style="display:flex;align-items:center;gap:6px;margin-top:4px;">'
       +   '<span class="edit-hint" style="flex:1;min-width:0;">'+paMetaLine(a)+'</span>'
-      +   '<button onclick="paEdit(\''+a.id+'\')" draggable="false" onmousedown="event.stopPropagation()" type="button" class="add-btn sm" style="flex:0 0 auto;background:#fff;color:#560A0F;">Modifier</button>'
-      +   '<select onchange="paSetStatut(\''+a.id+'\',this.value)" draggable="false" onmousedown="event.stopPropagation()" style="font-size:10.5px;padding:2px 4px;border:1px solid rgba(86,10,15,.25);border-radius:6px;font-family:inherit;flex:0 0 auto;width:96px;">'+paStatutOptions(a.statut)+'</select>'
-      +   '<button onclick="paArchive(\''+a.id+'\')" draggable="false" onmousedown="event.stopPropagation()" title="Archiver" type="button" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;flex:0 0 auto;padding:2px;">\u2715</button>'
+      +   paCtrlsCompact(a)
       + '</div></div>';
   }
   function paQuadrant(title,sub,color,actions,key){
@@ -8107,16 +8159,16 @@ function kwLifecycleSyncBtn(){
   // ---------- Vue Kanban ----------
   function paKanbanCard(a){
     var done=(a.statut==='fait'||a.statut==='abandonne'); var over=paOverdue(a);
-    return '<div draggable="true" ondragstart="paDragStart(event,\''+a.id+'\')" style="background:'+(over?'#fdecea':'#fff')+';border:1px solid rgba(0,0,0,.08);border-radius:8px;padding:7px 9px;margin-bottom:6px;cursor:grab;'+(done?'opacity:.55;':'')+'">'
+    return '<div draggable="'+(paCanEdit(a)?'true':'false')+'" ondragstart="paDragStart(event,\''+a.id+'\')" style="background:'+(over?'#fdecea':'#fff')+';border:1px solid rgba(0,0,0,.08);border-radius:8px;padding:7px 9px;margin-bottom:6px;cursor:grab;'+(done?'opacity:.55;':'')+'">'
       + '<div>'+paTitleLine(a,done)+'</div>'
       + '<div class="edit-hint" style="margin-top:3px;">'+paEsc(paPiloteNom(a.pilote_id))+(a.echeance?(' · <span style="'+(over?'color:var(--signal);font-weight:700;':'')+'">'+paEsc(a.echeance)+'</span>'):'')+'</div>'
-      + '<div style="margin-top:4px;"><button onclick="paEdit(\''+a.id+'\')" draggable="false" onmousedown="event.stopPropagation()" type="button" class="add-btn sm" style="background:#fff;color:#560A0F;">Modifier</button></div>'
+      + (paCanEdit(a) ? '<div style="margin-top:4px;"><button onclick="paEdit(\''+a.id+'\')" draggable="false" onmousedown="event.stopPropagation()" type="button" class="add-btn sm" style="background:#fff;color:#560A0F;">Modifier</button></div>' : '')
       + '</div>';
   }
   function paKanbanHtml(){
     var rows=PA_LIST.filter(paMatch);
-    var cols=[['a_faire','À faire','#560A0F'],['en_attente','En attente','#b3541e'],['en_cours','En cours','#EFB810'],['fait','Fait','#2e7d46']];
-    var grid='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:4px;">';
+    var cols=[['brouillon','Brouillon','#8a8a8a'],['a_faire','À faire','#560A0F'],['en_attente','En attente','#b3541e'],['en_cours','En cours','#EFB810'],['fait','Fait','#2e7d46']];
+    var grid='<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:4px;">';
     cols.forEach(function(c){
       var items=rows.filter(function(a){return a.statut===c[0];});
       grid+='<div ondragover="paDragOver(event)" ondragleave="paDragLeave(event)" ondrop="paKanbanDrop(event,\''+c[0]+'\')" style="border:1px solid rgba(86,10,15,.12);border-top:3px solid '+c[2]+';border-radius:10px;padding:8px 8px;min-width:0;display:flex;flex-direction:column;">'
@@ -8138,8 +8190,7 @@ function kwLifecycleSyncBtn(){
       var when=a.archived_at?String(a.archived_at).slice(0,10):'';
       return '<div style="display:flex;gap:10px;align-items:flex-start;padding:9px 4px;border-bottom:1px solid rgba(86,10,15,.10);opacity:.8;">'
         + '<div style="flex:1;min-width:0;">'+paTitleLine(a,true)+'<div class="edit-hint" style="margin-top:2px;">'+paEsc(paThemeLib(a.thematique))+' · '+paEsc(paPiloteNom(a.pilote_id))+' · '+paStatutLabel(a.statut)+(when?(' · archivée le '+when):'')+'</div></div>'
-        + '<button onclick="paEdit(\''+a.id+'\')" type="button" class="add-btn sm" style="flex:0 0 auto;background:#fff;color:#560A0F;">Modifier</button>'
-        + '<button onclick="paRestore(\''+a.id+'\')" type="button" class="add-btn sm" style="flex:0 0 auto;background:#fff;color:#560A0F;">Restaurer</button></div>';
+        + (paCanEdit(a) ? '<button onclick="paEdit(\''+a.id+'\')" type="button" class="add-btn sm" style="flex:0 0 auto;background:#fff;color:#560A0F;">Modifier</button><button onclick="paRestore(\''+a.id+'\')" type="button" class="add-btn sm" style="flex:0 0 auto;background:#fff;color:#560A0F;">Restaurer</button>' : '')+'</div>';
     }).join('');
     return head+'<div>'+rows+'</div>';
   }
@@ -8147,6 +8198,45 @@ function kwLifecycleSyncBtn(){
   window.paArchiveDone=async function(){ var ids=PA_LIST.filter(function(a){return a.statut==='fait';}).map(function(a){return a.id;}); if(!ids.length) return; try{ var r=await SB.from('actions').update({archived_at:new Date().toISOString()}).in('id',ids); if(r.error) throw r.error; await paLoadList(); await paLoadArchived(); paRepaint(); }catch(e){ PA_MSG='Archivage refusé : '+(e.message||e); paRepaint(); } };
 
   // ---------- Statut / archive / drag ----------
+  function paPeriodRow(a){
+    var done=(a.statut==='fait'||a.statut==='abandonne'); var over=paOverdue(a);
+    return '<div style="display:flex;gap:10px;align-items:flex-start;padding:7px 6px;border-bottom:1px solid rgba(86,10,15,.08);border-radius:6px;'+(over?'background:#fdecea;':'')+(done?'opacity:.55;':'')+'">'
+      +'<div style="flex:1;min-width:0;">'+paTitleLine(a,done)+'<div class="edit-hint" style="margin-top:2px;">'+paMetaLine(a)+'</div></div>'
+      +paActionButtons(a)+'</div>';
+  }
+  function paPeriodeHtml(){
+    var from=PA_PERIOD.from, to=PA_PERIOD.to, gran=PA_PERIOD.gran;
+    var all=PA_LIST.filter(paMatch);
+    function gchip(v,l){ var on=gran===v; return '<button onclick="paSetPeriodGran(\''+v+'\')" type="button" style="font-size:12px;padding:4px 10px;border-radius:999px;border:1px solid '+(on?'#560A0F':'rgba(86,10,15,.28)')+';background:'+(on?'#560A0F':'#fff')+';color:'+(on?'#fff':'#560A0F')+';cursor:pointer;font-family:inherit;margin-right:6px;">'+l+'</button>'; }
+    var ctrl='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0 10px;">'
+      +'<span class="edit-hint">Grouper par :</span>'+gchip('semaine','Semaine')+gchip('mois','Mois')
+      +'<span class="edit-hint" style="margin-left:8px;">Du</span><input type="date" value="'+(from||'')+'" onchange="paSetPeriodRange(\'from\',this.value)" style="'+paSelStyle()+'width:auto;">'
+      +'<span class="edit-hint">au</span><input type="date" value="'+(to||'')+'" onchange="paSetPeriodRange(\'to\',this.value)" style="'+paSelStyle()+'width:auto;">'
+      +((from||to)?'<button class="add-btn sm" onclick="paClearPeriod()" type="button" style="background:#fff;color:#560A0F;">Effacer la plage</button>':'')
+      +'</div>';
+    var today=paToday(); var late=[], none=[], groups={}, order=[];
+    all.forEach(function(a){
+      if(!a.echeance){ none.push(a); return; }
+      if(from && a.echeance<from) return;
+      if(to && a.echeance>to) return;
+      if(a.echeance<today && paOpen(a)){ late.push(a); return; }
+      var d=paD(a.echeance); if(!d){ none.push(a); return; }
+      var info=(gran==='semaine')?paWeekInfo(d):paMonthInfo(d);
+      if(!groups[info.key]){ groups[info.key]={info:info,items:[]}; order.push(info.key); }
+      groups[info.key].items.push(a);
+    });
+    order.sort();
+    function grp(title,color,items){ if(!items.length) return ''; items.sort(function(a,b){return (a.echeance||'').localeCompare(b.echeance||'');}); return '<div style="margin-bottom:12px;"><div style="font-weight:700;color:'+color+';font-size:13px;margin:6px 0 4px;border-bottom:2px solid '+color+';padding-bottom:2px;">'+title+' <span style="font-weight:400;color:var(--muted);font-size:11px;">('+items.length+')</span></div>'+items.map(paPeriodRow).join('')+'</div>'; }
+    var out=ctrl;
+    out+=grp('En retard','#c0392b',late);
+    order.forEach(function(k){ out+=grp(groups[k].info.lbl,'#560A0F',groups[k].items); });
+    if(!from && !to) out+=grp('Sans échéance','#2980b9',none);
+    var totalShown=late.length+none.length+order.reduce(function(x,k){return x+groups[k].items.length;},0);
+    return '<div class="edit-hint" style="margin:2px 0 2px;">'+totalShown+' action(s)</div>'+out;
+  }
+  window.paSetPeriodGran=function(v){ PA_PERIOD.gran=v; paRenderResults(); };
+  window.paSetPeriodRange=function(k,v){ PA_PERIOD[k]=v; paRenderResults(); };
+  window.paClearPeriod=function(){ PA_PERIOD.from=''; PA_PERIOD.to=''; paRenderResults(); };
   window.paSetStatut=async function(id,statut){ try{ var r=await SB.from('actions').update({statut:statut}).eq('id',id); if(r.error) throw r.error; var a=PA_LIST.find(function(x){return x.id===id;}); if(a) a.statut=statut; paRenderResults(); }catch(e){ PA_MSG='Mise à jour refusée : '+(e.message||e); paRepaint(); } };
   window.paArchive=async function(id){ try{ var r=await SB.from('actions').update({archived_at:new Date().toISOString()}).eq('id',id); if(r.error) throw r.error; PA_LIST=PA_LIST.filter(function(x){return x.id!==id;}); paRenderResults(); }catch(e){ PA_MSG='Archivage refusé : '+(e.message||e); paRepaint(); } };
   window.paDragStart=function(ev,id){ PA_DRAG_ID=id; try{ ev.dataTransfer.setData('text/plain',id); ev.dataTransfer.effectAllowed='move'; }catch(e){} };
@@ -8159,6 +8249,20 @@ function kwLifecycleSyncBtn(){
     var patch={priorite:imp?(a.priorite<=2?a.priorite:2):3, urgent_override:urg};
     try{ var r=await SB.from('actions').update(patch).eq('id',id); if(r.error) throw r.error; Object.assign(a,patch); PA_MSG=''; paRenderResults(); }catch(e){ PA_MSG='Déplacement refusé : '+(e.message||e); paRepaint(); }
   }
+  window.openPlanModal=function(){
+    var ov=document.getElementById('paModalOverlay'); if(ov) ov.remove();
+    ov=document.createElement('div'); ov.id='paModalOverlay';
+    ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:flex-start;justify-content:center;padding:24px 12px;overflow:auto;';
+    ov.onclick=function(e){ if(e.target===ov) window.closePlanModal(); };
+    var box=document.createElement('div');
+    box.style.cssText='background:#f6f1e7;max-width:1100px;width:100%;border-radius:14px;padding:18px 18px 26px;box-shadow:0 20px 60px rgba(0,0,0,.35);position:relative;';
+    box.innerHTML='<button onclick="closePlanModal()" title="Fermer" type="button" style="position:absolute;top:10px;right:12px;background:#560A0F;color:#fff;border:none;border-radius:8px;padding:4px 11px;font-size:15px;cursor:pointer;z-index:2;">\u2715</button><div id="paModalBody"></div>';
+    ov.appendChild(box); document.body.appendChild(ov);
+    document.addEventListener('keydown', paModalEsc);
+    renderPlanAction('paModalBody');
+  };
+  function paModalEsc(e){ if(e.key==='Escape') window.closePlanModal(); }
+  window.closePlanModal=function(){ var ov=document.getElementById('paModalOverlay'); if(ov) ov.remove(); document.removeEventListener('keydown', paModalEsc); PA_ROOT='view'; };
 })();
 
 </script>
