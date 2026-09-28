@@ -8451,15 +8451,18 @@ function kwLifecycleSyncBtn(){
     if(CR_BUSY) return; crReadHeader();
     if(!CR_CUR.contexte || !CR_CUR.contexte.trim()){ CR_MSG='Renseigne le contexte / ordre du jour.'; crRepaint(); return; }
     CR_BUSY=true; CR_MSG=''; crRepaint();
+    var ctrl=new AbortController(); var to=setTimeout(function(){ ctrl.abort(); }, 30000);
     try {
-      var q=await SB.from('actions').select('numero,libelle,statut,echeance,priorite,pilote_id').is('archived_at',null).order('numero',{ascending:false});
+      var q=await SB.from('actions').select('numero,libelle,statut,echeance,priorite,pilote_id').is('archived_at',null).order('numero',{ascending:false}).limit(80);
       var acts=((q&&q.data)||[]).map(function(a){ return { numero:a.numero, libelle:a.libelle, statut:a.statut, echeance:a.echeance, priorite:a.priorite, pilote:piloteNom(a.pilote_id) }; });
-      var res=await fetch('/api/cr-ia',{method:'POST',headers:auth(),body:JSON.stringify({ mode:'prep', contexte:CR_CUR.contexte, interlocuteur:piloteNom(CR_CUR.interlocuteur_id), today:today(), actions:acts })});
+      var res=await fetch('/api/cr-ia',{method:'POST',headers:auth(),signal:ctrl.signal,body:JSON.stringify({ mode:'prep', contexte:CR_CUR.contexte, interlocuteur:piloteNom(CR_CUR.interlocuteur_id), today:today(), actions:acts })});
       var j=null; try{ j=await res.json(); }catch(x){}
-      if(!res.ok) throw new Error((j&&j.error)?j.error:('HTTP '+res.status));
-      CR_CUR.preparation=j.preparation||'';
-    } catch(err){ CR_MSG='Préparation impossible : '+(err.message||err); }
-    CR_BUSY=false; crRepaint();
+      if(!res.ok) throw new Error((j&&j.error)?j.error:('le service a répondu '+res.status));
+      CR_CUR.preparation=(j&&j.preparation)?j.preparation:'';
+      if(!CR_CUR.preparation) throw new Error('réponse vide du modèle');
+      try{ await crSaveSilent(); }catch(x){}
+    } catch(err){ CR_MSG='Préparation impossible : '+((err&&err.name==='AbortError')?'délai dépassé (>30 s) — réessaie ou raccourcis le contexte.':(err.message||err)); }
+    clearTimeout(to); CR_BUSY=false; crRepaint();
   };
 
   // ---------- Synthèse IA + création des actions ----------
@@ -8469,7 +8472,8 @@ function kwLifecycleSyncBtn(){
     try{ if(!CR_CUR.id) await crSaveSilent(); await crAcquireLock(); }catch(x){}
     CR_BUSY=true; CR_MSG=''; crRepaint();
     try {
-      var res=await fetch('/api/cr-ia',{method:'POST',headers:auth(),body:JSON.stringify({ mode:'synthese', transcription:CR_CUR.transcription, contexte:CR_CUR.contexte, interlocuteur:piloteNom(CR_CUR.interlocuteur_id), today:today(),
+      var ctrlS=new AbortController(); var toS=setTimeout(function(){ ctrlS.abort(); }, 45000);
+      var res=await fetch('/api/cr-ia',{method:'POST',headers:auth(),signal:ctrlS.signal,body:JSON.stringify({ mode:'synthese', transcription:CR_CUR.transcription, contexte:CR_CUR.contexte, interlocuteur:piloteNom(CR_CUR.interlocuteur_id), today:today(),
         pilotes:(CR_REFS.pilotes||[]).map(function(p){return {nom:p.nom};}), thematiques:(CR_REFS.thematiques||[]).map(function(t){return {code:t.code,libelle:t.libelle};}) })});
       var j=null; try{ j=await res.json(); }catch(x){}
       if(!res.ok) throw new Error((j&&j.error)?j.error:('HTTP '+res.status));
@@ -8477,7 +8481,8 @@ function kwLifecycleSyncBtn(){
       CR_CUR.actions_draft=(Array.isArray(j.actions_decidees)?j.actions_decidees:[]).map(function(a){ return { libelle:a.libelle||'', pilote_id:(a.pilote_nom?piloteId(a.pilote_nom):null), thematique:a.thematique||'autre', echeance:a.echeance||'', priorite:a.priorite||2, include:true }; });
       CR_CUR.statut='tenue';
       await crSaveSilent();
-    } catch(err){ CR_MSG='Synthèse impossible : '+(err.message||err); }
+      try{ clearTimeout(toS); }catch(x){}
+    } catch(err){ try{ clearTimeout(toS); }catch(x){} CR_MSG='Synthèse impossible : '+((err&&err.name==='AbortError')?'délai dépassé (>45 s) — réessaie.':(err.message||err)); }
     CR_BUSY=false; CR_EDIT_SYNTH=false; crRepaint();
   };
 
