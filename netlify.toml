@@ -77,3 +77,8 @@
   from = "/api/cr-ia"
   to = "/.netlify/functions/cr-ia"
   status = 200
+
+[[redirects]]
+  from = "/api/action-relance"
+  to = "/.netlify/functions/action-relance"
+  status = 200
