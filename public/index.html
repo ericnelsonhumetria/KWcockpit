@@ -535,7 +535,7 @@ function roleFromAccess(access, email){
   if(access.is_admin === true) return 'eric';
   var r = (access.role || '').toLowerCase().trim();
   var map = {
-    'direction':'eric','eric':'eric','cto':'eric','si':'eric',
+    'direction':'eric','eric':'eric','cto':'cto','si':'eric',
     'commerce':'paul','paul':'paul',
     'mktg et produit':'juliette','marketing':'juliette','marketing & communication':'juliette','communication':'juliette','juliette':'juliette',
     'méthodes':'audrey','methodes':'audrey','réalisation & compétences':'audrey','realisation':'audrey','audrey':'audrey',
@@ -601,7 +601,7 @@ async function logout(){
 
 const NAMES = {
   eric:"Direction", paul:"Commerce", audrey:"Méthodes",
-  juliette:"Mktg et Produit", sabrine:"RH", najoua:"Administration des affaires",
+  juliette:"Mktg et Produit", sabrine:"RH", najoua:"Administration des affaires", cto:"CTO",
   consultant:"Consultant"
 };
 
@@ -626,7 +626,7 @@ function highlightLifecycle(role){
 }
 
 var TAB_ACCESS = {};
-function tabDefault(role, tab){ switch(tab){ case 'dash': case 'objectifs': case 'plandaction': return true; case 'capbp': return role==='audrey'||role==='eric'; case 'dojo': return role!=='najoua'&&role!=='paul'&&role!=='juliette'; case 'cerebro': return ['eric','direction','paul','juliette'].indexOf(role)>=0; case 'parcours': return role==='eric'||role==='sabrine'||role==='audrey'; case 'admin': return role==='eric'; default: return false; } }
+function tabDefault(role, tab){ if(role==='cto') return true; switch(tab){ case 'dash': case 'objectifs': case 'plandaction': return true; case 'capbp': return role==='audrey'||role==='eric'; case 'dojo': return role!=='najoua'&&role!=='paul'&&role!=='juliette'; case 'cerebro': return ['eric','direction','paul','juliette'].indexOf(role)>=0; case 'parcours': return role==='eric'||role==='sabrine'||role==='audrey'; case 'admin': return role==='eric'; default: return false; } }
 function tabAllowed(role, tab){ if(TAB_ACCESS && TAB_ACCESS[role] && typeof TAB_ACCESS[role][tab]==='boolean') return TAB_ACCESS[role][tab]; return tabDefault(role, tab); }
 async function loadTabAccess(){ try{ if(!SB) return; var r=await SB.from('role_access').select('role,tabs'); TAB_ACCESS={}; ((r&&r.data)||[]).forEach(function(x){ TAB_ACCESS[x.role]=x.tabs||{}; }); }catch(e){ TAB_ACCESS={}; } }
 function render(role){
@@ -1491,7 +1491,7 @@ async function loadRespCommerce(){
   }
 }
 
-const ROLES_DISPO = ['Direction','Commerce','Mktg et Produit','Méthodes','RH','Administration des affaires','consultant'];
+const ROLES_DISPO = ['Direction','CTO','Commerce','Mktg et Produit','Méthodes','RH','Administration des affaires','consultant'];
 async function loadAdmin(){
   const zone = document.getElementById('adminZone');
   if(!zone || !SB_SESSION){ if(zone) zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Session expirée.</div>'; return; }
@@ -1537,8 +1537,7 @@ function renderAdmin(users){
       <div id="adminMsg"></div>
     </div>
     <div id="adminPilotesZone"></div>
-    <div id="adminAccessZone"></div>
-    <div id="consAccessZone"></div>`;
+    <div id="adminAccessZone"></div>`;
   renderSalaries();
   try { renderFreelanceTjm(); } catch(e){ console.error('renderFreelanceTjm', e); }
   try { if(window.renderPdcMultiImport) window.renderPdcMultiImport(); } catch(e){ console.error('renderPdcMultiImport', e); }
@@ -1549,25 +1548,7 @@ function renderAdmin(users){
 }
 function renderAdminPilotes(users){
   var z=document.getElementById('adminPilotesZone'); if(!z) return;
-  SB.from('action_pilotes').select('id,nom,alias,user_id,actif').order('nom',{ascending:true}).then(function(q){
-    var pilotes=(q&&q.data)?q.data:[];
-    function uopts(sel){ return '<option value="">\u2014 aucun compte \u2014</option>'+(users||[]).map(function(u){return '<option value="'+u.id+'"'+(u.id===sel?' selected':'')+'>'+escP(u.email)+'</option>';}).join(''); }
-    var rows=pilotes.map(function(p){
-      return '<tr><td><b>'+escP(p.nom)+'</b></td>'
-        +'<td><select onchange="paAdminLinkPilote(\''+p.id+'\',this.value)" style="font-size:12px;">'+uopts(p.user_id)+'</select></td>'
-        +'<td>'+(p.actif?'<span class="pill p-green">actif</span>':'<span class="pill p-signal">inactif</span>')+'</td>'
-        +'<td><button class="add-btn sm ghost" onclick="paAdminTogglePilote(\''+p.id+'\','+(!p.actif)+')">'+(p.actif?'Désactiver':'Réactiver')+'</button></td></tr>';
-    }).join('');
-    z.innerHTML='<div class="panel" style="padding:12px 16px 16px;margin-top:16px;">'
-      +'<div class="sec-eyebrow">Plan d\'action</div><div class="sec-title" style="font-size:16px;">Pilotes du plan d\'action</div>'
-      +'<div class="sec-note">Ajoute ou désactive les personnes du plan d\'action et lie-les à un compte (nécessaire pour qu\'elles voient leurs actions et reçoivent les rappels).</div>'
-      +'<table style="margin-top:10px;"><thead><tr><th>Nom</th><th>Compte lié</th><th>Statut</th><th>Action</th></tr></thead><tbody>'+rows+'</tbody></table>'
-      +'<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:12px;">'
-      +'<label style="font-size:11px;color:var(--muted);">Nouveau pilote<div style="margin-top:2px;"><input id="apNom" type="text" placeholder="Nom complet" style="font-size:13px;padding:6px 9px;border:1px solid rgba(86,10,15,.25);border-radius:8px;"></div></label>'
-      +'<label style="font-size:11px;color:var(--muted);">Compte lié<div style="margin-top:2px;"><select id="apUser" style="font-size:13px;padding:6px 9px;border:1px solid rgba(86,10,15,.25);border-radius:8px;">'+uopts('')+'</select></div></label>'
-      +'<button class="add-btn" onclick="paAdminAddPilote()">+ Ajouter</button>'
-      +'<span id="apMsg" class="edit-hint" style="margin-left:6px;"></span></div></div>'+'<div class="panel" style="padding:12px 16px 16px;margin-top:16px;"><div class="sec-title" style="font-size:16px;">Inviter un utilisateur</div><div class="sec-note">Envoie une invitation par e-mail : la personne définit elle-même son mot de passe (aucun mot de passe à transmettre). Nécessite l\'e-mail Auth configuré dans Supabase.</div><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px;"><label style="font-size:11px;color:var(--muted);">E-mail<div style="margin-top:2px;"><input id="invEmail" type="email" placeholder="prenom.nom@kaizen-way.com" style="font-size:13px;padding:6px 9px;border:1px solid rgba(86,10,15,.25);border-radius:8px;min-width:240px;"></div></label><label style="font-size:11px;color:var(--muted);">Rôle<div style="margin-top:2px;"><select id="invRole" style="font-size:13px;padding:6px 9px;border:1px solid rgba(86,10,15,.25);border-radius:8px;"><option value="Commerce">Commerce</option><option value="Mktg et Produit">Mktg et Produit</option><option value="Méthodes">Méthodes</option><option value="RH">RH</option><option value="Administration des affaires">Administration des affaires</option><option value="Direction">Direction</option><option value="consultant">consultant</option></select></div></label><button class="add-btn" onclick="paAdminInvite()" type="button">✉️ Inviter</button><span id="invMsg" class="edit-hint"></span></div></div>';
-  });
+  z.innerHTML='<div class="panel" style="padding:12px 16px 16px;margin-top:16px;"><div class="sec-title" style="font-size:16px;">Inviter un utilisateur</div><div class="sec-note">Envoie une invitation par e-mail : la personne définit elle-même son mot de passe. Tout utilisateur invité devient automatiquement sélectionnable comme pilote dans CR &amp; Actions et Clap!.</div><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px;"><label style="font-size:11px;color:var(--muted);">E-mail<div style="margin-top:2px;"><input id="invEmail" type="email" placeholder="prenom.nom@kaizen-way.com" style="font-size:13px;padding:6px 9px;border:1px solid rgba(86,10,15,.25);border-radius:8px;min-width:240px;"></div></label><label style="font-size:11px;color:var(--muted);">Rôle<div style="margin-top:2px;"><select id="invRole" style="font-size:13px;padding:6px 9px;border:1px solid rgba(86,10,15,.25);border-radius:8px;"><option value="Commerce">Commerce</option><option value="Mktg et Produit">Mktg et Produit</option><option value="Méthodes">Méthodes</option><option value="RH">RH</option><option value="Administration des affaires">Administration des affaires</option><option value="Direction">Direction</option><option value="CTO">CTO</option><option value="consultant">consultant</option></select></div></label><button class="add-btn" onclick="paAdminInvite()" type="button">✉️ Inviter</button><span id="invMsg" class="edit-hint"></span></div></div>';
 }
 window.paAdminAddPilote=function(){
   var e=document.getElementById('apNom'); var nom=e?e.value.trim():''; var uid=(document.getElementById('apUser')||{}).value||null;
@@ -1578,14 +1559,14 @@ window.paAdminTogglePilote=function(id,actif){ SB.from('action_pilotes').update(
 window.paAdminLinkPilote=function(id,uid){ var em=(ADMIN_USERS.find(function(u){return u.id===uid;})||{}).email||null; SB.from('action_pilotes').update({user_id:uid||null, email:uid?em:null}).eq('id',id).then(function(r){ if(!r.error) renderAdminPilotes(ADMIN_USERS); else alert('Refusé : '+r.error.message); }); };
   function renderAdminAccess(){
     var z=document.getElementById('adminAccessZone'); if(!z) return;
-    var roles=[['eric','Direction'],['paul','Commerce'],['audrey','Méthodes'],['juliette','Mktg et Produit'],['sabrine','RH'],['najoua','Administration des affaires'],['consultant','Consultant']];
+    var roles=[['eric','Direction'],['cto','CTO'],['paul','Commerce'],['audrey','Méthodes'],['juliette','Mktg et Produit'],['sabrine','RH'],['najoua','Administration des affaires'],['consultant','Consultant']];
     var tabs=[['cerebro','Cerebro'],['capbp','Bonnes pratiques'],['dojo','Dojo'],['parcours','Parcours candidats'],['plandaction','CR et Actions'],['admin','Admin']];
     var head='<tr><th style="text-align:left;padding:6px 8px;">Fonction</th>'+tabs.map(function(t){return '<th style="padding:6px 8px;font-size:12px;">'+t[1]+'</th>';}).join('')+'</tr>';
     var body=roles.map(function(r){ return '<tr><td style="padding:6px 8px;font-weight:600;color:#560A0F;">'+r[1]+'</td>'+tabs.map(function(t){ var on=tabAllowed(r[0],t[0]); return '<td style="text-align:center;padding:6px 8px;"><input type="checkbox" id="acc_'+r[0]+'_'+t[0]+'"'+(on?' checked':'')+'></td>'; }).join('')+'</tr>'; }).join('');
     z.innerHTML='<div class="panel" style="padding:12px 16px 16px;margin-top:16px;"><div class="sec-title" style="font-size:16px;">Accès aux fonctions par rôle</div><div class="sec-note">Coche les onglets accessibles pour chaque fonction. « Tableau de bord » et « Objectifs » restent toujours accessibles. L\'effet s\'applique à la prochaine connexion de l\'utilisateur.</div><div style="overflow-x:auto;margin-top:10px;"><table><thead>'+head+'</thead><tbody>'+body+'</tbody></table></div><div style="margin-top:10px;display:flex;gap:8px;align-items:center;"><button class="add-btn" onclick="paSaveAccess()" type="button">Enregistrer les accès</button><span id="accMsg" class="edit-hint"></span></div></div>';
   }
   window.paSaveAccess=async function(){
-    var roles=['eric','paul','audrey','juliette','sabrine','najoua','consultant'];
+    var roles=['eric','cto','paul','audrey','juliette','sabrine','najoua','consultant'];
     var tabs=['cerebro','capbp','dojo','parcours','plandaction','admin'];
     var rows=roles.map(function(role){ var t={}; tabs.forEach(function(tab){ var cb=document.getElementById('acc_'+role+'_'+tab); t[tab]=!!(cb&&cb.checked); }); return {role:role, tabs:t}; });
     var m=document.getElementById('accMsg'); if(m){ m.style.color='var(--muted)'; m.textContent='Enregistrement…'; }
