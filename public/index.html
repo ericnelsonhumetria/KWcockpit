@@ -8078,7 +8078,8 @@ function kwLifecycleSyncBtn(){
         PA_EDIT=null;
       } else {
         var row={texte_brut:PA_DRAFT.texte_brut, libelle:f.libelle, thematique:f.thematique, projet:f.projet, source:f.source, pilote_id:f.pilote_id, echeance:f.echeance, priorite:f.priorite, statut:f.statut, tags:f.tags, pieces_jointes:f.pieces_jointes, commentaire:f.commentaire, confidentiel:f.confidentiel};
-        if(PA_AUTODRAFT_ID){ var ru=await SB.from('actions').update(row).eq('id',PA_AUTODRAFT_ID); if(ru.error) throw ru.error; PA_AUTODRAFT_ID=null; } else { var r2=await SB.from('actions').insert(row); if(r2.error) throw r2.error; }
+        var r2=await SB.from('actions').insert(row); if(r2.error) throw r2.error;
+        if(PA_AUTODRAFT_ID){ try{ await SB.from('actions').delete().eq('id',PA_AUTODRAFT_ID); }catch(x){} PA_AUTODRAFT_ID=null; }
         PA_DRAFT=null; var ta=document.getElementById('paTexte'); if(ta) ta.value=''; paClearDraftTxt();
       }
       PA_MSG=''; await paLoadList(); paRepaint();
