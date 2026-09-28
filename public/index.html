@@ -531,12 +531,20 @@ function initSupabase(){
 
 // Détermine le rôle applicatif à partir de la ligne user_access
 function roleFromAccess(access, email){
-  if(!access) return 'paul'; // défaut le plus restreint parmi les vues
-  if(access.is_admin === true || access.role === 'direction' || access.role === 'eric') return 'eric';
-  // mapping souple : on lit une éventuelle colonne role, sinon on déduit de l'email
-  const r = (access.role || '').toLowerCase();
-  if(['eric','paul','audrey','juliette','sabrine','najoua','consultant'].includes(r)) return r;
-  const e = (email||'').toLowerCase();
+  if(!access) return 'paul';
+  if(access.is_admin === true) return 'eric';
+  var r = (access.role || '').toLowerCase().trim();
+  var map = {
+    'direction':'eric','eric':'eric','cto':'eric','si':'eric',
+    'commerce':'paul','paul':'paul',
+    'mktg et produit':'juliette','marketing':'juliette','marketing & communication':'juliette','communication':'juliette','juliette':'juliette',
+    'méthodes':'audrey','methodes':'audrey','réalisation & compétences':'audrey','realisation':'audrey','audrey':'audrey',
+    'rh':'sabrine','sabrine':'sabrine',
+    'administration des affaires':'najoua','administration':'najoua','finance & admin':'najoua','finance':'najoua','najoua':'najoua',
+    'consultant':'consultant'
+  };
+  if(map[r]) return map[r];
+  var e = (email||'').toLowerCase();
   if(e.startsWith('paul')) return 'paul';
   if(e.startsWith('audrey')) return 'audrey';
   if(e.startsWith('juliette')) return 'juliette';
@@ -591,11 +599,9 @@ async function logout(){
 
 
 const NAMES = {
-  eric:"Eric — Direction", paul:"Paul Ingrassia — Commerce",
-  audrey:"Audrey Humbert — Réalisation & compétences",
-  juliette:"Juliette Surcouf — Marketing & communication",
-  sabrine:"Sabrine Lourhmi — RH", najoua:"Najoua Amlal — Finance & admin",
-  consultant:"Consultant — Plan de charge"
+  eric:"Direction", paul:"Commerce", audrey:"Méthodes",
+  juliette:"Mktg et Produit", sabrine:"RH", najoua:"Administration des affaires",
+  consultant:"Consultant"
 };
 
 let CURRENT_ROLE = 'eric';
@@ -1478,7 +1484,7 @@ async function loadRespCommerce(){
   }
 }
 
-const ROLES_DISPO = ['direction','consultant','paul','audrey','juliette','sabrine','najoua','si'];
+const ROLES_DISPO = ['Direction','Commerce','Mktg et Produit','Méthodes','RH','Administration des affaires','consultant'];
 async function loadAdmin(){
   const zone = document.getElementById('adminZone');
   if(!zone || !SB_SESSION){ if(zone) zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Session expirée.</div>'; return; }
@@ -1523,8 +1529,8 @@ function renderAdmin(users){
       <div class="edit-bar"><button class="add-btn" onclick="adminNouveau()">+ Nouvel utilisateur</button><button class="add-btn ghost" onclick="loadAdmin()">↻ Actualiser</button><span class="edit-hint">« ↻ MDP » génère un nouveau mot de passe à transmettre. Les mots de passe existants ne sont jamais affichés.</span></div>
       <div id="adminMsg"></div>
     </div>
-    <div id="consAccessZone"></div>
-    <div id="adminPilotesZone"></div>`;
+    <div id="adminPilotesZone"></div>
+    <div id="consAccessZone"></div>`;
   renderSalaries();
   try { renderFreelanceTjm(); } catch(e){ console.error('renderFreelanceTjm', e); }
   try { if(window.renderPdcMultiImport) window.renderPdcMultiImport(); } catch(e){ console.error('renderPdcMultiImport', e); }
@@ -1551,7 +1557,7 @@ function renderAdminPilotes(users){
       +'<label style="font-size:11px;color:var(--muted);">Nouveau pilote<div style="margin-top:2px;"><input id="apNom" type="text" placeholder="Nom complet" style="font-size:13px;padding:6px 9px;border:1px solid rgba(86,10,15,.25);border-radius:8px;"></div></label>'
       +'<label style="font-size:11px;color:var(--muted);">Compte lié<div style="margin-top:2px;"><select id="apUser" style="font-size:13px;padding:6px 9px;border:1px solid rgba(86,10,15,.25);border-radius:8px;">'+uopts('')+'</select></div></label>'
       +'<button class="add-btn" onclick="paAdminAddPilote()">+ Ajouter</button>'
-      +'<span id="apMsg" class="edit-hint" style="margin-left:6px;"></span></div></div>'+'<div class="panel" style="padding:12px 16px 16px;margin-top:16px;"><div class="sec-title" style="font-size:16px;">Inviter un utilisateur</div><div class="sec-note">Envoie une invitation par e-mail : la personne définit elle-même son mot de passe (aucun mot de passe à transmettre). Nécessite l\'e-mail Auth configuré dans Supabase.</div><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px;"><label style="font-size:11px;color:var(--muted);">E-mail<div style="margin-top:2px;"><input id="invEmail" type="email" placeholder="prenom.nom@kaizen-way.com" style="font-size:13px;padding:6px 9px;border:1px solid rgba(86,10,15,.25);border-radius:8px;min-width:240px;"></div></label><label style="font-size:11px;color:var(--muted);">Rôle<div style="margin-top:2px;"><select id="invRole" style="font-size:13px;padding:6px 9px;border:1px solid rgba(86,10,15,.25);border-radius:8px;"><option value="consultant">consultant</option><option value="paul">paul</option><option value="audrey">audrey</option><option value="juliette">juliette</option><option value="sabrine">sabrine</option><option value="najoua">najoua</option><option value="direction">direction</option></select></div></label><button class="add-btn" onclick="paAdminInvite()" type="button">✉️ Inviter</button><span id="invMsg" class="edit-hint"></span></div></div>';
+      +'<span id="apMsg" class="edit-hint" style="margin-left:6px;"></span></div></div>'+'<div class="panel" style="padding:12px 16px 16px;margin-top:16px;"><div class="sec-title" style="font-size:16px;">Inviter un utilisateur</div><div class="sec-note">Envoie une invitation par e-mail : la personne définit elle-même son mot de passe (aucun mot de passe à transmettre). Nécessite l\'e-mail Auth configuré dans Supabase.</div><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px;"><label style="font-size:11px;color:var(--muted);">E-mail<div style="margin-top:2px;"><input id="invEmail" type="email" placeholder="prenom.nom@kaizen-way.com" style="font-size:13px;padding:6px 9px;border:1px solid rgba(86,10,15,.25);border-radius:8px;min-width:240px;"></div></label><label style="font-size:11px;color:var(--muted);">Rôle<div style="margin-top:2px;"><select id="invRole" style="font-size:13px;padding:6px 9px;border:1px solid rgba(86,10,15,.25);border-radius:8px;"><option value="Commerce">Commerce</option><option value="Mktg et Produit">Mktg et Produit</option><option value="Méthodes">Méthodes</option><option value="RH">RH</option><option value="Administration des affaires">Administration des affaires</option><option value="Direction">Direction</option><option value="consultant">consultant</option></select></div></label><button class="add-btn" onclick="paAdminInvite()" type="button">✉️ Inviter</button><span id="invMsg" class="edit-hint"></span></div></div>';
   });
 }
 window.paAdminAddPilote=function(){
@@ -1565,7 +1571,7 @@ window.paAdminLinkPilote=function(id,uid){ var em=(ADMIN_USERS.find(function(u){
     var e1=document.getElementById('invEmail'); var email=e1?e1.value.trim().toLowerCase():''; var role=(document.getElementById('invRole')||{}).value||''; var m=document.getElementById('invMsg');
     if(!email){ if(m){m.style.color='var(--signal)';m.textContent='E-mail requis.';} return; }
     if(m){ m.style.color='var(--muted)'; m.textContent='Envoi…'; }
-    try{ var r=await fetch('/api/admin',{method:'POST',headers:{Authorization:'Bearer '+SB_SESSION.access_token,'Content-Type':'application/json'},body:JSON.stringify({action:'invite',email:email,role:role,is_admin:(role==='direction')})}); var j=null; try{ j=await r.json(); }catch(x){} if(!r.ok) throw new Error((j&&j.error)?j.error:('HTTP '+r.status)); if(m){ m.style.color='#2e7d46'; m.textContent='Invitation envoyée à '+email+'.'; } if(e1) e1.value=''; }catch(err){ if(m){ m.style.color='var(--signal)'; m.textContent='Échec : '+(err.message||err); } }
+    try{ var r=await fetch('/api/admin',{method:'POST',headers:{Authorization:'Bearer '+SB_SESSION.access_token,'Content-Type':'application/json'},body:JSON.stringify({action:'invite',email:email,role:role,is_admin:(role==='Direction')})}); var j=null; try{ j=await r.json(); }catch(x){} if(!r.ok) throw new Error((j&&j.error)?j.error:('HTTP '+r.status)); if(m){ m.style.color='#2e7d46'; m.textContent='Invitation envoyée à '+email+'.'; } if(e1) e1.value=''; }catch(err){ if(m){ m.style.color='var(--signal)'; m.textContent='Échec : '+(err.message||err); } }
   };
 let SALARIES = [];
 let FREELANCE_TJM = {};
