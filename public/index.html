@@ -1523,11 +1523,7 @@ function renderAdmin(users){
       <div class="edit-bar"><button class="add-btn" onclick="adminNouveau()">+ Nouvel utilisateur</button><button class="add-btn ghost" onclick="loadAdmin()">↻ Actualiser</button><span class="edit-hint">« ↻ MDP » génère un nouveau mot de passe à transmettre. Les mots de passe existants ne sont jamais affichés.</span></div>
       <div id="adminMsg"></div>
     </div>
-    <div id="salZone"></div>
-    <div id="freelanceTjmZone"></div>
-    <div id="pdcMultiImportZone"></div>
     <div id="consAccessZone"></div>
-    <div id="depBaremeZone"></div>
     <div id="adminPilotesZone"></div>`;
   renderSalaries();
   try { renderFreelanceTjm(); } catch(e){ console.error('renderFreelanceTjm', e); }
@@ -7992,6 +7988,7 @@ function kwLifecycleSyncBtn(){
       + '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;">'
       +   paField('Thématique','<div style="display:flex;gap:4px;"><select id="pfTheme" style="'+paSelStyle()+'">'+themeOpts+'</select><button type="button" onclick="paNewTheme(\''+mode+'\')" title="Nouvelle thématique" class="add-btn sm" style="flex:0 0 auto;background:#fff;color:#560A0F;">+</button></div>')
       +   paField('Projet','<input id="pfProjet" type="text" value="'+paEsc(d.projet||'')+'" placeholder="(optionnel)" style="'+paSelStyle()+'">')
+      +   paField('Source','<input id="pfSource" type="text" value="'+paEsc(d.source||'')+'" placeholder="(optionnel) origine / contexte de l\'action" style="'+paSelStyle()+'">')
       +   paField('Pilote','<select id="pfPilote" style="'+paSelStyle()+'">'+piloteOpts+'</select>')
       + '</div>'
       + '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;">'
@@ -8015,6 +8012,7 @@ function kwLifecycleSyncBtn(){
       libelle:val('pfLib').trim(),
       thematique:val('pfTheme')||'autre',
       projet:val('pfProjet').trim()||null,
+      source:val('pfSource').trim()||null,
       pilote_id:val('pfPilote')||null,
       echeance:val('pfEch')||null,
       priorite:parseInt(val('pfPrio'),10)||2,
@@ -8046,7 +8044,7 @@ function kwLifecycleSyncBtn(){
         var r=await SB.from('actions').update(f).eq('id',PA_EDIT.id); if(r.error) throw r.error;
         PA_EDIT=null;
       } else {
-        var row={texte_brut:PA_DRAFT.texte_brut, libelle:f.libelle, thematique:f.thematique, projet:f.projet, pilote_id:f.pilote_id, echeance:f.echeance, priorite:f.priorite, statut:f.statut, tags:f.tags, commentaire:f.commentaire, confidentiel:f.confidentiel};
+        var row={texte_brut:PA_DRAFT.texte_brut, libelle:f.libelle, thematique:f.thematique, projet:f.projet, source:f.source, pilote_id:f.pilote_id, echeance:f.echeance, priorite:f.priorite, statut:f.statut, tags:f.tags, commentaire:f.commentaire, confidentiel:f.confidentiel};
         if(PA_AUTODRAFT_ID){ var ru=await SB.from('actions').update(row).eq('id',PA_AUTODRAFT_ID); if(ru.error) throw ru.error; PA_AUTODRAFT_ID=null; } else { var r2=await SB.from('actions').insert(row); if(r2.error) throw r2.error; }
         PA_DRAFT=null; var ta=document.getElementById('paTexte'); if(ta) ta.value=''; paClearDraftTxt();
       }
@@ -8453,8 +8451,8 @@ function kwLifecycleSyncBtn(){
     CR_BUSY=true; CR_MSG=''; crRepaint();
     var ctrl=new AbortController(); var to=setTimeout(function(){ ctrl.abort(); }, 30000);
     try {
-      var q=await SB.from('actions').select('numero,libelle,statut,echeance,priorite,pilote_id').is('archived_at',null).order('numero',{ascending:false}).limit(80);
-      var acts=((q&&q.data)||[]).map(function(a){ return { numero:a.numero, libelle:a.libelle, statut:a.statut, echeance:a.echeance, priorite:a.priorite, pilote:piloteNom(a.pilote_id) }; });
+      var q=await SB.from('actions').select('numero,libelle,statut,echeance,priorite,pilote_id,source').is('archived_at',null).order('numero',{ascending:false}).limit(80);
+      var acts=((q&&q.data)||[]).map(function(a){ return { numero:a.numero, libelle:a.libelle, statut:a.statut, echeance:a.echeance, priorite:a.priorite, pilote:piloteNom(a.pilote_id), source:a.source }; });
       var res=await fetch('/api/cr-ia',{method:'POST',headers:auth(),signal:ctrl.signal,body:JSON.stringify({ mode:'prep', contexte:CR_CUR.contexte, interlocuteur:piloteNom(CR_CUR.interlocuteur_id), today:today(), actions:acts })});
       var j=null; try{ j=await res.json(); }catch(x){}
       if(!res.ok) throw new Error((j&&j.error)?j.error:('le service a répondu '+res.status));
@@ -8584,7 +8582,7 @@ function kwLifecycleSyncBtn(){
     CR_BUSY=true; CR_MSG=''; crRepaint();
     var nums=CR_CUR.actions_numeros?CR_CUR.actions_numeros.slice():[], recap=[];
     for(var i=0;i<drafts.length;i++){ var a=drafts[i];
-      var row={ texte_brut:'[CR] '+a.libelle.trim(), libelle:a.libelle.trim(), thematique:a.thematique||'autre', pilote_id:a.pilote_id||null, echeance:a.echeance||null, priorite:a.priorite||2, statut:'a_faire', tags:[] };
+      var row={ texte_brut:'[CR] '+a.libelle.trim(), libelle:a.libelle.trim(), thematique:a.thematique||'autre', pilote_id:a.pilote_id||null, echeance:a.echeance||null, priorite:a.priorite||2, statut:'a_faire', tags:[], source:('CR'+((CR_CUR&&CR_CUR.titre)?(' : '+CR_CUR.titre):'')) };
       try { var r=await SB.from('actions').insert(row).select('numero,pilote_id,priorite,echeance').single();
         if(!r.error&&r.data){ nums.push(r.data.numero); recap.push('- #'+r.data.numero+' — '+a.libelle.trim()+(piloteNom(a.pilote_id)?(' — '+piloteNom(a.pilote_id)):'')+' — '+crQuad(r.data.priorite,r.data.echeance)); } } catch(x){}
     }
