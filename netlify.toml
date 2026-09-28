@@ -72,3 +72,8 @@
 # Rappel J-1 par e-mail : cron quotidien 06:00 UTC (~07-08h Paris)
 [functions."action-rappels"]
   schedule = "0 6 * * *"
+
+[[redirects]]
+  from = "/api/cr-ia"
+  to = "/.netlify/functions/cr-ia"
+  status = 200
