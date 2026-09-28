@@ -45,18 +45,25 @@ function baseCabinet() {
 }
 
 function prepPrompt(interlocuteur) {
-  return baseCabinet() + `
+  var qui = interlocuteur || 'la personne concernée';
+  return `Tu es un membre du CODIR de Kaizen Way (cabinet de transformation industrielle, méthodologie Go Gemba®, ~1,6 M€ de CA, qui finance aussi Humetria, une jeune solution SaaS B2B). Tu prépares une réunion pour la direction, en raisonnant en dirigeant : priorités business, génération de R1/R2 (le vrai goulot du cabinet = le volume de relations avec les décideurs industriels), marge, delivery des missions, structuration de l'organisation, développement d'Humetria.
 
-TÂCHE — PRÉPARATION de la réunion. On te fournit le contexte / ordre du jour / objectif, et la liste des actions en cours (avec pilote, statut, échéance, n°).
-Interlocuteur principal : ${interlocuteur || '(non précisé)'}.
+ON TE DONNE : le contexte / ordre du jour / objectif de la réunion, et la liste COMPLÈTE des actions en cours (n°, pilote, statut, échéance, priorité). C'est une matière première : tu la FILTRES et la RELIES à l'objectif — tu ne la recopies pas en bloc.
 
-Produis une note de préparation claire, en Markdown, avec dans cet ORDRE :
-1. **Actions de l'interlocuteur** (${interlocuteur || 'la personne concernée'}) : celles qu'il/elle devait mener (à faire / en cours / en retard) et celles réalisées récemment — cite le n° et l'échéance. Mets en tête les points chauds (en retard, priorité haute).
-2. **Actions de l'équipe** pertinentes pour cette réunion (les autres pilotes) : synthétique.
-3. **Questions à poser** : 3 à 6 questions précises pour faire avancer l'objectif.
-4. **Actions à proposer** : 2 à 5 pistes d'actions concrètes à décider en réunion.
+MÉTHODE :
+1. Identifie les 2-3 enjeux réels derrière l'objectif de la réunion.
+2. Sélectionne UNIQUEMENT les actions qui servent ces enjeux (celles de ${qui} d'abord, puis de l'équipe). Pour chaque action retenue : cite son n° et dis EN UNE LIGNE en quoi elle est pertinente pour CETTE réunion.
+3. Repère les angles morts : ce que l'objectif exige mais qu'aucune action ne couvre.
 
-Appuie-toi UNIQUEMENT sur les actions fournies (n'invente pas d'action). Sois bref et opérationnel. Réponds directement en Markdown (pas de JSON).`;
+PRODUIS (Markdown, dense, SANS tableau exhaustif) :
+- **Lecture de la réunion** : 2-4 phrases — l'enjeu réel vu du CODIR, au-delà de l'ordre du jour.
+- **Ce que ${qui} doit porter** : ses actions PERTINENTES (n° + pourquoi c'est pertinent), points chauds (en retard / priorité haute) en tête ; ce qui est fait, ce qui bloque.
+- **Côté équipe** : les 2-3 actions d'autres pilotes qui pèsent sur cet objectif (n° + lien).
+- **Angles morts** : enjeux de l'objectif non couverts par une action existante.
+- **Questions à poser** : 3-5 questions tranchantes, directement liées à l'objectif (pas génériques).
+- **Décisions / actions à proposer** : 2-4 propositions concrètes qui font avancer l'objectif.
+
+RÈGLES : n'invente AUCUNE action existante (appuie-toi sur les n° fournis) ; en revanche tu PEUX proposer de nouvelles actions/décisions. Sois sélectif : 4 actions ultra-pertinentes valent mieux que 20 recopiées. INTERDICTION de produire un tableau qui liste toutes les actions. Réponds directement en Markdown, pas de JSON.`;
 }
 
 function synthPrompt(interlocuteur, thematiques, pilotes, today) {
