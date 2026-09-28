@@ -8324,6 +8324,15 @@ function kwLifecycleSyncBtn(){
     if(imp&&urg) return 'Q1 · Faire'; if(imp&&!urg) return 'Q2 · Planifier'; if(!imp&&urg) return 'Q3 · Déléguer'; return 'Q4 · Plus tard';
   }
   function md(txt){ return '<div style="white-space:pre-wrap;font-size:13px;line-height:1.55;color:#333;">'+e(txt)+'</div>'; }
+  var CR_LOCK_TTL=25*60*1000;
+  function crUid(){ return (SB_SESSION&&SB_SESSION.user&&SB_SESSION.user.id)||null; }
+  function crLockName(uid){ if(!uid) return ''; var p=((CR_REFS&&CR_REFS.pilotes)||[]).find(function(x){return x.user_id===uid;}); return p?p.nom:'un autre utilisateur'; }
+  function crLockFresh(c){ if(!c||!c.transcription_par||!c.transcription_le) return false; var age=Date.now()-new Date(c.transcription_le).getTime(); return age>=0 && age<CR_LOCK_TTL; }
+  function crLockActiveOther(c){ return crLockFresh(c) && c.transcription_par!==crUid(); }
+  function crLockHeure(c){ try{ return new Date(c.transcription_le).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}); }catch(e){ return ''; } }
+  async function crAcquireLock(){ if(!CR_CUR||!CR_CUR.id) return; try{ var iso=new Date().toISOString(); var r=await SB.from('comptes_rendus').update({transcription_par:crUid(), transcription_le:iso}).eq('id',CR_CUR.id); if(!r.error){ CR_CUR.transcription_par=crUid(); CR_CUR.transcription_le=iso; } }catch(e){} }
+  async function crReleaseLock(){ var c=CR_CUR; if(!c||!c.id||c.transcription_par!==crUid()) return; try{ await SB.from('comptes_rendus').update({transcription_par:null, transcription_le:null}).eq('id',c.id); }catch(e){} }
+  window.crTakeOver=async function(){ await crAcquireLock(); crRepaint(); };
 
   async function crLoadRefs(){
     if(CR_REFS) return;
@@ -8332,7 +8341,7 @@ function kwLifecycleSyncBtn(){
     CR_REFS={thematiques:(th&&th.data)||[], pilotes:(pi&&pi.data)||[]};
   }
   async function crLoadList(){
-    var q=await SB.from('comptes_rendus').select('id,numero,titre,date_reunion,interlocuteur_id,statut,created_at').order('numero',{ascending:false});
+    var q=await SB.from('comptes_rendus').select('id,numero,titre,date_reunion,interlocuteur_id,statut,created_at,transcription_par,transcription_le').order('numero',{ascending:false});
     CR_LIST=(q&&q.data)?q.data:[];
   }
 
@@ -8359,7 +8368,7 @@ function kwLifecycleSyncBtn(){
       var st=c.statut==='cloture'?'clôturé':(c.statut==='tenue'?'tenue':'préparation');
       return '<div style="display:flex;gap:10px;align-items:center;padding:9px 6px;border-bottom:1px solid rgba(86,10,15,.10);">'
         +'<div style="flex:1;min-width:0;"><span style="font-size:11px;color:var(--muted);">CR #'+(c.numero||'?')+'</span> <span style="font-size:13px;font-weight:600;color:#560A0F;">'+e(c.titre||'(sans titre)')+'</span>'
-        +'<div class="edit-hint" style="margin-top:2px;">'+(c.date_reunion||'')+(c.interlocuteur_id?(' · '+e(piloteNom(c.interlocuteur_id))):'')+' · '+st+'</div></div>'
+        +'<div class="edit-hint" style="margin-top:2px;">'+(c.date_reunion||'')+(c.interlocuteur_id?(' · '+e(piloteNom(c.interlocuteur_id))):'')+' · '+st+(crLockFresh(c)?(' · <span style="color:#c0392b;font-weight:700;">🔴 transcription en cours'+(crLockName(c.transcription_par)?(' ('+e(crLockName(c.transcription_par))+')'):'')+'</span>'):'')+'</div></div>'
         +'<button class="add-btn sm" onclick="crOpen(\''+c.id+'\')" type="button" style="flex:0 0 auto;">Ouvrir</button></div>';
     }).join('');
     return head+'<div>'+rows+'</div>';
@@ -8369,7 +8378,7 @@ function kwLifecycleSyncBtn(){
     try { var q=await SB.from('comptes_rendus').select('*').eq('id',id).single(); if(q.error) throw q.error; CR_CUR=q.data; CR_DICT=CR_CUR.transcription||''; crRepaint(); }
     catch(err){ CR_MSG='Ouverture impossible : '+(err.message||err); crRepaint(); }
   };
-  window.crBack=function(){ CR_CUR=null; CR_MSG=''; crLoadList().then(crRepaint); };
+  window.crBack=function(){ crReleaseLock(); CR_CUR=null; CR_MSG=''; crLoadList().then(crRepaint); };
 
   // ---------- Éditeur (prépa + réalisation) ----------
   function crReadHeader(){
@@ -8382,7 +8391,8 @@ function kwLifecycleSyncBtn(){
     var d=CR_CUR;
     var piloteOpts='<option value="">— interlocuteur (pilote) —</option>'+(CR_REFS.pilotes||[]).map(function(p){return '<option value="'+p.id+'"'+(p.id===d.interlocuteur_id?' selected':'')+'>'+e(p.nom)+'</option>';}).join('');
     var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-    var mic=SR?'<button class="add-btn" id="crMic" onclick="crDictate()" type="button">🎤 Dicter les échanges</button>':'';
+    var lockedOther=crLockActiveOther(d);
+    var mic=(SR&&!lockedOther)?'<button class="add-btn" id="crMic" onclick="crDictate()" type="button">🎤 Dicter les échanges</button>':'';
     var actionsBloc='';
     if(d.actions_numeros&&d.actions_numeros.length){ actionsBloc='<div class="edit-hint" style="margin-top:6px;">Actions créées dans la feuille Actions : '+d.actions_numeros.map(function(n){return '#'+n;}).join(', ')+'</div>'; }
     return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><button class="add-btn sm" onclick="crBack()" type="button" style="background:#fff;color:#560A0F;">← Liste</button>'
@@ -8405,7 +8415,7 @@ function kwLifecycleSyncBtn(){
       +'<div class="panel" style="padding:12px 16px;margin-top:12px;"><div class="sec-eyebrow" style="margin:0 0 6px;">2 · Réalisation & synthèse</div>'
       +'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">'+mic+'<span class="edit-hint">'+(SR?'Clique, parle, reclique pour arrêter.':'Dictée indisponible sur ce navigateur — saisis ci-dessous.')+'</span></div>'
       +'<textarea id="crTranscript" rows="5" placeholder="Transcription des échanges (dictée ou saisie)…" style="'+sel()+'resize:vertical;">'+e(d.transcription||'')+'</textarea>'
-      +'<div style="margin-top:8px;"><button class="add-btn" onclick="crSynth()" type="button"'+(CR_BUSY?' disabled':'')+'>'+(CR_BUSY?'… synthèse':'✨ Générer la synthèse + les actions')+'</button></div>'
+      +(lockedOther ? ('<div style="background:#fdecea;border:1px solid #c0392b;border-radius:8px;padding:8px 12px;margin-top:8px;color:#c0392b;font-size:12.5px;">⚠ Transcription en cours par <b>'+e(crLockName(d.transcription_par))+'</b> depuis '+crLockHeure(d)+'. <button class="add-btn sm" onclick="crTakeOver()" type="button" style="margin-left:6px;">Prendre la main</button></div>') : ('<div style="margin-top:8px;"><button class="add-btn" onclick="crSynth()" type="button"'+(CR_BUSY?' disabled':'')+'>'+(CR_BUSY?'… synthèse':'✨ Générer la synthèse + les actions')+'</button></div>'))
       +(d.synthese?('<div style="margin-top:10px;border-top:1px solid rgba(86,10,15,.12);padding-top:10px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><b style="color:#560A0F;">Compte-rendu</b><button class="add-btn sm" onclick="crCopy()" type="button">📋 Copier</button></div>'+md(d.synthese)+actionsBloc+'</div>'):'')
       +'</div>'
       +'<div style="display:flex;gap:8px;margin-top:12px;"><button class="add-btn" onclick="crSave()" type="button">✓ Enregistrer le CR</button><button class="add-btn sm" onclick="crBack()" type="button" style="background:#fff;color:#560A0F;">Fermer</button></div>';
@@ -8431,6 +8441,7 @@ function kwLifecycleSyncBtn(){
   window.crSynth=async function(){
     if(CR_BUSY) return; crReadHeader();
     if(!CR_CUR.transcription || !CR_CUR.transcription.trim()){ CR_MSG='La transcription est vide.'; crRepaint(); return; }
+    try{ if(!CR_CUR.id) await crSaveSilent(); await crAcquireLock(); }catch(x){}
     CR_BUSY=true; CR_MSG=''; crRepaint();
     try {
       var res=await fetch('/api/cr-ia',{method:'POST',headers:auth(),body:JSON.stringify({ mode:'synthese', transcription:CR_CUR.transcription, contexte:CR_CUR.contexte, interlocuteur:piloteNom(CR_CUR.interlocuteur_id), today:today(),
@@ -8469,6 +8480,7 @@ function kwLifecycleSyncBtn(){
     if(CR_RECORDING){ CR_RECORDING=false; if(CR_REC){ try{ CR_REC.stop(); }catch(x){} } var b0=document.getElementById('crMic'); if(b0) b0.textContent='🎤 Dicter les échanges'; return; }
     var ta0=document.getElementById('crTranscript'); CR_DICT=ta0?ta0.value.replace(/\s+$/,''):'';
     CR_RECORDING=true; var b1=document.getElementById('crMic'); if(b1) b1.textContent='⏹ Arrêter';
+    if(CR_CUR&&CR_CUR.id) crAcquireLock();
     crStartRec(SR);
   };
   function crStartRec(SR){
