@@ -7742,7 +7742,8 @@ function kwLifecycleSyncBtn(){
 (function(){
   var PA_REFS = null, PA_LIST = [], PA_DRAFT = null;
   var PA_FILTER = { thematique:'', pilote:'', statut:'' };
-  var PA_VIEW = 'matrice';   // 'matrice' (Eisenhower) | 'liste'
+  var PA_VIEW = 'matrice';   // 'matrice' | 'liste' | 'archive'
+  var PA_ARCHIVED = [];
   var PA_DRAG_ID = null;     // action en cours de glisser-déposer
   var PA_REC = null, PA_RECORDING = false, PA_BUSY = false, PA_MSG = '', PA_DICT_FINAL = '';
 
@@ -7783,7 +7784,7 @@ function kwLifecycleSyncBtn(){
 
   function paRepaint(){
     var v = document.getElementById('view'); if(!v) return;
-    v.innerHTML = paShell(paCaptureHtml() + paDraftHtml() + paViewToggle() + (PA_VIEW==='matrice' ? paMatrixHtml() : paListHtml()));
+    v.innerHTML = paShell(paCaptureHtml() + paDraftHtml() + paViewToggle() + (PA_VIEW==='archive' ? paArchiveHtml() : (PA_VIEW==='matrice' ? paMatrixHtml() : paListHtml())));
   }
 
   // ---------- Capture ----------
@@ -7910,7 +7911,7 @@ function kwLifecycleSyncBtn(){
     var statF = '<option value="">Tous statuts</option>' + [['a_faire','\u00c0 faire'],['en_cours','En cours'],['fait','Fait'],['abandonne','Abandonn\u00e9']].map(function(s){return '<option value="'+s[0]+'"'+(PA_FILTER.statut===s[0]?' selected':'')+'>'+s[1]+'</option>';}).join('');
     var filters = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:16px 0 6px;">'
       + '<select onchange="paSetFilter(\'thematique\',this.value)" style="'+paSelStyle()+'width:auto;">'+themeF+'</select>'
-      + '<select onchange="paSetFilter(\'pilote\',this.value)" style="'+paSelStyle()+'width:auto;">'+pilF+'</select>'
+      + (paIsDirection() ? '<select onchange="paSetFilter(\'pilote\',this.value)" style="'+paSelStyle()+'width:auto;">'+pilF+'</select>' : '')
       + '<select onchange="paSetFilter(\'statut\',this.value)" style="'+paSelStyle()+'width:auto;">'+statF+'</select>'
       + '</div>';
     var rows = PA_LIST.filter(paMatch);
@@ -7965,10 +7966,10 @@ function kwLifecycleSyncBtn(){
     if(!imp&&urg) return { n:'Q3', lbl:'D\u00e9l\u00e9guer \u2014 non important, urgent', col:'#2e7d46' };
     return { n:'Q4', lbl:'Plus tard \u2014 non important, non urgent', col:'#2980b9' };
   }
-  window.paSetView = function(v){ PA_VIEW = v; paRepaint(); };
+  window.paSetView = async function(v){ PA_VIEW = v; if(v==='archive'){ try{ await paLoadArchived(); }catch(e){ PA_MSG='Chargement des archives impossible : '+(e.message||e); } } paRepaint(); };
   function paViewToggle(){
     function chip(val,label){ var on=(PA_VIEW===val); return '<button onclick="paSetView(\''+val+'\')" style="font-size:12px;padding:5px 12px;border-radius:999px;border:1px solid '+(on?'#560A0F':'rgba(86,10,15,.28)')+';background:'+(on?'#560A0F':'#fff')+';color:'+(on?'#fff':'#560A0F')+';cursor:pointer;font-family:inherit;font-weight:'+(on?'600':'400')+';margin-right:6px;">'+label+'</button>'; }
-    return '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:2px;margin:16px 0 2px;"><span class="edit-hint" style="margin-right:4px;">Vue :</span>'+chip('matrice','Matrice Eisenhower')+chip('liste','Liste')+'</div>';
+    return '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:2px;margin:16px 0 2px;"><span class="edit-hint" style="margin-right:4px;">Vue :</span>'+chip('matrice','Matrice Eisenhower')+chip('liste','Liste')+chip('archive','Archivées')+'</div>';
   }
   function paFiltersHtml(){
     var themeF = '<option value="">Toutes th\u00e9matiques</option>' + (PA_REFS.thematiques||[]).map(function(t){return '<option value="'+t.code+'"'+(PA_FILTER.thematique===t.code?' selected':'')+'>'+paEsc(t.libelle)+'</option>';}).join('');
@@ -7976,7 +7977,7 @@ function kwLifecycleSyncBtn(){
     var statF = '<option value="">Tous statuts</option>' + [['a_faire','\u00c0 faire'],['en_cours','En cours'],['fait','Fait'],['abandonne','Abandonn\u00e9']].map(function(s){return '<option value="'+s[0]+'"'+(PA_FILTER.statut===s[0]?' selected':'')+'>'+s[1]+'</option>';}).join('');
     return '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 4px;">'
       + '<select onchange="paSetFilter(\'thematique\',this.value)" style="'+paSelStyle()+'width:auto;">'+themeF+'</select>'
-      + '<select onchange="paSetFilter(\'pilote\',this.value)" style="'+paSelStyle()+'width:auto;">'+pilF+'</select>'
+      + (paIsDirection() ? '<select onchange="paSetFilter(\'pilote\',this.value)" style="'+paSelStyle()+'width:auto;">'+pilF+'</select>' : '')
       + '<select onchange="paSetFilter(\'statut\',this.value)" style="'+paSelStyle()+'width:auto;">'+statF+'</select>'
       + '</div>';
   }
@@ -8059,6 +8060,44 @@ function kwLifecycleSyncBtn(){
     } catch(e){ PA_MSG = 'D\u00e9placement refus\u00e9 : ' + (e.message||e); paRepaint(); }
   }
 
+  function paIsDirection(){ try { return (CURRENT_ROLE === 'eric' || CURRENT_ROLE === 'direction'); } catch(e){ return false; } }
+  async function paLoadArchived(){
+    var q = await SB.from('actions').select('*').not('archived_at','is',null).order('archived_at',{ascending:false});
+    PA_ARCHIVED = (q&&q.data)?q.data:[];
+  }
+  function paArchiveHtml(){
+    var nbFaites = PA_LIST.filter(function(a){return a.statut==='fait';}).length;
+    var head = '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:12px 0 8px;">'
+      + '<span class="edit-hint">'+PA_ARCHIVED.length+' action(s) archivée(s)</span>'
+      + (nbFaites ? '<button class="add-btn sm" onclick="paArchiveDone()" type="button" style="margin-left:auto;">Archiver les '+nbFaites+' action(s) faite(s)</button>' : '')
+      + '</div>';
+    if(!PA_ARCHIVED.length) return head + '<div class="edit-hint" style="padding:12px 2px;">Aucune action archivée. Le bouton ✕ archive une action ; les actions « faites » peuvent être archivées en lot via le bouton ci-dessus.</div>';
+    var rows = PA_ARCHIVED.map(function(a){
+      var when = a.archived_at ? String(a.archived_at).slice(0,10) : '';
+      var st = a.statut==='fait'?'Fait':(a.statut==='abandonne'?'Abandonné':(a.statut==='en_cours'?'En cours':'À faire'));
+      return '<div style="display:flex;gap:10px;align-items:flex-start;padding:9px 4px;border-bottom:1px solid rgba(86,10,15,.10);opacity:.78;">'
+        + '<div style="flex:1;min-width:0;">'
+        +   '<div style="font-size:12.5px;font-weight:600;color:#560A0F;">'+paEsc(a.libelle)+'</div>'
+        +   '<div class="edit-hint" style="margin-top:2px;">'+paEsc(paThemeLib(a.thematique))+' · '+paEsc(paPiloteNom(a.pilote_id))+' · '+st+(when?(' · archivée le '+when):'')+'</div>'
+        + '</div>'
+        + '<button onclick="paRestore(\''+a.id+'\')" type="button" class="add-btn sm" style="flex:0 0 auto;background:#fff;color:#560A0F;">Restaurer</button>'
+        + '</div>';
+    }).join('');
+    return head + '<div>' + rows + '</div>';
+  }
+  window.paRestore = async function(id){
+    try { var r = await SB.from('actions').update({archived_at:null}).eq('id',id); if(r.error) throw r.error;
+      PA_ARCHIVED = PA_ARCHIVED.filter(function(x){return x.id!==id;});
+      await paLoadList(); paRepaint();
+    } catch(e){ PA_MSG='Restauration refusée : '+(e.message||e); paRepaint(); }
+  };
+  window.paArchiveDone = async function(){
+    var ids = PA_LIST.filter(function(a){return a.statut==='fait';}).map(function(a){return a.id;});
+    if(!ids.length) return;
+    try { var r = await SB.from('actions').update({archived_at:new Date().toISOString()}).in('id',ids); if(r.error) throw r.error;
+      await paLoadList(); await paLoadArchived(); paRepaint();
+    } catch(e){ PA_MSG='Archivage refusé : '+(e.message||e); paRepaint(); }
+  };
   window.paSetStatut = async function(id, statut){
     try { var r = await SB.from('actions').update({statut:statut}).eq('id',id); if(r.error) throw r.error;
       var a = PA_LIST.find(function(x){return x.id===id;}); if(a) a.statut=statut; paRepaint();
