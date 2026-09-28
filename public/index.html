@@ -735,7 +735,7 @@ function openSubview(role){
   const titre = role==='najoua'?'Finance & admin':'RH — recrutement';
   const banner = `<div class="subview-banner">Vue ${titre} · <b>accès direction (intérim Eric)</b> <button class="add-btn sm" onclick="render('eric')" style="margin-left:auto;">← Retour direction</button></div>`;
   const bottom = `<div style="margin-top:18px;text-align:center;"><button class="add-btn" onclick="render('eric')">← Retour au tableau de bord de direction</button></div>`;
-  document.getElementById('view').innerHTML = banner + VIEWS[role]() + bottom;
+  document.getElementById('view').innerHTML = banner + (VIEWS[role]||VIEWS.eric)() + bottom;
   window.scrollTo(0,0);
 }
 
@@ -753,7 +753,7 @@ function renderTab(){
   }
   paFab.style.display = (CURRENT_TAB==='plandaction') ? 'none' : '';
   if(CURRENT_TAB==='dash'){
-    document.getElementById('view').innerHTML = VIEWS[CURRENT_ROLE]();
+    document.getElementById('view').innerHTML = (VIEWS[CURRENT_ROLE]||VIEWS.eric)();
     if(CURRENT_ROLE==='paul' || CURRENT_ROLE==='eric') animateBars();
     if(CURRENT_ROLE==='eric'){ animateGoal(); loadRespCommerce(); }
     if(CURRENT_ROLE==='consultant') loadPdc();
@@ -4070,6 +4070,13 @@ najoua: () => `
 `
 
 };
+VIEWS.cto = function(){ return '<div class="sec-eyebrow">Espace CTO</div>'
+  +'<div class="sec-title">Bienvenue</div>'
+  +'<div class="panel" style="padding:18px 16px;">'
+  +'<div style="font-size:14px;color:#444;line-height:1.55;margin-bottom:14px;">Accède à tes espaces via les onglets ci-dessus. Tes accès dépendent de la matrice des rôles (Admin). Cet écran d\'accueil est volontairement sobre.</div>'
+  +'<button class="add-btn" onclick="switchTab(\'plandaction\')" type="button">Ouvrir CR et Actions</button>'
+  +'</div>'; };
+VIEWS.communication = VIEWS.communication || VIEWS.juliette;  // Communication : vue Marketing
 
 function footer(txt){
   return `<div class="footer-note"><span class="ic">↳</span><span>${txt}</span></div>`;
