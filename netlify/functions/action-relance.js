@@ -64,7 +64,7 @@ exports.handler = async (event) => {
   const targets = [], skipped = [];
   Object.keys(groups).forEach(pid => {
     const p = pmap[pid]; const list = groups[pid];
-    if (p && p.email) targets.push({ nom: p.nom, email: p.email, actions: list });
+    if (p && p.email) targets.push({ pilote_id: pid, nom: p.nom, email: p.email, actions: list });
     else skipped.push({ nom: p ? p.nom : '(inconnu)', count: list.length });
   });
   const totalActions = targets.reduce((s, t) => s + t.actions.length, 0);
@@ -75,7 +75,7 @@ exports.handler = async (event) => {
       pilotes: targets.length,
       actions: totalActions,
       skipped,
-      breakdown: targets.map(t => ({ nom: t.nom, email: t.email, count: t.actions.length })),
+      breakdown: targets.map(t => ({ pilote_id: t.pilote_id, nom: t.nom, email: t.email, count: t.actions.length })),
     }) };
   }
 
@@ -83,11 +83,18 @@ exports.handler = async (event) => {
   const SMTP_USER = process.env.SMTP_USER, SMTP_PASS = process.env.SMTP_PASS;
   if (!SMTP_USER || !SMTP_PASS) return { statusCode: 500, headers, body: JSON.stringify({ error: 'SMTP non configuré (SMTP_USER / SMTP_PASS manquants).' }) };
   const from = process.env.MAIL_FROM || SMTP_USER;
-  const transporter = nodemailer.createTransport({ host: 'smtp.office365.com', port: 587, secure: false, auth: { user: SMTP_USER, pass: SMTP_PASS } });
+  const transporter = nodemailer.createTransport({ host: 'smtp.office365.com', port: 587, secure: false, pool: true, maxConnections: 5, maxMessages: 100, connectionTimeout: 8000, greetingTimeout: 8000, socketTimeout: 8000, auth: { user: SMTP_USER, pass: SMTP_PASS } });
+
+  let list = targets;
+  if (Array.isArray(body.pilote_ids) && body.pilote_ids.length) {
+    const ids = new Set(body.pilote_ids.map(String));
+    list = targets.filter(t => ids.has(String(t.pilote_id)));
+  }
+  const sentActions = list.reduce((s0, t) => s0 + t.actions.length, 0);
 
   const today = new Date().toISOString().slice(0, 10);
   let sent = 0; const errors = [];
-  for (const t of targets) {
+  async function sendOne(t) {
     const textRows = t.actions.map(a => {
       const ech = a.echeance ? a.echeance : 'sans échéance';
       return `- #${a.numero} — ${a.libelle}  ·  échéance : ${ech}  ·  ${STATUT_LABEL[a.statut] || a.statut}  ·  priorité ${PRIO_LABEL[a.priorite] || a.priorite}`;
@@ -118,5 +125,8 @@ exports.handler = async (event) => {
     }
   }
 
-  return { statusCode: 200, headers, body: JSON.stringify({ sent, actions: totalActions, errors, skipped }) };
+  await Promise.all(list.map(sendOne));
+  try { transporter.close(); } catch (e) {}
+
+  return { statusCode: 200, headers, body: JSON.stringify({ sent, actions: sentActions, errors, skipped }) };
 };
