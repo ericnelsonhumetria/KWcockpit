@@ -32,6 +32,27 @@
   .login-card .sub{ font-size:13px; color:var(--muted); margin-bottom:18px; }
   .login-card input{ width:100%; font-size:14px; padding:10px 12px; border:1px solid rgba(86,10,15,.25); border-radius:9px; margin-bottom:10px; }
   #cerr{ font-size:12.5px; color:var(--signal); min-height:16px; margin-bottom:8px; }
+
+  /* ---------- Adaptation smartphone ---------- */
+  @media (max-width: 640px){
+    .clap-head{ padding:10px 12px; flex-wrap:wrap; gap:8px; }
+    .clap-logo{ font-size:18px; }
+    #cwho{ display:none; }
+    .clap-wrap{ padding:12px 10px 64px; }
+    .sec-title{ font-size:16px; }
+    .panel{ border-radius:10px; }
+    /* Matrice Eisenhower : une seule colonne */
+    #view div[style*="grid-template-columns:1fr 1fr"]{ grid-template-columns:1fr !important; }
+    /* Kanban 5 colonnes : colonnes empilées */
+    #view div[style*="grid-template-columns:repeat(5,1fr)"]{ display:block !important; }
+    #view div[style*="grid-template-columns:repeat(5,1fr)"] > div{ margin-bottom:12px !important; }
+    /* Champs de formulaire : un par ligne */
+    #view label[style*="min-width"]{ min-width:100% !important; flex:1 1 100% !important; }
+    #view input[style*="min-width:200px"]{ min-width:100% !important; }
+    #view input[type="date"], #view select, #view textarea, #view input[type="text"], #view input[type="email"]{ max-width:100%; box-sizing:border-box; }
+    /* Tableaux (rendu Markdown) : défilement horizontal */
+    #view table{ display:block; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  }
 </style>
 </head>
 <body>
