@@ -1551,7 +1551,7 @@ function renderAdminPilotes(users){
       +'<label style="font-size:11px;color:var(--muted);">Nouveau pilote<div style="margin-top:2px;"><input id="apNom" type="text" placeholder="Nom complet" style="font-size:13px;padding:6px 9px;border:1px solid rgba(86,10,15,.25);border-radius:8px;"></div></label>'
       +'<label style="font-size:11px;color:var(--muted);">Compte lié<div style="margin-top:2px;"><select id="apUser" style="font-size:13px;padding:6px 9px;border:1px solid rgba(86,10,15,.25);border-radius:8px;">'+uopts('')+'</select></div></label>'
       +'<button class="add-btn" onclick="paAdminAddPilote()">+ Ajouter</button>'
-      +'<span id="apMsg" class="edit-hint" style="margin-left:6px;"></span></div></div>';
+      +'<span id="apMsg" class="edit-hint" style="margin-left:6px;"></span></div></div>'+'<div class="panel" style="padding:12px 16px 16px;margin-top:16px;"><div class="sec-title" style="font-size:16px;">Inviter un utilisateur</div><div class="sec-note">Envoie une invitation par e-mail : la personne définit elle-même son mot de passe (aucun mot de passe à transmettre). Nécessite l\'e-mail Auth configuré dans Supabase.</div><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px;"><label style="font-size:11px;color:var(--muted);">E-mail<div style="margin-top:2px;"><input id="invEmail" type="email" placeholder="prenom.nom@kaizen-way.com" style="font-size:13px;padding:6px 9px;border:1px solid rgba(86,10,15,.25);border-radius:8px;min-width:240px;"></div></label><label style="font-size:11px;color:var(--muted);">Rôle<div style="margin-top:2px;"><select id="invRole" style="font-size:13px;padding:6px 9px;border:1px solid rgba(86,10,15,.25);border-radius:8px;"><option value="consultant">consultant</option><option value="paul">paul</option><option value="audrey">audrey</option><option value="juliette">juliette</option><option value="sabrine">sabrine</option><option value="najoua">najoua</option><option value="direction">direction</option></select></div></label><button class="add-btn" onclick="paAdminInvite()" type="button">✉️ Inviter</button><span id="invMsg" class="edit-hint"></span></div></div>';
   });
 }
 window.paAdminAddPilote=function(){
@@ -1561,6 +1561,12 @@ window.paAdminAddPilote=function(){
 };
 window.paAdminTogglePilote=function(id,actif){ SB.from('action_pilotes').update({actif:actif}).eq('id',id).then(function(r){ if(!r.error) renderAdminPilotes(ADMIN_USERS); else alert('Refusé : '+r.error.message); }); };
 window.paAdminLinkPilote=function(id,uid){ var em=(ADMIN_USERS.find(function(u){return u.id===uid;})||{}).email||null; SB.from('action_pilotes').update({user_id:uid||null, email:uid?em:null}).eq('id',id).then(function(r){ if(!r.error) renderAdminPilotes(ADMIN_USERS); else alert('Refusé : '+r.error.message); }); };
+  window.paAdminInvite=async function(){
+    var e1=document.getElementById('invEmail'); var email=e1?e1.value.trim().toLowerCase():''; var role=(document.getElementById('invRole')||{}).value||''; var m=document.getElementById('invMsg');
+    if(!email){ if(m){m.style.color='var(--signal)';m.textContent='E-mail requis.';} return; }
+    if(m){ m.style.color='var(--muted)'; m.textContent='Envoi…'; }
+    try{ var r=await fetch('/api/admin',{method:'POST',headers:{Authorization:'Bearer '+SB_SESSION.access_token,'Content-Type':'application/json'},body:JSON.stringify({action:'invite',email:email,role:role,is_admin:(role==='direction')})}); var j=null; try{ j=await r.json(); }catch(x){} if(!r.ok) throw new Error((j&&j.error)?j.error:('HTTP '+r.status)); if(m){ m.style.color='#2e7d46'; m.textContent='Invitation envoyée à '+email+'.'; } if(e1) e1.value=''; }catch(err){ if(m){ m.style.color='var(--signal)'; m.textContent='Échec : '+(err.message||err); } }
+  };
 let SALARIES = [];
 let FREELANCE_TJM = {};
 let ADMIN_USERS = [];
@@ -7906,7 +7912,7 @@ function kwLifecycleSyncBtn(){
       + '<textarea id="paTexte" rows="2" oninput="paSaveDraftTxt(this.value)" placeholder="Ex : rappeler à Paul de relancer Andros sur le calendrier S2 avant vendredi" style="width:100%;box-sizing:border-box;font-size:13px;padding:8px 10px;border:1px solid rgba(86,10,15,.25);border-radius:8px;resize:vertical;font-family:inherit;">'+paEsc(saved)+'</textarea>'
       + '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">'
       +   '<button class="add-btn" onclick="paReformulate()" type="button"'+(PA_BUSY?' disabled':'')+'>'+(PA_BUSY?'\u2026 analyse':'\u2728 Reformuler par l\u2019IA')+'</button>'
-      +   '<button class="add-btn sm" onclick="paQuickSave()" type="button" style="background:#fff;color:#560A0F;">Saisir sans IA</button>'
+      +   '<button class="add-btn sm" onclick="paQuickSave()" type="button" style="background:#fff;color:#560A0F;">✍️ Saisie directe</button>'
       +   '<button class="add-btn sm" onclick="paQuickDraft()" type="button" style="background:#fff;color:#560A0F;">\ud83d\udcbe Brouillon</button>'
       + '</div>'
       + (PA_MSG?'<div class="edit-hint" style="color:var(--signal);margin-top:6px;">'+paEsc(PA_MSG)+'</div>':'')
@@ -7957,8 +7963,7 @@ function kwLifecycleSyncBtn(){
   };
   window.paQuickSave=function(){
     var ta=document.getElementById('paTexte'); var texte=ta?ta.value.trim():'';
-    if(!texte){ PA_MSG='Rien à saisir.'; paRepaint(); return; }
-    PA_DRAFT={texte_brut:texte, libelle:texte, thematique:'autre', projet:'', pilote_id:null, echeance:null, priorite:2, statut:'a_faire', tags:[], pieces_jointes:[], confidentiel:false, commentaire:'', urgent_override:null};
+    PA_DRAFT={texte_brut:texte, libelle:texte, thematique:'autre', projet:'', source:null, pilote_id:null, echeance:null, priorite:2, statut:'a_faire', tags:[], pieces_jointes:[], confidentiel:false, commentaire:'', urgent_override:null};
     paRepaint();
   };
 
@@ -8433,6 +8438,21 @@ function kwLifecycleSyncBtn(){
     return head+'<div>'+rows+'</div>';
   }
   window.crNew=function(){ CR_CUR={ titre:'', date_reunion:today(), interlocuteur_id:'', contexte:'', preparation:'', transcription:'', synthese:'', actions_numeros:[], statut:'prepa' }; CR_DICT=''; crRepaint(); };
+  function crInsertLabel(lbl){ var ta=document.getElementById('crTranscript'); if(!ta) return; var cur=ta.value.replace(/\s+$/,''); ta.value=(cur?(cur+'\n\n'):'')+lbl; CR_DICT=ta.value; if(CR_CUR) CR_CUR.transcription=ta.value; ta.focus(); try{ ta.setSelectionRange(ta.value.length, ta.value.length); }catch(e){} }
+  window.crAddMe=function(){ crInsertLabel('Moi : '); };
+  window.crAddSpeaker=function(){ var ta=document.getElementById('crTranscript'); var txt=ta?ta.value:''; var max=0,m,re=/Interlocuteur\s+(\d+)/g; while((m=re.exec(txt))){ var n=parseInt(m[1],10); if(n>max) max=n; } crInsertLabel('Interlocuteur '+(max+1)+' : '); };
+  window.crListInputs=async function(){
+    try{
+      var st=await navigator.mediaDevices.getUserMedia({audio:true});
+      var devs=await navigator.mediaDevices.enumerateDevices();
+      try{ st.getTracks().forEach(function(t){t.stop();}); }catch(e){}
+      var ins=devs.filter(function(d){return d.kind==='audioinput';}).map(function(d){return d.label||'(entrée sans nom)';});
+      var loop=ins.filter(function(l){return /mix|cable|voicemeeter|vb-audio|loopback|stereo/i.test(l);});
+      var msg='Entrées audio détectées :\n- '+ins.join('\n- ')+'\n\n';
+      msg += loop.length ? ('Entrée mix/loopback repérée : '+loop.join(', ')+'\n→ définis-la comme MICRO PAR DÉFAUT de Windows (Paramètres son) pour capter toutes les voix.') : 'Aucune entrée mix/loopback détectée.\n→ Solution simple : mets Teams sur HAUT-PARLEURS, le micro captera la salle et les voix distantes.';
+      window.alert(msg);
+    }catch(e){ window.alert('Impossible de lister les entrées audio : '+(e.message||e)); }
+  };
   window.crOpen=async function(id){
     try { var q=await SB.from('comptes_rendus').select('*').eq('id',id).single(); if(q.error) throw q.error; CR_CUR=q.data; CR_DICT=CR_CUR.transcription||''; crRepaint(); }
     catch(err){ CR_MSG='Ouverture impossible : '+(err.message||err); crRepaint(); }
@@ -8445,6 +8465,7 @@ function kwLifecycleSyncBtn(){
     if(!CR_CUR) return;
     CR_CUR.titre=g('crTitre'); CR_CUR.date_reunion=g('crDate')||today(); CR_CUR.interlocuteur_id=g('crInter')||null; CR_CUR.contexte=g('crContexte');
     var parts=[]; var cbs=document.querySelectorAll('.crPart'); for(var k=0;k<cbs.length;k++){ if(cbs[k].checked) parts.push(cbs[k].value); } CR_CUR.participants=parts;
+    var auths=[]; var cbs2=document.querySelectorAll('.crAuth'); for(var k2=0;k2<cbs2.length;k2++){ if(cbs2[k2].checked) auths.push(cbs2[k2].value); } CR_CUR.autorises=auths;
     var tr=document.getElementById('crTranscript'); if(tr) CR_CUR.transcription=tr.value;
   }
   function crEditorHtml(){
@@ -8464,6 +8485,7 @@ function kwLifecycleSyncBtn(){
       +'<label style="flex:1;min-width:130px;font-size:11px;color:var(--muted);">Date<div style="margin-top:2px;"><input id="crDate" type="date" value="'+(d.date_reunion||today())+'" style="'+sel()+'"></div></label>'
       +'<label style="flex:1;min-width:160px;font-size:11px;color:var(--muted);">Interlocuteur<div style="margin-top:2px;"><select id="crInter" style="'+sel()+'">'+piloteOpts+'</select></div></label>'
       +'<div style="flex:1 1 100%;font-size:11px;color:var(--muted);margin-top:2px;">Participants (pour l\'envoi par mail)<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:4px;">'+((CR_REFS.pilotes||[]).filter(function(p){return p.email;}).map(function(p){ var on=(d.participants||[]).indexOf(p.id)>=0; return '<label style="font-size:12.5px;color:#333;display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" class="crPart" value="'+p.id+'"'+(on?' checked':'')+'> '+e(p.nom)+'</label>'; }).join('')||'<span class="edit-hint">Aucun pilote avec e-mail — renseigne-les dans Admin → Pilotes (liaison compte).</span>')+'</div></div>'
+      +'<div style="flex:1 1 100%;font-size:11px;color:var(--muted);margin-top:6px;">Autorisés à consulter ce CR (en plus de l\'émetteur et des participants)<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:4px;">'+((CR_REFS.pilotes||[]).filter(function(p){return p.user_id;}).map(function(p){ var on=(d.autorises||[]).indexOf(p.id)>=0; return '<label style="font-size:12.5px;color:#333;display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" class="crAuth" value="'+p.id+'"'+(on?' checked':'')+'> '+e(p.nom)+'</label>'; }).join('')||'<span class="edit-hint">Aucun compte lié.</span>')+'</div></div>'
       +'</div></div>'
       // Préparation
       +'<div class="panel" style="padding:12px 16px;margin-top:12px;"><div class="sec-eyebrow" style="margin:0 0 6px;">1 · Préparation</div>'
@@ -8474,8 +8496,10 @@ function kwLifecycleSyncBtn(){
       +'</div>'
       // Réalisation & synthèse
       +'<div class="panel" style="padding:12px 16px;margin-top:12px;"><div class="sec-eyebrow" style="margin:0 0 6px;">2 · Réalisation & synthèse</div>'
-      +'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">'+mic+'<span class="edit-hint">'+(SR?'Clique, parle, reclique pour arrêter.':'Dictée indisponible sur ce navigateur — saisis ci-dessous.')+'</span></div>'
-      +'<textarea id="crTranscript" rows="5" placeholder="Transcription des échanges (dictée ou saisie)…" style="'+sel()+'resize:vertical;">'+e(d.transcription||'')+'</textarea>'
+      +'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px;">'+mic+'<span class="edit-hint">'+(SR?'Transcrit l\'entrée audio par défaut de Windows.':'Dictée indisponible sur ce navigateur — colle la transcription ci-dessous.')+'</span></div>'
+      +(SR?'<div style="background:#f3ede1;border:1px solid rgba(86,10,15,.15);border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:12px;color:#560A0F;"><b>Capter toutes les voix (visio) :</b> Web Speech transcrit l\'entrée micro <b>par défaut de Windows</b> (l\'app ne peut pas la choisir). Deux options : <b>1)</b> mets Teams sur <b>haut-parleurs</b> — le micro capte alors la salle + les voix distantes. <b>2)</b> mets une entrée <b>« mix/loopback »</b> (Stereo Mix, VB-Audio, VoiceMeeter) comme <b>micro par défaut</b> de Windows. <button class="add-btn sm" onclick="crListInputs()" type="button" style="background:#fff;color:#560A0F;margin-left:4px;">🎧 Vérifier mes entrées audio</button></div>':'')
+      +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;align-items:center;"><span class="edit-hint">Marquer qui parle :</span><button class="add-btn sm" onclick="crAddMe()" type="button" style="background:#fff;color:#560A0F;">🙋 Moi</button><button class="add-btn sm" onclick="crAddSpeaker()" type="button" style="background:#fff;color:#560A0F;">🗣 + Interlocuteur</button></div>'
+      +'<textarea id="crTranscript" rows="6" placeholder="Transcription des échanges (dictée ou saisie). Utilise les boutons ci-dessus pour marquer chaque intervenant." style="'+sel()+'resize:vertical;">'+e(d.transcription||'')+'</textarea>'
       +(lockedOther ? ('<div style="background:#fdecea;border:1px solid #c0392b;border-radius:8px;padding:8px 12px;margin-top:8px;color:#c0392b;font-size:12.5px;">⚠ Transcription en cours par <b>'+e(crLockName(d.transcription_par))+'</b> depuis '+crLockHeure(d)+'. <button class="add-btn sm" onclick="crTakeOver()" type="button" style="margin-left:6px;">Prendre la main</button></div>') : ('<div style="margin-top:8px;"><button class="add-btn" onclick="crSynth()" type="button"'+(CR_BUSY?' disabled':'')+'>'+(CR_BUSY?'… synthèse':'✨ Générer la synthèse + les actions')+'</button></div>'))
       +crSynthBlock(d)
       +'</div>'
@@ -8523,7 +8547,7 @@ function kwLifecycleSyncBtn(){
   };
 
   // ---------- Persistance ----------
-  function crRow(){ return { titre:CR_CUR.titre||null, date_reunion:CR_CUR.date_reunion||null, interlocuteur_id:CR_CUR.interlocuteur_id||null, contexte:CR_CUR.contexte||null, preparation:CR_CUR.preparation||null, transcription:CR_CUR.transcription||null, synthese:CR_CUR.synthese||null, actions_numeros:CR_CUR.actions_numeros||[], participants:CR_CUR.participants||[], statut:CR_CUR.statut||'prepa' }; }
+  function crRow(){ return { titre:CR_CUR.titre||null, date_reunion:CR_CUR.date_reunion||null, interlocuteur_id:CR_CUR.interlocuteur_id||null, contexte:CR_CUR.contexte||null, preparation:CR_CUR.preparation||null, transcription:CR_CUR.transcription||null, synthese:CR_CUR.synthese||null, actions_numeros:CR_CUR.actions_numeros||[], participants:CR_CUR.participants||[], autorises:CR_CUR.autorises||[], statut:CR_CUR.statut||'prepa' }; }
   async function crSaveSilent(){
     if(CR_CUR.id){ var r=await SB.from('comptes_rendus').update(crRow()).eq('id',CR_CUR.id); if(r.error) throw r.error; }
     else { var r2=await SB.from('comptes_rendus').insert(crRow()).select('id,numero').single(); if(r2.error) throw r2.error; CR_CUR.id=r2.data.id; CR_CUR.numero=r2.data.numero; }
@@ -8653,6 +8677,41 @@ function kwLifecycleSyncBtn(){
     }catch(err){ CR_MSG='Image refusée : '+(err.message||err)+' (le bucket « cr-images » doit exister et être public).'; crRepaint(); }
   }
 
+})();
+
+</script>
+<script>
+(function(){
+  function showSetPassword(){
+    if(document.getElementById('spOverlay')) return;
+    var ov=document.createElement('div'); ov.id='spOverlay';
+    ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:100000;display:flex;align-items:center;justify-content:center;padding:16px;';
+    ov.innerHTML='<div style="background:#f6f1e7;max-width:420px;width:100%;border-radius:14px;padding:22px;box-shadow:0 20px 60px rgba(0,0,0,.4);font-family:inherit;">'
+      +'<div style="font-weight:800;color:#560A0F;font-size:18px;margin-bottom:4px;">Bienvenue sur KW Cockpit</div>'
+      +'<div style="font-size:13px;color:#555;margin-bottom:14px;">Définissez votre mot de passe pour activer votre accès.</div>'
+      +'<input id="spPw" type="password" placeholder="Nouveau mot de passe (8+ caractères)" style="width:100%;box-sizing:border-box;font-size:14px;padding:9px 11px;border:1px solid rgba(86,10,15,.3);border-radius:9px;margin-bottom:8px;">'
+      +'<input id="spPw2" type="password" placeholder="Confirmer" style="width:100%;box-sizing:border-box;font-size:14px;padding:9px 11px;border:1px solid rgba(86,10,15,.3);border-radius:9px;margin-bottom:10px;">'
+      +'<div id="spMsg" style="font-size:12.5px;color:#c0392b;min-height:16px;margin-bottom:8px;"></div>'
+      +'<button id="spBtn" type="button" style="width:100%;background:#560A0F;color:#fff;border:none;border-radius:9px;padding:11px;font-size:15px;font-weight:700;cursor:pointer;">Activer mon accès</button></div>';
+    document.body.appendChild(ov);
+    document.getElementById('spBtn').addEventListener('click', async function(){
+      var pw=(document.getElementById('spPw')||{}).value||'', pw2=(document.getElementById('spPw2')||{}).value||'', m=document.getElementById('spMsg');
+      if(pw.length<8){ m.style.color='#c0392b'; m.textContent='Mot de passe trop court (8 caractères min).'; return; }
+      if(pw!==pw2){ m.style.color='#c0392b'; m.textContent='Les deux mots de passe ne correspondent pas.'; return; }
+      m.style.color='#555'; m.textContent='Activation…';
+      try{ var r=await SB.auth.updateUser({password:pw}); if(r.error) throw r.error; m.style.color='#2e7d46'; m.textContent='Mot de passe défini. Connectez-vous.'; try{ await SB.auth.signOut(); }catch(e){} try{ history.replaceState(null,'',location.pathname+location.search); }catch(e){} setTimeout(function(){ ov.remove(); }, 1600); }
+      catch(e){ m.style.color='#c0392b'; m.textContent='Échec : '+(e.message||e); }
+    });
+  }
+  function boot(){
+    try{
+      var h=location.hash||'';
+      if(!/type=(invite|recovery)/i.test(h)) return;
+      var sb=(typeof initSupabase==='function')?initSupabase():null; if(!sb) return;
+      setTimeout(function(){ sb.auth.getSession().then(function(s){ if(s&&s.data&&s.data.session) showSetPassword(); }).catch(function(){}); }, 500);
+    }catch(e){}
+  }
+  if(document.readyState==='loading') window.addEventListener('DOMContentLoaded', boot); else boot();
 })();
 
 </script>
