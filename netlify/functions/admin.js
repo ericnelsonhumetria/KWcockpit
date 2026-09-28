@@ -113,9 +113,19 @@ exports.handler = async (event) => {
       const role = body.role || '';
       const is_admin = Boolean(body.is_admin);
       const opts = process.env.APP_URL ? { redirectTo: process.env.APP_URL } : undefined;
-      const { error } = await sb.auth.admin.inviteUserByEmail(email, opts);
+      const { data: inv, error } = await sb.auth.admin.inviteUserByEmail(email, opts);
       if (error) throw error;
       await sb.from('user_access').upsert({ email, role, is_admin }, { onConflict: 'email' });
+      // auto-provision : tout utilisateur invité devient pilote sélectionnable
+      try {
+        const uid = inv && inv.user ? inv.user.id : null;
+        if (uid) {
+          const nom = email.split('@')[0].replace(/[._-]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+          const { data: ex } = await sb.from('action_pilotes').select('id').eq('user_id', uid).maybeSingle();
+          if (!ex) await sb.from('action_pilotes').insert({ nom, user_id: uid, email, actif: true });
+          else await sb.from('action_pilotes').update({ email, actif: true }).eq('user_id', uid);
+        }
+      } catch (e) {}
       return { statusCode: 200, headers: cors, body: JSON.stringify({ ok: true, email }) };
     }
 
