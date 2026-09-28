@@ -1,10 +1,10 @@
 // netlify/functions/action-relance.js
-// Relance manuelle : un e-mail par pilote listant ses actions en cours + échéances.
-// POST { send:false } -> décompte (mails + actions) sans envoyer.
-// POST { send:true }  -> envoie réellement (SMTP M365). Accès : utilisateurs internes.
+// Relance manuelle : un e-mail par pilote (actions en cours + échéances) via BREVO (API HTTP).
+// POST { send:false } -> décompte. POST { send:true, pilote_ids:[...] } -> envoie aux pilotes ciblés.
+// POST { diag:true } -> teste la clé Brevo (sans envoyer). Accès : utilisateurs internes.
+// Env pour l'envoi : BREVO_API_KEY, MAIL_FROM (expéditeur vérifié dans Brevo), MAIL_FROM_NAME (optionnel).
 
 const { createClient } = require('@supabase/supabase-js');
-const nodemailer = require('nodemailer');
 
 const STATUT_LABEL = { a_faire: 'À faire', en_cours: 'En cours', en_attente: 'En attente' };
 const PRIO_LABEL = { 1: 'Haute', 2: 'Normale', 3: 'Basse' };
@@ -25,6 +25,23 @@ async function requireInternal(authHeader) {
   return { ok: true, email };
 }
 
+async function sendBrevo(apiKey, from, fromName, toEmail, subject, text, html) {
+  const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: { 'api-key': apiKey, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+    body: JSON.stringify({
+      sender: { email: from, name: fromName || 'Kaizen Way' },
+      to: [{ email: toEmail }],
+      subject, textContent: text, htmlContent: html,
+    }),
+  });
+  if (!res.ok) {
+    let detail = ''; try { detail = await res.text(); } catch (e) {}
+    throw new Error('Brevo ' + res.status + (detail ? (' : ' + detail.slice(0, 250)) : ''));
+  }
+  return true;
+}
+
 exports.handler = async (event) => {
   const headers = {
     'Access-Control-Allow-Origin': process.env.APP_ORIGIN || '*',
@@ -41,19 +58,25 @@ exports.handler = async (event) => {
   let body; try { body = JSON.parse(event.body || '{}'); } catch (e) { return { statusCode: 400, headers, body: JSON.stringify({ error: 'Corps invalide' }) }; }
   const send = body.send === true;
 
-  // Diagnostic SMTP (ne lit rien, n'envoie rien) : POST { diag:true }
+  const apiKey = process.env.BREVO_API_KEY;
+  const from = process.env.MAIL_FROM;
+  const fromName = process.env.MAIL_FROM_NAME || 'Kaizen Way';
+
+  // Diagnostic : valide la clé Brevo sans envoyer
   if (body && body.diag === true) {
-    const su = process.env.SMTP_USER, sp = process.env.SMTP_PASS, mf = process.env.MAIL_FROM;
-    const cfg = { SMTP_USER: !!su, SMTP_PASS: !!sp, MAIL_FROM: mf || null, from_equals_user: (mf || su) === su };
-    if (!su || !sp) return { statusCode: 200, headers, body: JSON.stringify({ diag: true, ok: false, config: cfg, error: 'SMTP_USER/SMTP_PASS manquant(s)' }) };
-    const tr = nodemailer.createTransport({ host: 'smtp.office365.com', port: 587, secure: false, connectionTimeout: 8000, greetingTimeout: 8000, socketTimeout: 8000, auth: { user: su, pass: sp } });
-    try { await tr.verify(); try { tr.close(); } catch (e) {} return { statusCode: 200, headers, body: JSON.stringify({ diag: true, ok: true, config: cfg }) }; }
-    catch (e) { console.error('[relance][diag] verify KO', e && (e.message||e), e && e.code, e && e.responseCode, e && e.response); try { tr.close(); } catch (x) {} return { statusCode: 200, headers, body: JSON.stringify({ diag: true, ok: false, config: cfg, error: (e && (e.message||String(e))) + (e && e.responseCode ? (' ['+e.responseCode+']') : '') }) }; }
+    const cfg = { BREVO_API_KEY: !!apiKey, MAIL_FROM: from || null };
+    if (!apiKey) return { statusCode: 200, headers, body: JSON.stringify({ diag: true, ok: false, config: cfg, error: 'BREVO_API_KEY manquante' }) };
+    if (!from) return { statusCode: 200, headers, body: JSON.stringify({ diag: true, ok: false, config: cfg, error: 'MAIL_FROM manquant (expéditeur)' }) };
+    try {
+      const r = await fetch('https://api.brevo.com/v3/account', { headers: { 'api-key': apiKey, 'Accept': 'application/json' } });
+      if (!r.ok) { let d = ''; try { d = await r.text(); } catch (e) {} return { statusCode: 200, headers, body: JSON.stringify({ diag: true, ok: false, config: cfg, error: 'Cle refusee (' + r.status + ') ' + d.slice(0, 200) }) }; }
+      const acc = await r.json();
+      return { statusCode: 200, headers, body: JSON.stringify({ diag: true, ok: true, config: cfg, compte: (acc && acc.email) || null }) };
+    } catch (e) { return { statusCode: 200, headers, body: JSON.stringify({ diag: true, ok: false, config: cfg, error: (e && (e.message || String(e))) }) }; }
   }
 
   const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 
-  // Actions ouvertes avec un pilote
   const { data: actions, error: e1 } = await sb
     .from('actions')
     .select('numero,libelle,echeance,priorite,statut,pilote_id')
@@ -67,7 +90,6 @@ exports.handler = async (event) => {
   if (e2) return { statusCode: 500, headers, body: JSON.stringify({ error: 'Lecture pilotes : ' + e2.message }) };
   const pmap = {}; (pilotes || []).forEach(p => { pmap[p.id] = p; });
 
-  // Grouper par pilote
   const groups = {};
   (actions || []).forEach(a => { (groups[a.pilote_id] = groups[a.pilote_id] || []).push(a); });
 
@@ -79,21 +101,14 @@ exports.handler = async (event) => {
   });
   const totalActions = targets.reduce((s, t) => s + t.actions.length, 0);
 
-  // Décompte à blanc
   if (!send) {
     return { statusCode: 200, headers, body: JSON.stringify({
-      pilotes: targets.length,
-      actions: totalActions,
-      skipped,
+      pilotes: targets.length, actions: totalActions, skipped,
       breakdown: targets.map(t => ({ pilote_id: t.pilote_id, nom: t.nom, email: t.email, count: t.actions.length })),
     }) };
   }
 
-  // Envoi réel
-  const SMTP_USER = process.env.SMTP_USER, SMTP_PASS = process.env.SMTP_PASS;
-  if (!SMTP_USER || !SMTP_PASS) return { statusCode: 500, headers, body: JSON.stringify({ error: 'SMTP non configuré (SMTP_USER / SMTP_PASS manquants).' }) };
-  const from = process.env.MAIL_FROM || SMTP_USER;
-  const transporter = nodemailer.createTransport({ host: 'smtp.office365.com', port: 587, secure: false, pool: true, maxConnections: 5, maxMessages: 100, connectionTimeout: 8000, greetingTimeout: 8000, socketTimeout: 8000, auth: { user: SMTP_USER, pass: SMTP_PASS } });
+  if (!apiKey || !from) return { statusCode: 500, headers, body: JSON.stringify({ error: 'Envoi non configuré (BREVO_API_KEY / MAIL_FROM manquants).' }) };
 
   let list = targets;
   if (Array.isArray(body.pilote_ids) && body.pilote_ids.length) {
@@ -128,16 +143,15 @@ exports.handler = async (event) => {
       + `<p>Merci de mettre à jour leur statut dans Clap! / le Cockpit KW.</p>`
       + `<p style="color:#999;">— Kaizen Way</p></div>`;
     try {
-      await transporter.sendMail({ from, to: t.email, subject: `Rappel de vos actions (${t.actions.length}) — Kaizen Way`, text, html });
+      await sendBrevo(apiKey, from, fromName, t.email, `Rappel de vos actions (${t.actions.length}) — Kaizen Way`, text, html);
       sent++;
     } catch (e) {
-      console.error('[relance] echec envoi', t.email, e && (e.message || e), e && e.code, e && e.responseCode, e && e.response);
-      errors.push({ email: t.email, error: (e && (e.message || String(e))) + (e && e.responseCode ? (' ['+e.responseCode+']') : '') });
+      console.error('[relance] echec envoi', t.email, e && (e.message || e));
+      errors.push({ email: t.email, error: (e && (e.message || String(e))) });
     }
   }
 
   await Promise.all(list.map(sendOne));
-  try { transporter.close(); } catch (e) {}
 
   return { statusCode: 200, headers, body: JSON.stringify({ sent, actions: sentActions, errors, skipped }) };
 };
