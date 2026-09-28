@@ -10,7 +10,6 @@
 // SMTP Microsoft 365 : SMTP_HOST=smtp.office365.com (défaut), SMTP_PORT=587, SMTP_USER=boîte M365, SMTP_PASS=mot de passe (ou mot de passe d'application).
 
 const { createClient } = require('@supabase/supabase-js');
-const nodemailer = require('nodemailer');
 
 function escapeHtml(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
@@ -30,30 +29,25 @@ async function emailOf(admin, userId, cache){
   return cache[userId];
 }
 
-var _mailTp = null;
-function mailTransporter(){
-  if(_mailTp) return _mailTp;
-  _mailTp = nodemailer.createTransport({
-    host: process.env.SMTP_HOST || 'smtp.office365.com',
-    port: Number(process.env.SMTP_PORT || 587),
-    secure: false,                          // STARTTLS sur 587 (Microsoft 365)
-    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-    tls: { ciphers: 'TLSv1.2' }
-  });
-  return _mailTp;
-}
 async function sendEmail(to, subject, html){
-  var from = process.env.MAIL_FROM || process.env.SMTP_USER;   // M365 : l'expéditeur doit être la boîte authentifiée
+  var apiKey = process.env.BREVO_API_KEY;
+  var from = process.env.MAIL_FROM;
+  var fromName = process.env.MAIL_FROM_NAME || 'Kaizen Way';
   try {
-    await mailTransporter().sendMail({ from: from, to: to, subject: subject, html: html });
+    var res = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: { 'api-key': apiKey, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ sender: { email: from, name: fromName }, to: [{ email: to }], subject: subject, htmlContent: html })
+    });
+    if(!res.ok){ var d=''; try{ d=await res.text(); }catch(e){} console.log('Brevo erreur', res.status, d.slice(0,200)); return false; }
     return true;
-  } catch(e){ console.log('SMTP erreur', e.message); return false; }
+  } catch(e){ console.log('Brevo erreur', e.message); return false; }
 }
 
 exports.handler = async function(){
   var url = process.env.SUPABASE_URL, svc = process.env.SUPABASE_SERVICE_KEY;
   if(!url || !svc) return { statusCode: 500, body: 'SUPABASE_URL / SUPABASE_SERVICE_KEY manquantes' };
-  if(!process.env.SMTP_USER || !process.env.SMTP_PASS) return { statusCode: 500, body: 'SMTP_USER / SMTP_PASS manquantes' };
+  if(!process.env.BREVO_API_KEY || !process.env.MAIL_FROM) return { statusCode: 500, body: 'BREVO_API_KEY / MAIL_FROM manquantes' };
 
   var admin = createClient(url, svc, { auth: { autoRefreshToken: false, persistSession: false } });
   var demain = demainISO();
