@@ -7736,378 +7736,429 @@ function kwLifecycleSyncBtn(){
 </script>
 <script>
 // ===== Module Plan d'action (onglet 'plandaction') =====
-// Capture (vocal + texte) -> reformulation IA (/api/action-ia) -> brouillon validé -> insert.
-// Liste + filtres (thématique/pilote/statut) + changement de statut + archivage.
-// CRUD direct via le client Supabase global SB (RLS s'applique sous la session).
+// Capture (vocal + texte) -> reformulation IA -> brouillon validé -> insert.
+// Édition post-enregistrement (tous champs + commentaire + tags + confidentiel),
+// recherche mots-clés, statut "En attente", numéro de référence, retard en rouge,
+// vues Matrice / Liste / Kanban / Archivées, brouillon auto-sauvegardé, filtre pilote
+// pour tous, mode confidentiel. CRUD via le client SB (RLS).
 (function(){
-  var PA_REFS = null, PA_LIST = [], PA_DRAFT = null;
-  var PA_FILTER = { thematique:'', pilote:'', statut:'' };
-  var PA_VIEW = 'matrice';   // 'matrice' | 'liste' | 'archive'
-  var PA_ARCHIVED = [];
-  var PA_DRAG_ID = null;     // action en cours de glisser-déposer
-  var PA_REC = null, PA_RECORDING = false, PA_BUSY = false, PA_MSG = '', PA_DICT_FINAL = '';
+  var PA_REFS=null, PA_LIST=[], PA_ARCHIVED=[], PA_DRAFT=null, PA_EDIT=null;
+  var PA_FILTER={thematique:'',pilote:'',statut:'',quadrant:''}, PA_SEARCH='';
+  var PA_VIEW='matrice';           // matrice | liste | kanban | archive
+  var PA_DRAG_ID=null;
+  var PA_REC=null, PA_RECORDING=false, PA_DICT_FINAL='', PA_BUSY=false, PA_MSG='';
+  var PA_DRAFTTXT_KEY='kw:pa:brouillon:v1';
+  var PA_URGENT_DAYS=7;
+  var PA_STATUTS=[['a_faire','À faire'],['en_attente','En attente'],['en_cours','En cours'],['fait','Fait'],['abandonne','Abandonné']];
 
   function paEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-  function paAuth(){ return { 'Content-Type':'application/json', Authorization:'Bearer ' + SB_SESSION.access_token }; }
+  function paAuth(){ return {'Content-Type':'application/json', Authorization:'Bearer '+SB_SESSION.access_token}; }
   function paToday(){ return new Date().toISOString().slice(0,10); }
   function paSelStyle(){ return 'width:100%;box-sizing:border-box;font-size:13px;padding:7px 9px;border:1px solid rgba(86,10,15,.25);border-radius:8px;font-family:inherit;'; }
   function paThemeLib(code){ var t=((PA_REFS&&PA_REFS.thematiques)||[]).find(function(x){return x.code===code;}); return t?t.libelle:code; }
-  function paPiloteNom(id){ if(!id) return 'non attribu\u00e9'; var p=((PA_REFS&&PA_REFS.pilotes)||[]).find(function(x){return x.id===id;}); return p?p.nom:'\u2014'; }
+  function paPiloteNom(id){ if(!id) return 'non attribué'; var p=((PA_REFS&&PA_REFS.pilotes)||[]).find(function(x){return x.id===id;}); return p?p.nom:'—'; }
   function paPiloteId(nom){ var p=((PA_REFS&&PA_REFS.pilotes)||[]).find(function(x){return x.nom===nom;}); return p?p.id:null; }
+  function paStatutLabel(s){ var f=PA_STATUTS.find(function(x){return x[0]===s;}); return f?f[1]:s; }
+  function paStatutOptions(cur){ return PA_STATUTS.map(function(o){return '<option value="'+o[0]+'"'+(cur===o[0]?' selected':'')+'>'+o[1]+'</option>';}).join(''); }
+  function paOpen(a){ return a.statut==='a_faire'||a.statut==='en_cours'||a.statut==='en_attente'; }
+  function paOverdue(a){ return a.echeance && a.echeance < paToday() && paOpen(a); }
+  function paTags(a){ return Array.isArray(a.tags)?a.tags:[]; }
+  function paSlug(s){ return String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,40); }
+
+  function paIsUrgent(a){
+    if(a.urgent_override===true) return true;
+    if(a.urgent_override===false) return false;
+    if(!a.echeance) return false;
+    var t=new Date(a.echeance+'T00:00:00'); if(isNaN(t.getTime())) return false;
+    var lim=new Date(); lim.setHours(0,0,0,0); lim.setDate(lim.getDate()+PA_URGENT_DAYS);
+    return t<=lim;
+  }
+  function paIsImportant(a){ return (a.priorite||2)<=2; }
+  function paQuadrantOf(prio,ech,ov){
+    var a={priorite:prio,echeance:ech,urgent_override:ov};
+    var imp=paIsImportant(a), urg=paIsUrgent(a);
+    if(imp&&urg) return {n:'Q1',lbl:'Faire — important & urgent',col:'#c0392b'};
+    if(imp&&!urg) return {n:'Q2',lbl:'Planifier — important, non urgent',col:'#EFB810'};
+    if(!imp&&urg) return {n:'Q3',lbl:'Déléguer — non important, urgent',col:'#2e7d46'};
+    return {n:'Q4',lbl:'Plus tard — non important, non urgent',col:'#2980b9'};
+  }
 
   async function paLoadRefs(){
-    if(PA_REFS) return;
-    var th = await SB.from('action_thematiques').select('code,libelle,ordre').eq('actif',true).order('ordre',{ascending:true});
-    var pi = await SB.from('action_pilotes').select('id,nom,alias,actif').eq('actif',true).order('nom',{ascending:true});
-    PA_REFS = { thematiques: (th&&th.data)||[], pilotes: (pi&&pi.data)||[] };
+    var th=await SB.from('action_thematiques').select('code,libelle,ordre').eq('actif',true).order('ordre',{ascending:true});
+    var pi=await SB.from('action_pilotes').select('id,nom,alias,actif').eq('actif',true).order('nom',{ascending:true});
+    PA_REFS={thematiques:(th&&th.data)||[], pilotes:(pi&&pi.data)||[]};
   }
   async function paLoadList(){
-    var q = await SB.from('actions').select('*').is('archived_at',null).order('echeance',{ascending:true,nullsFirst:false});
-    PA_LIST = (q&&q.data)?q.data:[];
+    var q=await SB.from('actions').select('*').is('archived_at',null).order('numero',{ascending:false});
+    PA_LIST=(q&&q.data)?q.data:[];
+  }
+  async function paLoadArchived(){
+    var q=await SB.from('actions').select('*').not('archived_at','is',null).order('archived_at',{ascending:false});
+    PA_ARCHIVED=(q&&q.data)?q.data:[];
   }
 
+  // ---------- Shell + rendu ----------
   function paShell(inner){
     return '<div class="sec-eyebrow">Pilotage</div>'
       + '<div class="sec-title">Plan d\u2019action</div>'
       + '<div class="sec-note">Dicte ou saisis une action ; l\u2019IA la reformule et la classe ; tu valides avant enregistrement.</div>'
       + inner;
   }
-
-  window.renderPlanAction = async function(){
-    var v = document.getElementById('view'); if(!v) return;
-    v.innerHTML = paShell('<div class="edit-hint" style="padding:10px 2px;">Chargement\u2026</div>');
+  window.renderPlanAction=async function(){
+    var v=document.getElementById('view'); if(!v) return;
+    v.innerHTML=paShell('<div class="edit-hint" style="padding:10px 2px;">Chargement\u2026</div>');
     PA_MSG='';
-    try { await paLoadRefs(); await paLoadList(); }
-    catch(e){ PA_MSG = 'Chargement impossible : ' + (e.message||e); }
+    try { await paLoadRefs(); await paLoadList(); } catch(e){ PA_MSG='Chargement impossible : '+(e.message||e); }
     paRepaint();
   };
-
   function paRepaint(){
-    var v = document.getElementById('view'); if(!v) return;
-    v.innerHTML = paShell(paCaptureHtml() + paDraftHtml() + paViewToggle() + (PA_VIEW==='archive' ? paArchiveHtml() : (PA_VIEW==='matrice' ? paMatrixHtml() : paListHtml())));
+    var v=document.getElementById('view'); if(!v) return;
+    v.innerHTML=paShell(paCaptureHtml() + paFormZoneHtml() + paControlsHtml() + '<div id="paResults"></div>');
+    paRenderResults();
+  }
+  function paRenderResults(){
+    var r=document.getElementById('paResults'); if(!r) return;
+    if(PA_VIEW==='archive'){ r.innerHTML=paArchiveHtml(); return; }
+    var stats=paStatsHtml(PA_LIST.filter(paMatch));
+    r.innerHTML = stats + (PA_VIEW==='kanban' ? paKanbanHtml() : (PA_VIEW==='liste' ? paListHtml() : paMatrixHtml()));
   }
 
-  // ---------- Capture ----------
+  // ---------- Capture (vocal + texte + IA) ----------
   function paCaptureHtml(){
-    var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    var mic = SR ? '<button class="add-btn" id="paMicBtn" onclick="paDictate()" type="button">\ud83c\udfa4 Dicter</button>' : '';
+    var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+    var mic=SR?'<button class="add-btn" id="paMicBtn" onclick="paDictate()" type="button">\ud83c\udfa4 Dicter</button>':'';
+    var saved=''; try{ saved=localStorage.getItem(PA_DRAFTTXT_KEY)||''; }catch(e){}
     return '<div class="panel" style="padding:14px 16px;margin-top:6px;">'
-      + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">' + mic
-      + '<span class="edit-hint">' + (SR?'Clique, parle, reclique pour arr\u00eater.':'Dict\u00e9e vocale indisponible sur ce navigateur \u2014 saisis ci-dessous.') + '</span></div>'
-      + '<textarea id="paTexte" rows="2" placeholder="Ex : rappeler \u00e0 Paul de relancer Andros sur le calendrier S2 avant vendredi" style="width:100%;box-sizing:border-box;font-size:13px;padding:8px 10px;border:1px solid rgba(86,10,15,.25);border-radius:8px;resize:vertical;font-family:inherit;"></textarea>'
+      + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">'+mic
+      + '<span class="edit-hint">'+(SR?'Clique, parle, reclique pour arrêter.':'Dictée vocale indisponible sur ce navigateur — saisis ci-dessous.')+'</span></div>'
+      + '<textarea id="paTexte" rows="2" oninput="paSaveDraftTxt(this.value)" placeholder="Ex : rappeler à Paul de relancer Andros sur le calendrier S2 avant vendredi" style="width:100%;box-sizing:border-box;font-size:13px;padding:8px 10px;border:1px solid rgba(86,10,15,.25);border-radius:8px;resize:vertical;font-family:inherit;">'+paEsc(saved)+'</textarea>'
       + '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">'
-      +   '<button class="add-btn" onclick="paReformulate()" type="button"' + (PA_BUSY?' disabled':'') + '>' + (PA_BUSY?'\u2026 analyse':'\u2728 Reformuler par l\u2019IA') + '</button>'
+      +   '<button class="add-btn" onclick="paReformulate()" type="button"'+(PA_BUSY?' disabled':'')+'>'+(PA_BUSY?'\u2026 analyse':'\u2728 Reformuler par l\u2019IA')+'</button>'
       +   '<button class="add-btn sm" onclick="paQuickSave()" type="button" style="background:#fff;color:#560A0F;">Saisir sans IA</button>'
       + '</div>'
       + (PA_MSG?'<div class="edit-hint" style="color:var(--signal);margin-top:6px;">'+paEsc(PA_MSG)+'</div>':'')
       + '</div>';
   }
+  window.paSaveDraftTxt=function(v){ try{ if(v) localStorage.setItem(PA_DRAFTTXT_KEY,v); else localStorage.removeItem(PA_DRAFTTXT_KEY); }catch(e){} };
+  function paClearDraftTxt(){ try{ localStorage.removeItem(PA_DRAFTTXT_KEY); }catch(e){} }
 
-  window.paDictate = function(){
-    var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  window.paDictate=function(){
+    var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
     if(!SR) return;
     if(PA_RECORDING){ PA_RECORDING=false; if(PA_REC){ try{ PA_REC.stop(); }catch(e){} } var bs=document.getElementById('paMicBtn'); if(bs) bs.textContent='\ud83c\udfa4 Dicter'; return; }
-    var ta0 = document.getElementById('paTexte');
-    PA_DICT_FINAL = ta0 ? ta0.value.replace(/\s+$/,'') : '';
-    PA_RECORDING = true;
-    var bstart=document.getElementById('paMicBtn'); if(bstart) bstart.textContent='\u23f9 Arr\u00eater';
+    var ta0=document.getElementById('paTexte'); PA_DICT_FINAL=ta0?ta0.value.replace(/\s+$/,''):'';
+    PA_RECORDING=true; var b1=document.getElementById('paMicBtn'); if(b1) b1.textContent='\u23f9 Arrêter';
     paStartRec(SR);
   };
   function paStartRec(SR){
-    PA_REC = new SR(); PA_REC.lang='fr-FR'; PA_REC.interimResults=true; PA_REC.continuous=true;
-    PA_REC.onresult = function(ev){
+    PA_REC=new SR(); PA_REC.lang='fr-FR'; PA_REC.interimResults=true; PA_REC.continuous=true;
+    PA_REC.onresult=function(ev){
       var interim='';
-      for(var i=ev.resultIndex; i<ev.results.length; i++){
-        var r=ev.results[i];
-        if(r.isFinal){ var seg=(r[0].transcript||'').trim(); if(seg){ PA_DICT_FINAL += (PA_DICT_FINAL && !/\s$/.test(PA_DICT_FINAL) ? ' ' : '') + seg; } }
-        else { interim += r[0].transcript; }
+      for(var i=ev.resultIndex;i<ev.results.length;i++){ var r=ev.results[i];
+        if(r.isFinal){ var seg=(r[0].transcript||'').trim(); if(seg){ PA_DICT_FINAL+=(PA_DICT_FINAL&&!/\s$/.test(PA_DICT_FINAL)?' ':'')+seg; } }
+        else interim+=r[0].transcript;
       }
       var ta=document.getElementById('paTexte');
-      if(ta) ta.value = PA_DICT_FINAL + (interim ? (PA_DICT_FINAL ? ' ' : '') + interim : '');
+      if(ta){ ta.value=PA_DICT_FINAL+(interim?(PA_DICT_FINAL?' ':'')+interim:''); paSaveDraftTxt(ta.value); }
     };
-    PA_REC.onerror = function(e){
-      if(e && (e.error==='not-allowed' || e.error==='service-not-allowed')){ PA_RECORDING=false; var b=document.getElementById('paMicBtn'); if(b) b.textContent='\ud83c\udfa4 Dicter'; }
-    };
-    PA_REC.onend = function(){
-      if(PA_RECORDING){ try{ paStartRec(SR); return; }catch(e){} }
-      var b=document.getElementById('paMicBtn'); if(b) b.textContent='\ud83c\udfa4 Dicter';
-    };
+    PA_REC.onerror=function(e){ if(e&&(e.error==='not-allowed'||e.error==='service-not-allowed')){ PA_RECORDING=false; var b=document.getElementById('paMicBtn'); if(b) b.textContent='\ud83c\udfa4 Dicter'; } };
+    PA_REC.onend=function(){ if(PA_RECORDING){ try{ paStartRec(SR); return; }catch(e){} } var b=document.getElementById('paMicBtn'); if(b) b.textContent='\ud83c\udfa4 Dicter'; };
     try{ PA_REC.start(); }catch(e){}
   }
-
-  window.paReformulate = async function(){
+  window.paReformulate=async function(){
     if(PA_BUSY) return;
-    var ta=document.getElementById('paTexte'); var texte = ta?ta.value.trim():'';
+    var ta=document.getElementById('paTexte'); var texte=ta?ta.value.trim():'';
     if(!texte){ PA_MSG='Dicte ou saisis d\u2019abord une action.'; paRepaint(); return; }
     PA_BUSY=true; PA_MSG=''; paRepaint();
     try {
-      var res = await fetch('/api/action-ia', { method:'POST', headers:paAuth(), body: JSON.stringify({
-        texte: texte, today: paToday(),
-        pilotes: (PA_REFS.pilotes||[]).map(function(p){return {nom:p.nom, alias:p.alias||[]};}),
-        thematiques: (PA_REFS.thematiques||[]).map(function(t){return {code:t.code, libelle:t.libelle};})
-      }) });
+      var res=await fetch('/api/action-ia',{method:'POST',headers:paAuth(),body:JSON.stringify({
+        texte:texte, today:paToday(),
+        pilotes:(PA_REFS.pilotes||[]).map(function(p){return {nom:p.nom,alias:p.alias||[]};}),
+        thematiques:(PA_REFS.thematiques||[]).map(function(t){return {code:t.code,libelle:t.libelle};})
+      })});
       var j=null; try{ j=await res.json(); }catch(e){}
       if(!res.ok) throw new Error((j&&j.error)?j.error:('HTTP '+res.status));
-      PA_DRAFT = { texte_brut:texte, libelle:j.libelle, thematique:j.thematique, pilote_id:paPiloteId(j.pilote_nom), echeance:j.echeance, priorite:j.priorite, justification:j.justification };
-    } catch(e){ PA_MSG='Reformulation impossible : ' + (e.message||e); }
+      PA_DRAFT={texte_brut:texte, libelle:j.libelle, thematique:j.thematique, projet:'', pilote_id:paPiloteId(j.pilote_nom), echeance:j.echeance, priorite:j.priorite, statut:'a_faire', tags:[], confidentiel:false, commentaire:'', justification:j.justification, urgent_override:null};
+    } catch(e){ PA_MSG='Reformulation impossible : '+(e.message||e); }
     PA_BUSY=false; paRepaint();
   };
-
-  window.paQuickSave = function(){
+  window.paQuickSave=function(){
     var ta=document.getElementById('paTexte'); var texte=ta?ta.value.trim():'';
-    if(!texte){ PA_MSG='Rien \u00e0 saisir.'; paRepaint(); return; }
-    PA_DRAFT = { texte_brut:texte, libelle:texte, thematique:'autre', pilote_id:null, echeance:null, priorite:2 };
+    if(!texte){ PA_MSG='Rien à saisir.'; paRepaint(); return; }
+    PA_DRAFT={texte_brut:texte, libelle:texte, thematique:'autre', projet:'', pilote_id:null, echeance:null, priorite:2, statut:'a_faire', tags:[], confidentiel:false, commentaire:'', urgent_override:null};
     paRepaint();
   };
 
-  // ---------- Brouillon (validation avant insert) ----------
-  function paField(lbl, ctrl){ return '<label style="display:block;font-size:11px;color:var(--muted);flex:1;min-width:120px;">'+lbl+'<div style="margin-top:2px;">'+ctrl+'</div></label>'; }
-  function paDraftHtml(){
-    if(!PA_DRAFT) return '';
-    var d = PA_DRAFT;
-    var q = paQuadrantOf(d.priorite, d.echeance);
-    var classif = '<div style="font-size:12px;margin:0 0 6px;">Classement sugg\u00e9r\u00e9 par l\u2019IA : <span style="color:'+q.col+';font-weight:700;">'+q.n+' \u00b7 '+q.lbl+'</span></div>'
-      + (d.justification ? '<div class="edit-hint" style="margin:-2px 0 8px;">'+paEsc(d.justification)+'</div>' : '');
-    var themeOpts = (PA_REFS.thematiques||[]).map(function(t){return '<option value="'+t.code+'"'+(t.code===d.thematique?' selected':'')+'>'+paEsc(t.libelle)+'</option>';}).join('');
-    var piloteOpts = '<option value="">\u2014 non attribu\u00e9</option>' + (PA_REFS.pilotes||[]).map(function(p){return '<option value="'+p.id+'"'+(p.id===d.pilote_id?' selected':'')+'>'+paEsc(p.nom)+'</option>';}).join('');
-    var prioOpts = [[1,'Haute'],[2,'Normale'],[3,'Basse']].map(function(o){return '<option value="'+o[0]+'"'+(o[0]===d.priorite?' selected':'')+'>'+o[1]+'</option>';}).join('');
+  // ---------- Formulaire (nouveau + édition) ----------
+  function paFormZoneHtml(){
+    if(PA_EDIT) return paFormHtml(PA_EDIT,'edit');
+    if(PA_DRAFT) return paFormHtml(PA_DRAFT,'new');
+    return '';
+  }
+  function paField(lbl,ctrl){ return '<label style="display:block;font-size:11px;color:var(--muted);flex:1;min-width:150px;">'+lbl+'<div style="margin-top:2px;">'+ctrl+'</div></label>'; }
+  function paFormHtml(d,mode){
+    var themeOpts=(PA_REFS.thematiques||[]).map(function(t){return '<option value="'+t.code+'"'+(t.code===d.thematique?' selected':'')+'>'+paEsc(t.libelle)+'</option>';}).join('');
+    var piloteOpts='<option value="">— non attribué</option>'+(PA_REFS.pilotes||[]).map(function(p){return '<option value="'+p.id+'"'+(p.id===d.pilote_id?' selected':'')+'>'+paEsc(p.nom)+'</option>';}).join('');
+    var prioOpts=[[1,'Haute'],[2,'Normale'],[3,'Basse']].map(function(o){return '<option value="'+o[0]+'"'+(o[0]===d.priorite?' selected':'')+'>'+o[1]+'</option>';}).join('');
+    var q=paQuadrantOf(d.priorite,d.echeance,d.urgent_override);
+    var classif = (mode==='new') ? ('<div style="font-size:12px;margin:0 0 6px;">Classement suggéré : <span style="color:'+q.col+';font-weight:700;">'+q.n+' · '+q.lbl+'</span></div>'+(d.justification?'<div class="edit-hint" style="margin:-2px 0 8px;">'+paEsc(d.justification)+'</div>':'')) : '';
     return '<div class="panel" style="padding:14px 16px;margin-top:12px;border:1px solid #EFB810;">'
-      + '<div class="sec-eyebrow" style="margin:0 0 8px;">Brouillon \u2014 valide ou corrige avant d\u2019enregistrer</div>'
+      + '<div class="sec-eyebrow" style="margin:0 0 8px;">'+(mode==='edit'?('Modifier l\u2019action #'+(d.numero||'')):'Brouillon — valide ou corrige avant d\u2019enregistrer')+'</div>'
       + classif
-      + paField('Libell\u00e9','<input id="padLib" type="text" value="'+paEsc(d.libelle)+'" style="'+paSelStyle()+'">')
+      + paField('Libellé','<input id="pfLib" type="text" value="'+paEsc(d.libelle)+'" style="'+paSelStyle()+'">')
       + '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;">'
-      +   paField('Th\u00e9matique','<select id="padTheme" style="'+paSelStyle()+'">'+themeOpts+'</select>')
-      +   paField('Pilote','<select id="padPilote" style="'+paSelStyle()+'">'+piloteOpts+'</select>')
-      +   paField('\u00c9ch\u00e9ance','<input id="padEch" type="date" value="'+(d.echeance||'')+'" style="'+paSelStyle()+'">')
-      +   paField('Priorit\u00e9','<select id="padPrio" style="'+paSelStyle()+'">'+prioOpts+'</select>')
+      +   paField('Thématique','<div style="display:flex;gap:4px;"><select id="pfTheme" style="'+paSelStyle()+'">'+themeOpts+'</select><button type="button" onclick="paNewTheme(\''+mode+'\')" title="Nouvelle thématique" class="add-btn sm" style="flex:0 0 auto;background:#fff;color:#560A0F;">+</button></div>')
+      +   paField('Projet','<input id="pfProjet" type="text" value="'+paEsc(d.projet||'')+'" placeholder="(optionnel)" style="'+paSelStyle()+'">')
+      +   paField('Pilote','<select id="pfPilote" style="'+paSelStyle()+'">'+piloteOpts+'</select>')
       + '</div>'
+      + '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;">'
+      +   paField('Échéance','<input id="pfEch" type="date" value="'+(d.echeance||'')+'" style="'+paSelStyle()+'">')
+      +   paField('Priorité','<select id="pfPrio" style="'+paSelStyle()+'">'+prioOpts+'</select>')
+      +   paField('Statut','<select id="pfStatut" style="'+paSelStyle()+'">'+paStatutOptions(d.statut||'a_faire')+'</select>')
+      + '</div>'
+      + paField('Tags (séparés par des virgules)','<input id="pfTags" type="text" value="'+paEsc(paTags(d).join(', '))+'" placeholder="ex : andros, relance, s2" style="'+paSelStyle()+'">')
+      + paField('Commentaire','<textarea id="pfComment" rows="2" style="'+paSelStyle()+'resize:vertical;">'+paEsc(d.commentaire||'')+'</textarea>')
+      + '<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:#560A0F;margin-top:8px;cursor:pointer;"><input id="pfConf" type="checkbox"'+(d.confidentiel?' checked':'')+'> \ud83d\udd12 Confidentiel (visible seulement de l\u2019émetteur, du pilote et de la direction)</label>'
       + '<div style="display:flex;gap:8px;margin-top:10px;">'
-      +   '<button class="add-btn" onclick="paInsert()" type="button">\u2713 Enregistrer l\u2019action</button>'
-      +   '<button class="add-btn sm" onclick="paCancelDraft()" type="button" style="background:#fff;color:#560A0F;">Annuler</button>'
+      +   '<button class="add-btn" onclick="paSaveForm(\''+mode+'\')" type="button">\u2713 '+(mode==='edit'?'Enregistrer les modifications':'Enregistrer l\u2019action')+'</button>'
+      +   '<button class="add-btn sm" onclick="paCancelForm()" type="button" style="background:#fff;color:#560A0F;">Annuler</button>'
       + '</div></div>';
   }
-  window.paCancelDraft = function(){ PA_DRAFT=null; paRepaint(); };
-  window.paInsert = async function(){
-    if(!PA_DRAFT) return;
-    var lib = ((document.getElementById('padLib')||{}).value || PA_DRAFT.libelle || '').trim();
-    var theme = (document.getElementById('padTheme')||{}).value || 'autre';
-    var pil = (document.getElementById('padPilote')||{}).value || '';
-    var ech = (document.getElementById('padEch')||{}).value || '';
-    var prio = parseInt((document.getElementById('padPrio')||{}).value,10)||2;
-    if(!lib){ PA_MSG='Le libell\u00e9 est vide.'; paRepaint(); return; }
-    var row = { texte_brut:PA_DRAFT.texte_brut, libelle:lib, thematique:theme, pilote_id:pil||null, echeance:ech||null, priorite:prio, statut:'a_faire' };
+  function paReadForm(){
+    function val(id){ var e=document.getElementById(id); return e?e.value:''; }
+    var tags=val('pfTags').split(',').map(function(x){return x.trim();}).filter(Boolean);
+    return {
+      libelle:val('pfLib').trim(),
+      thematique:val('pfTheme')||'autre',
+      projet:val('pfProjet').trim()||null,
+      pilote_id:val('pfPilote')||null,
+      echeance:val('pfEch')||null,
+      priorite:parseInt(val('pfPrio'),10)||2,
+      statut:val('pfStatut')||'a_faire',
+      tags:tags,
+      commentaire:val('pfComment').trim()||null,
+      confidentiel:(function(){ var e=document.getElementById('pfConf'); return !!(e&&e.checked); })()
+    };
+  }
+  window.paCancelForm=function(){ PA_DRAFT=null; PA_EDIT=null; paRepaint(); };
+  window.paNewTheme=async function(mode){
+    var cur=paReadForm(); var obj=(mode==='edit')?PA_EDIT:PA_DRAFT; if(obj){ for(var k in cur) obj[k]=cur[k]; }
+    var nom=window.prompt('Nom de la nouvelle thématique :',''); if(!nom||!nom.trim()) { paRepaint(); return; }
+    nom=nom.trim(); var code=paSlug(nom)||('theme_'+Date.now());
     try {
-      var r = await SB.from('actions').insert(row);
-      if(r.error) throw r.error;
-      PA_DRAFT=null; PA_MSG=''; var ta=document.getElementById('paTexte'); if(ta) ta.value='';
-      await paLoadList(); paRepaint();
-    } catch(e){ PA_MSG='Enregistrement refus\u00e9 : ' + (e.message||e); paRepaint(); }
+      var r=await SB.from('action_thematiques').insert({code:code,libelle:nom,ordre:50}); if(r.error && r.error.code!=='23505') throw r.error;
+      await paLoadRefs();
+      if(obj) obj.thematique=code;
+    } catch(e){ PA_MSG='Ajout thématique refusé : '+(e.message||e); }
+    paRepaint();
+  };
+  window.paSaveForm=async function(mode){
+    var f=paReadForm();
+    if(!f.libelle){ PA_MSG='Le libellé est vide.'; paRepaint(); return; }
+    try {
+      if(mode==='edit'){
+        var r=await SB.from('actions').update(f).eq('id',PA_EDIT.id); if(r.error) throw r.error;
+        PA_EDIT=null;
+      } else {
+        var row={texte_brut:PA_DRAFT.texte_brut, libelle:f.libelle, thematique:f.thematique, projet:f.projet, pilote_id:f.pilote_id, echeance:f.echeance, priorite:f.priorite, statut:f.statut, tags:f.tags, commentaire:f.commentaire, confidentiel:f.confidentiel};
+        var r2=await SB.from('actions').insert(row); if(r2.error) throw r2.error;
+        PA_DRAFT=null; var ta=document.getElementById('paTexte'); if(ta) ta.value=''; paClearDraftTxt();
+      }
+      PA_MSG=''; await paLoadList(); paRepaint();
+    } catch(e){ PA_MSG='Enregistrement refusé : '+(e.message||e); paRepaint(); }
+  };
+  window.paEdit=function(id){
+    var src=PA_LIST.find(function(x){return x.id===id;}) || PA_ARCHIVED.find(function(x){return x.id===id;});
+    if(!src) return;
+    PA_EDIT=JSON.parse(JSON.stringify(src)); PA_DRAFT=null;
+    paRepaint();
+    try{ window.scrollTo({top:0,behavior:'smooth'}); }catch(e){}
   };
 
-  // ---------- Liste + filtres ----------
-  function paListHtml(){
-    var themeF = '<option value="">Toutes th\u00e9matiques</option>' + (PA_REFS.thematiques||[]).map(function(t){return '<option value="'+t.code+'"'+(PA_FILTER.thematique===t.code?' selected':'')+'>'+paEsc(t.libelle)+'</option>';}).join('');
-    var pilF = '<option value="">Tous pilotes</option>' + (PA_REFS.pilotes||[]).map(function(p){return '<option value="'+p.id+'"'+(PA_FILTER.pilote===p.id?' selected':'')+'>'+paEsc(p.nom)+'</option>';}).join('');
-    var statF = '<option value="">Tous statuts</option>' + [['a_faire','\u00c0 faire'],['en_cours','En cours'],['fait','Fait'],['abandonne','Abandonn\u00e9']].map(function(s){return '<option value="'+s[0]+'"'+(PA_FILTER.statut===s[0]?' selected':'')+'>'+s[1]+'</option>';}).join('');
-    var filters = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:16px 0 6px;">'
+  // ---------- Contrôles (vues + filtres + recherche) ----------
+  function paControlsHtml(){ return paViewToggle()+paFiltersHtml()+paSearchHtml(); }
+  window.paSetView=async function(v){ PA_VIEW=v; if(v==='archive'){ try{ await paLoadArchived(); }catch(e){ PA_MSG='Chargement des archives impossible : '+(e.message||e); } } paRepaint(); };
+  function paViewToggle(){
+    function chip(val,label){ var on=(PA_VIEW===val); return '<button onclick="paSetView(\''+val+'\')" style="font-size:12px;padding:5px 12px;border-radius:999px;border:1px solid '+(on?'#560A0F':'rgba(86,10,15,.28)')+';background:'+(on?'#560A0F':'#fff')+';color:'+(on?'#fff':'#560A0F')+';cursor:pointer;font-family:inherit;font-weight:'+(on?'600':'400')+';margin-right:6px;">'+label+'</button>'; }
+    return '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:2px;margin:16px 0 2px;"><span class="edit-hint" style="margin-right:4px;">Vue :</span>'+chip('matrice','Matrice')+chip('liste','Liste')+chip('kanban','Kanban')+chip('archive','Archivées')+'</div>';
+  }
+  function paFiltersHtml(){
+    var themeF='<option value="">Toutes thématiques</option>'+(PA_REFS.thematiques||[]).map(function(t){return '<option value="'+t.code+'"'+(PA_FILTER.thematique===t.code?' selected':'')+'>'+paEsc(t.libelle)+'</option>';}).join('');
+    var pilF='<option value="">Tous pilotes</option>'+(PA_REFS.pilotes||[]).map(function(p){return '<option value="'+p.id+'"'+(PA_FILTER.pilote===p.id?' selected':'')+'>'+paEsc(p.nom)+'</option>';}).join('');
+    var statF='<option value="">Tous statuts</option>'+PA_STATUTS.map(function(s){return '<option value="'+s[0]+'"'+(PA_FILTER.statut===s[0]?' selected':'')+'>'+s[1]+'</option>';}).join('');
+    var quadF='<option value="">Tous quadrants</option>'+[['q1','Q1 · Faire'],['q2','Q2 · Planifier'],['q3','Q3 · Déléguer'],['q4','Q4 · Plus tard']].map(function(o){return '<option value="'+o[0]+'"'+(PA_FILTER.quadrant===o[0]?' selected':'')+'>'+o[1]+'</option>';}).join('');
+    return '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 4px;">'
       + '<select onchange="paSetFilter(\'thematique\',this.value)" style="'+paSelStyle()+'width:auto;">'+themeF+'</select>'
-      + (paIsDirection() ? '<select onchange="paSetFilter(\'pilote\',this.value)" style="'+paSelStyle()+'width:auto;">'+pilF+'</select>' : '')
+      + '<select onchange="paSetFilter(\'pilote\',this.value)" style="'+paSelStyle()+'width:auto;">'+pilF+'</select>'
       + '<select onchange="paSetFilter(\'statut\',this.value)" style="'+paSelStyle()+'width:auto;">'+statF+'</select>'
+      + '<select onchange="paSetFilter(\'quadrant\',this.value)" style="'+paSelStyle()+'width:auto;">'+quadF+'</select>'
       + '</div>';
-    var rows = PA_LIST.filter(paMatch);
-    var body = rows.length ? rows.map(paRowHtml).join('') : '<div class="edit-hint" style="padding:12px 2px;">Aucune action pour ce filtre.</div>';
-    var count = '<div class="edit-hint" style="margin:2px 0 4px;">'+rows.length+' action(s) affich\u00e9e(s)</div>';
-    return filters + count + '<div>' + body + '</div>';
+  }
+  window.paSetFilter=function(k,v){ PA_FILTER[k]=v; paRepaint(); };
+  function paSearchHtml(){
+    return '<div style="margin:4px 0 2px;"><input id="paSearch" type="search" value="'+paEsc(PA_SEARCH)+'" oninput="paSetSearch(this.value)" placeholder="Rechercher (n°, mot-clé, tag, projet, pilote…)" style="'+paSelStyle()+'"></div>';
+  }
+  window.paSetSearch=function(v){ PA_SEARCH=v; paRenderResults(); var el=document.getElementById('paSearch'); if(el){ try{ el.focus(); el.setSelectionRange(el.value.length,el.value.length); }catch(e){} } };
+  function paQuadKey(a){ var imp=paIsImportant(a),urg=paIsUrgent(a); return imp&&urg?'q1':(imp&&!urg?'q2':(!imp&&urg?'q3':'q4')); }
+  function paPct(n,t){ return t?Math.round(n/t*100):0; }
+  function paStatsHtml(rows){
+    var total=rows.length;
+    var real=rows.filter(function(a){return a.statut==='fait';}).length;
+    var wip=rows.filter(function(a){return a.statut==='en_cours'||a.statut==='en_attente';}).length;
+    var late=rows.filter(paOverdue).length;
+    function card(label,n,color){ return '<div style="flex:1;min-width:118px;background:#fff;border:1px solid rgba(86,10,15,.12);border-radius:10px;padding:8px 12px;">'
+      +'<div style="font-size:20px;font-weight:800;color:'+color+';line-height:1.1;">'+n+' <span style="font-size:12px;font-weight:600;color:var(--muted);">('+paPct(n,total)+'%)</span></div>'
+      +'<div class="edit-hint" style="margin-top:1px;">'+label+'</div></div>'; }
+    return '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 10px;">'
+      +'<div style="flex:1;min-width:100px;background:#560A0F;border-radius:10px;padding:8px 12px;color:#fff;"><div style="font-size:20px;font-weight:800;line-height:1.1;">'+total+'</div><div style="font-size:11px;opacity:.85;margin-top:1px;">Total</div></div>'
+      +card('Réalisées',real,'#2e7d46')
+      +card('En cours / attente',wip,'#EFB810')
+      +card('En retard',late,'#c0392b')
+      +'</div>';
+  }
+  function paTextMatch(a){
+    if(!PA_SEARCH) return true;
+    var qy=PA_SEARCH.toLowerCase();
+    var hay=('#'+(a.numero||'')+' '+(a.libelle||'')+' '+(a.commentaire||'')+' '+(a.projet||'')+' '+paTags(a).join(' ')+' '+paThemeLib(a.thematique)+' '+paPiloteNom(a.pilote_id)).toLowerCase();
+    return hay.indexOf(qy)>=0;
   }
   function paMatch(a){
     if(PA_FILTER.thematique && a.thematique!==PA_FILTER.thematique) return false;
     if(PA_FILTER.pilote && a.pilote_id!==PA_FILTER.pilote) return false;
     if(PA_FILTER.statut && a.statut!==PA_FILTER.statut) return false;
+    if(PA_FILTER.quadrant && paQuadKey(a)!==PA_FILTER.quadrant) return false;
+    if(!paTextMatch(a)) return false;
     return true;
   }
-  window.paSetFilter = function(k,v){ PA_FILTER[k]=v; paRepaint(); };
 
-  function paRowHtml(a){
-    var today = paToday();
-    var open = (a.statut==='a_faire'||a.statut==='en_cours');
-    var overdue = a.echeance && a.echeance < today && open;
-    var prioTxt = a.priorite===1?'Haute':(a.priorite===3?'Basse':'Normale');
-    var prioCol = a.priorite===1?'#b3541e':(a.priorite===3?'var(--muted)':'#560A0F');
-    var done = (a.statut==='fait'||a.statut==='abandonne');
-    var statOpts = [['a_faire','\u00c0 faire'],['en_cours','En cours'],['fait','Fait'],['abandonne','Abandonn\u00e9']].map(function(s){return '<option value="'+s[0]+'"'+(a.statut===s[0]?' selected':'')+'>'+s[1]+'</option>';}).join('');
-    return '<div style="display:flex;gap:10px;align-items:flex-start;padding:10px 4px;border-bottom:1px solid rgba(86,10,15,.10);'+(done?'opacity:.55;':'')+'">'
-      + '<div style="flex:1;min-width:0;">'
-      +   '<div style="font-size:13px;font-weight:600;color:#560A0F;'+(done?'text-decoration:line-through;':'')+'">'+paEsc(a.libelle)+'</div>'
-      +   '<div class="edit-hint" style="margin-top:2px;">'+paEsc(paThemeLib(a.thematique))+' \u00b7 '+paEsc(paPiloteNom(a.pilote_id))
-      +     ' \u00b7 <span style="color:'+prioCol+';">'+prioTxt+'</span>'
-      +     (a.echeance?(' \u00b7 <span style="'+(overdue?'color:var(--signal);font-weight:600;':'')+'">\u00e9ch. '+paEsc(a.echeance)+(overdue?' \u2014 en retard':'')+'</span>'):'')
-      +   '</div>'
-      + '</div>'
-      + '<select onchange="paSetStatut(\''+a.id+'\',this.value)" style="font-size:11.5px;padding:4px 6px;border:1px solid rgba(86,10,15,.25);border-radius:7px;font-family:inherit;flex:0 0 auto;width:118px;">'+statOpts+'</select>'
-      + '<button onclick="paArchive(\''+a.id+'\')" title="Archiver" type="button" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:15px;line-height:1;padding:4px;flex:0 0 auto;">\u2715</button>'
-      + '</div>';
+  // ---------- Fragments d'action ----------
+  function paMetaLine(a){
+    var over=paOverdue(a);
+    var prioTxt=a.priorite===1?'Haute':(a.priorite===3?'Basse':'Normale');
+    var prioCol=a.priorite===1?'#b3541e':(a.priorite===3?'var(--muted)':'#560A0F');
+    var bits=[paEsc(paThemeLib(a.thematique))];
+    if(a.projet) bits.push('📁 '+paEsc(a.projet));
+    bits.push(paEsc(paPiloteNom(a.pilote_id)));
+    bits.push('<span style="color:'+prioCol+';">'+prioTxt+'</span>');
+    if(a.echeance) bits.push('<span style="'+(over?'color:var(--signal);font-weight:700;':'')+'">éch. '+paEsc(a.echeance)+(over?' — en retard':'')+'</span>');
+    var s=bits.join(' · ');
+    var tags=paTags(a); if(tags.length) s+= ' · '+tags.map(function(t){return '<span style="background:rgba(86,10,15,.08);border-radius:4px;padding:0 4px;font-size:10px;">#'+paEsc(t)+'</span>';}).join(' ');
+    return s;
   }
-  // ---------- Vue Matrice d'Eisenhower ----------
-  var PA_URGENT_DAYS = 7;
-  function paIsUrgent(a){
-    if(a.urgent_override === true) return true;    // urgence fixée manuellement (drag)
-    if(a.urgent_override === false) return false;
-    if(!a.echeance) return false;
-    var t = new Date(a.echeance + 'T00:00:00'); if(isNaN(t.getTime())) return false;
-    var lim = new Date(); lim.setHours(0,0,0,0); lim.setDate(lim.getDate() + PA_URGENT_DAYS);
-    return t <= lim;                 // dans les 7 jours ou dépassée
+  function paTitleLine(a,done){
+    return '<span style="font-size:11px;color:var(--muted);">#'+(a.numero||'?')+'</span> '
+      + (a.confidentiel?'<span title="Confidentiel">\ud83d\udd12</span> ':'')
+      + '<span style="font-size:13px;font-weight:600;color:#560A0F;'+(done?'text-decoration:line-through;':'')+'">'+paEsc(a.libelle)+'</span>'
+      + (a.commentaire?' <span title="Commentaire">\ud83d\udcac</span>':'');
   }
-  function paIsImportant(a){ return (a.priorite||2) <= 2; }   // haute ou normale
-  function paQuadrantOf(prio, ech){
-    var a = { priorite: prio, echeance: ech };
-    var imp = paIsImportant(a), urg = paIsUrgent(a);
-    if(imp&&urg) return { n:'Q1', lbl:'Faire \u2014 important & urgent', col:'#c0392b' };
-    if(imp&&!urg) return { n:'Q2', lbl:'Planifier \u2014 important, non urgent', col:'#EFB810' };
-    if(!imp&&urg) return { n:'Q3', lbl:'D\u00e9l\u00e9guer \u2014 non important, urgent', col:'#2e7d46' };
-    return { n:'Q4', lbl:'Plus tard \u2014 non important, non urgent', col:'#2980b9' };
+  function paActionButtons(a){
+    return '<select onchange="paSetStatut(\''+a.id+'\',this.value)" draggable="false" onmousedown="event.stopPropagation()" style="font-size:11px;padding:3px 5px;border:1px solid rgba(86,10,15,.25);border-radius:6px;font-family:inherit;flex:0 0 auto;width:104px;">'+paStatutOptions(a.statut)+'</select>'
+      + '<button onclick="paEdit(\''+a.id+'\')" draggable="false" onmousedown="event.stopPropagation()" title="Modifier" type="button" class="add-btn sm" style="flex:0 0 auto;background:#fff;color:#560A0F;">Modifier</button>'
+      + '<button onclick="paArchive(\''+a.id+'\')" draggable="false" onmousedown="event.stopPropagation()" title="Archiver" type="button" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;flex:0 0 auto;padding:2px;">\u2715</button>';
   }
-  window.paSetView = async function(v){ PA_VIEW = v; if(v==='archive'){ try{ await paLoadArchived(); }catch(e){ PA_MSG='Chargement des archives impossible : '+(e.message||e); } } paRepaint(); };
-  function paViewToggle(){
-    function chip(val,label){ var on=(PA_VIEW===val); return '<button onclick="paSetView(\''+val+'\')" style="font-size:12px;padding:5px 12px;border-radius:999px;border:1px solid '+(on?'#560A0F':'rgba(86,10,15,.28)')+';background:'+(on?'#560A0F':'#fff')+';color:'+(on?'#fff':'#560A0F')+';cursor:pointer;font-family:inherit;font-weight:'+(on?'600':'400')+';margin-right:6px;">'+label+'</button>'; }
-    return '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:2px;margin:16px 0 2px;"><span class="edit-hint" style="margin-right:4px;">Vue :</span>'+chip('matrice','Matrice Eisenhower')+chip('liste','Liste')+chip('archive','Archivées')+'</div>';
+
+  // ---------- Vue Liste ----------
+  function paListHtml(){
+    var rows=PA_LIST.filter(paMatch);
+    var body=rows.length?rows.map(function(a){
+      var done=(a.statut==='fait'||a.statut==='abandonne'); var over=paOverdue(a);
+      return '<div style="display:flex;gap:10px;align-items:flex-start;padding:10px 6px;border-bottom:1px solid rgba(86,10,15,.10);border-radius:6px;'+(over?'background:#fdecea;':'')+(done?'opacity:.55;':'')+'">'
+        + '<div style="flex:1;min-width:0;">'+paTitleLine(a,done)+'<div class="edit-hint" style="margin-top:2px;">'+paMetaLine(a)+'</div></div>'
+        + paActionButtons(a)
+        + '</div>';
+    }).join('') : '<div class="edit-hint" style="padding:12px 2px;">Aucune action pour ce filtre.</div>';
+    return '<div class="edit-hint" style="margin:6px 0 2px;">'+rows.length+' action(s)</div><div>'+body+'</div>';
   }
-  function paFiltersHtml(){
-    var themeF = '<option value="">Toutes th\u00e9matiques</option>' + (PA_REFS.thematiques||[]).map(function(t){return '<option value="'+t.code+'"'+(PA_FILTER.thematique===t.code?' selected':'')+'>'+paEsc(t.libelle)+'</option>';}).join('');
-    var pilF = '<option value="">Tous pilotes</option>' + (PA_REFS.pilotes||[]).map(function(p){return '<option value="'+p.id+'"'+(PA_FILTER.pilote===p.id?' selected':'')+'>'+paEsc(p.nom)+'</option>';}).join('');
-    var statF = '<option value="">Tous statuts</option>' + [['a_faire','\u00c0 faire'],['en_cours','En cours'],['fait','Fait'],['abandonne','Abandonn\u00e9']].map(function(s){return '<option value="'+s[0]+'"'+(PA_FILTER.statut===s[0]?' selected':'')+'>'+s[1]+'</option>';}).join('');
-    return '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 4px;">'
-      + '<select onchange="paSetFilter(\'thematique\',this.value)" style="'+paSelStyle()+'width:auto;">'+themeF+'</select>'
-      + (paIsDirection() ? '<select onchange="paSetFilter(\'pilote\',this.value)" style="'+paSelStyle()+'width:auto;">'+pilF+'</select>' : '')
-      + '<select onchange="paSetFilter(\'statut\',this.value)" style="'+paSelStyle()+'width:auto;">'+statF+'</select>'
-      + '</div>';
-  }
+
+  // ---------- Vue Matrice ----------
   function paCell(a){
-    var done=(a.statut==='fait'||a.statut==='abandonne');
-    var today=paToday(); var overdue=a.echeance && a.echeance<today && !done;
-    var meta = paEsc(paPiloteNom(a.pilote_id)) + (a.echeance ? (' \u00b7 '+(overdue?'<span style="color:var(--signal);font-weight:600;">\u00e9ch. '+paEsc(a.echeance)+' (retard)</span>':'\u00e9ch. '+paEsc(a.echeance))) : '');
-    var statOpts=[['a_faire','\u00c0 faire'],['en_cours','En cours'],['fait','Fait'],['abandonne','Abandonn\u00e9']].map(function(s){return '<option value="'+s[0]+'"'+(a.statut===s[0]?' selected':'')+'>'+s[1]+'</option>';}).join('');
-    return '<div draggable="true" ondragstart="paDragStart(event,\''+a.id+'\')" style="background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:8px;padding:7px 9px;margin-bottom:6px;cursor:grab;'+(done?'opacity:.5;':'')+'">'
-      + '<div style="font-size:12.5px;font-weight:600;color:#333;'+(done?'text-decoration:line-through;':'')+'">'+paEsc(a.libelle)+'</div>'
+    var done=(a.statut==='fait'||a.statut==='abandonne'); var over=paOverdue(a);
+    return '<div draggable="true" ondragstart="paDragStart(event,\''+a.id+'\')" style="background:'+(over?'#fdecea':'#fff')+';border:1px solid rgba(0,0,0,.08);border-radius:8px;padding:7px 9px;margin-bottom:6px;cursor:grab;'+(done?'opacity:.5;':'')+'">'
+      + '<div>'+paTitleLine(a,done)+'</div>'
       + '<div style="display:flex;align-items:center;gap:6px;margin-top:4px;">'
-      +   '<span class="edit-hint" style="flex:1;min-width:0;">'+meta+'</span>'
-      +   '<select draggable="false" onmousedown="event.stopPropagation()" onchange="paSetStatut(\''+a.id+'\',this.value)" style="font-size:10.5px;padding:2px 4px;border:1px solid rgba(86,10,15,.25);border-radius:6px;font-family:inherit;flex:0 0 auto;width:90px;">'+statOpts+'</select>'
-      +   '<button draggable="false" onmousedown="event.stopPropagation()" onclick="paArchive(\''+a.id+'\')" title="Archiver" type="button" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;flex:0 0 auto;padding:2px;">\u2715</button>'
+      +   '<span class="edit-hint" style="flex:1;min-width:0;">'+paMetaLine(a)+'</span>'
+      +   '<button onclick="paEdit(\''+a.id+'\')" draggable="false" onmousedown="event.stopPropagation()" type="button" class="add-btn sm" style="flex:0 0 auto;background:#fff;color:#560A0F;">Modifier</button>'
+      +   '<select onchange="paSetStatut(\''+a.id+'\',this.value)" draggable="false" onmousedown="event.stopPropagation()" style="font-size:10.5px;padding:2px 4px;border:1px solid rgba(86,10,15,.25);border-radius:6px;font-family:inherit;flex:0 0 auto;width:96px;">'+paStatutOptions(a.statut)+'</select>'
+      +   '<button onclick="paArchive(\''+a.id+'\')" draggable="false" onmousedown="event.stopPropagation()" title="Archiver" type="button" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;flex:0 0 auto;padding:2px;">\u2715</button>'
       + '</div></div>';
   }
-  function paQuadrant(title, sub, color, actions, key){
-    var body = actions.length ? actions.map(paCell).join('') : '<div class="edit-hint" style="padding:4px 2px;">\u2014</div>';
+  function paQuadrant(title,sub,color,actions,key){
+    var body=actions.length?actions.map(paCell).join(''):'<div class="edit-hint" style="padding:4px 2px;">—</div>';
     return '<div ondragover="paDragOver(event)" ondragleave="paDragLeave(event)" ondrop="paDrop(event,\''+key+'\')" style="border:2px solid '+color+';border-radius:12px;padding:10px 12px;min-width:0;display:flex;flex-direction:column;">'
       + '<div style="font-weight:700;color:'+color+';font-size:13px;">'+title+' <span style="font-weight:400;color:var(--muted);font-size:11px;">('+actions.length+')</span></div>'
       + '<div class="edit-hint" style="margin:1px 0 8px;">'+sub+'</div>'
-      + '<div style="overflow-y:auto;max-height:340px;">'+body+'</div>'
-      + '</div>';
+      + '<div style="overflow-y:auto;max-height:340px;">'+body+'</div></div>';
   }
   function paMatrixHtml(){
-    var rows = PA_LIST.filter(paMatch);
-    var q1=[],q2=[],q3=[],q4=[];
-    rows.forEach(function(a){
-      var imp=paIsImportant(a), urg=paIsUrgent(a);
-      if(imp&&urg) q1.push(a); else if(imp&&!urg) q2.push(a); else if(!imp&&urg) q3.push(a); else q4.push(a);
+    var rows=PA_LIST.filter(paMatch); var q1=[],q2=[],q3=[],q4=[];
+    rows.forEach(function(a){ var imp=paIsImportant(a),urg=paIsUrgent(a); if(imp&&urg)q1.push(a); else if(imp&&!urg)q2.push(a); else if(!imp&&urg)q3.push(a); else q4.push(a); });
+    var grid='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">'
+      + paQuadrant('Q2 · Planifier','Important, non urgent','#EFB810',q2,'q2')
+      + paQuadrant('Q1 · Faire','Important & urgent','#c0392b',q1,'q1')
+      + paQuadrant('Q4 · Plus tard','Non important, non urgent','#2980b9',q4,'q4')
+      + paQuadrant('Q3 · Déléguer','Non important, urgent','#2e7d46',q3,'q3')+'</div>';
+    var vAxis='<div style="display:flex;flex-direction:column;justify-content:space-between;align-items:center;padding:4px 0;flex:0 0 22px;"><span style="font-size:13px;color:#560A0F;font-weight:700;">+</span><span style="writing-mode:vertical-rl;transform:rotate(180deg);font-weight:700;color:#560A0F;font-size:12px;letter-spacing:3px;white-space:nowrap;">IMPORTANT</span><span style="font-size:15px;color:var(--muted);font-weight:700;">\u2013</span></div>';
+    var matrix='<div style="display:flex;gap:6px;align-items:stretch;margin-top:4px;">'+vAxis+'<div style="flex:1;min-width:0;">'+grid+'</div></div>';
+    var hAxis='<div style="display:flex;gap:6px;margin-top:6px;"><div style="flex:0 0 22px;"></div><div style="flex:1;display:flex;justify-content:space-between;align-items:center;"><span style="font-size:11px;color:var(--muted);font-weight:700;">\u2013 non urgent</span><span style="font-weight:700;color:#560A0F;font-size:12px;letter-spacing:3px;">URGENT \u2192</span><span style="font-size:11px;color:#c0392b;font-weight:700;">urgent +</span></div></div>';
+    var legend='<div class="edit-hint" style="margin-top:8px;">Glisse une action d\u2019un quadrant à l\u2019autre pour la reclasser (l\u2019échéance reste inchangée). Retard = fond rouge.</div>';
+    return '<div class="edit-hint" style="margin:2px 0 2px;">'+rows.length+' action(s)</div>'+matrix+hAxis+legend;
+  }
+
+  // ---------- Vue Kanban ----------
+  function paKanbanCard(a){
+    var done=(a.statut==='fait'||a.statut==='abandonne'); var over=paOverdue(a);
+    return '<div draggable="true" ondragstart="paDragStart(event,\''+a.id+'\')" style="background:'+(over?'#fdecea':'#fff')+';border:1px solid rgba(0,0,0,.08);border-radius:8px;padding:7px 9px;margin-bottom:6px;cursor:grab;'+(done?'opacity:.55;':'')+'">'
+      + '<div>'+paTitleLine(a,done)+'</div>'
+      + '<div class="edit-hint" style="margin-top:3px;">'+paEsc(paPiloteNom(a.pilote_id))+(a.echeance?(' · <span style="'+(over?'color:var(--signal);font-weight:700;':'')+'">'+paEsc(a.echeance)+'</span>'):'')+'</div>'
+      + '<div style="margin-top:4px;"><button onclick="paEdit(\''+a.id+'\')" draggable="false" onmousedown="event.stopPropagation()" type="button" class="add-btn sm" style="background:#fff;color:#560A0F;">Modifier</button></div>'
+      + '</div>';
+  }
+  function paKanbanHtml(){
+    var rows=PA_LIST.filter(paMatch);
+    var cols=[['a_faire','À faire','#560A0F'],['en_attente','En attente','#b3541e'],['en_cours','En cours','#EFB810'],['fait','Fait','#2e7d46']];
+    var grid='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:4px;">';
+    cols.forEach(function(c){
+      var items=rows.filter(function(a){return a.statut===c[0];});
+      grid+='<div ondragover="paDragOver(event)" ondragleave="paDragLeave(event)" ondrop="paKanbanDrop(event,\''+c[0]+'\')" style="border:1px solid rgba(86,10,15,.12);border-top:3px solid '+c[2]+';border-radius:10px;padding:8px 8px;min-width:0;display:flex;flex-direction:column;">'
+        + '<div style="font-weight:700;color:'+c[2]+';font-size:12.5px;margin-bottom:6px;">'+c[1]+' <span style="font-weight:400;color:var(--muted);font-size:11px;">('+items.length+')</span></div>'
+        + '<div style="overflow-y:auto;max-height:420px;">'+(items.length?items.map(paKanbanCard).join(''):'<div class="edit-hint" style="padding:4px 2px;">—</div>')+'</div></div>';
     });
-    // Positions Eisenhower : haut = important, droite = urgent
-    var grid = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">'
-      + paQuadrant('Q2 \u00b7 Planifier',  'Important, non urgent',     '#EFB810', q2, 'q2')
-      + paQuadrant('Q1 \u00b7 Faire',      'Important & urgent',        '#c0392b', q1, 'q1')
-      + paQuadrant('Q4 \u00b7 Plus tard',  'Non important, non urgent', '#2980b9', q4, 'q4')
-      + paQuadrant('Q3 \u00b7 D\u00e9l\u00e9guer',  'Non important, urgent',     '#2e7d46', q3, 'q3')
-      + '</div>';
-    var vAxis = '<div style="display:flex;flex-direction:column;justify-content:space-between;align-items:center;padding:4px 0;flex:0 0 22px;">'
-      + '<span style="font-size:13px;color:#560A0F;font-weight:700;">+</span>'
-      + '<span style="writing-mode:vertical-rl;transform:rotate(180deg);font-weight:700;color:#560A0F;font-size:12px;letter-spacing:3px;white-space:nowrap;">IMPORTANT</span>'
-      + '<span style="font-size:15px;color:var(--muted);font-weight:700;">\u2013</span>'
-      + '</div>';
-    var matrix = '<div style="display:flex;gap:6px;align-items:stretch;margin-top:4px;">' + vAxis + '<div style="flex:1;min-width:0;">' + grid + '</div></div>';
-    var hAxis = '<div style="display:flex;gap:6px;margin-top:6px;">'
-      + '<div style="flex:0 0 22px;"></div>'
-      + '<div style="flex:1;display:flex;justify-content:space-between;align-items:center;">'
-      +   '<span style="font-size:11px;color:var(--muted);font-weight:700;">\u2013 non urgent</span>'
-      +   '<span style="font-weight:700;color:#560A0F;font-size:12px;letter-spacing:3px;">URGENT \u2192</span>'
-      +   '<span style="font-size:11px;color:#c0392b;font-weight:700;">urgent +</span>'
-      + '</div></div>';
-    var legend = '<div class="edit-hint" style="margin-top:8px;">Glisse une action d\u2019un quadrant \u00e0 l\u2019autre pour la reclasser (ajuste priorit\u00e9 + \u00e9ch\u00e9ance). Important = priorit\u00e9 haute ou normale (axe vertical) \u00b7 Urgent = \u00e9ch\u00e9ance dans '+PA_URGENT_DAYS+' j ou d\u00e9pass\u00e9e (axe horizontal).</div>';
-    return paFiltersHtml() + '<div class="edit-hint" style="margin:2px 0 2px;">'+rows.length+' action(s)</div>' + matrix + hAxis + legend;
+    grid+='</div>';
+    return '<div class="edit-hint" style="margin:2px 0 2px;">'+rows.length+' action(s) · glisse une carte entre colonnes pour changer le statut</div>'+grid;
   }
+  window.paKanbanDrop=async function(ev,statut){ ev.preventDefault(); ev.currentTarget.style.background=''; var id=''; try{ id=ev.dataTransfer.getData('text/plain'); }catch(e){} if(!id) id=PA_DRAG_ID; PA_DRAG_ID=null; if(!id) return; await window.paSetStatut(id,statut); };
 
-  // Glisser-déposer entre quadrants : ajuste priorité (importance) et échéance (urgence)
-  window.paDragStart = function(ev, id){
-    PA_DRAG_ID = id;
-    try { ev.dataTransfer.setData('text/plain', id); ev.dataTransfer.effectAllowed = 'move'; } catch(e){}
-  };
-  window.paDragOver = function(ev){ ev.preventDefault(); try{ ev.dataTransfer.dropEffect='move'; }catch(e){} ev.currentTarget.style.background='rgba(86,10,15,.05)'; };
-  window.paDragLeave = function(ev){ ev.currentTarget.style.background=''; };
-  window.paDrop = async function(ev, quad){
-    ev.preventDefault(); ev.currentTarget.style.background='';
-    var id=''; try{ id = ev.dataTransfer.getData('text/plain'); }catch(e){}
-    if(!id) id = PA_DRAG_ID; PA_DRAG_ID = null;
-    if(!id) return;
-    await paMoveTo(id, quad);
-  };
-  async function paMoveTo(id, quad){
-    var a = PA_LIST.find(function(x){return x.id===id;}); if(!a) return;
-    var imp = (quad==='q1' || quad==='q2');
-    var urg = (quad==='q1' || quad==='q3');
-    var patch = { priorite: imp ? (a.priorite<=2 ? a.priorite : 2) : 3 };
-    patch.urgent_override = urg;   // fixe l'urgence sans toucher a l'echeance -> la date reste affichee
-    try {
-      var r = await SB.from('actions').update(patch).eq('id', id);
-      if(r.error) throw r.error;
-      Object.assign(a, patch); PA_MSG=''; paRepaint();
-    } catch(e){ PA_MSG = 'D\u00e9placement refus\u00e9 : ' + (e.message||e); paRepaint(); }
-  }
-
-  function paIsDirection(){ try { return (CURRENT_ROLE === 'eric' || CURRENT_ROLE === 'direction'); } catch(e){ return false; } }
-  async function paLoadArchived(){
-    var q = await SB.from('actions').select('*').not('archived_at','is',null).order('archived_at',{ascending:false});
-    PA_ARCHIVED = (q&&q.data)?q.data:[];
-  }
+  // ---------- Vue Archivées ----------
   function paArchiveHtml(){
-    var nbFaites = PA_LIST.filter(function(a){return a.statut==='fait';}).length;
-    var head = '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:12px 0 8px;">'
-      + '<span class="edit-hint">'+PA_ARCHIVED.length+' action(s) archivée(s)</span>'
-      + (nbFaites ? '<button class="add-btn sm" onclick="paArchiveDone()" type="button" style="margin-left:auto;">Archiver les '+nbFaites+' action(s) faite(s)</button>' : '')
-      + '</div>';
-    if(!PA_ARCHIVED.length) return head + '<div class="edit-hint" style="padding:12px 2px;">Aucune action archivée. Le bouton ✕ archive une action ; les actions « faites » peuvent être archivées en lot via le bouton ci-dessus.</div>';
-    var rows = PA_ARCHIVED.map(function(a){
-      var when = a.archived_at ? String(a.archived_at).slice(0,10) : '';
-      var st = a.statut==='fait'?'Fait':(a.statut==='abandonne'?'Abandonné':(a.statut==='en_cours'?'En cours':'À faire'));
-      return '<div style="display:flex;gap:10px;align-items:flex-start;padding:9px 4px;border-bottom:1px solid rgba(86,10,15,.10);opacity:.78;">'
-        + '<div style="flex:1;min-width:0;">'
-        +   '<div style="font-size:12.5px;font-weight:600;color:#560A0F;">'+paEsc(a.libelle)+'</div>'
-        +   '<div class="edit-hint" style="margin-top:2px;">'+paEsc(paThemeLib(a.thematique))+' · '+paEsc(paPiloteNom(a.pilote_id))+' · '+st+(when?(' · archivée le '+when):'')+'</div>'
-        + '</div>'
-        + '<button onclick="paRestore(\''+a.id+'\')" type="button" class="add-btn sm" style="flex:0 0 auto;background:#fff;color:#560A0F;">Restaurer</button>'
-        + '</div>';
+    var nbFaites=PA_LIST.filter(function(a){return a.statut==='fait';}).length;
+    var head='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:12px 0 8px;"><span class="edit-hint">'+PA_ARCHIVED.length+' action(s) archivée(s)</span>'
+      +(nbFaites?'<button class="add-btn sm" onclick="paArchiveDone()" type="button" style="margin-left:auto;">Archiver les '+nbFaites+' action(s) faite(s)</button>':'')+'</div>';
+    if(!PA_ARCHIVED.length) return head+'<div class="edit-hint" style="padding:12px 2px;">Aucune action archivée. Le bouton ✕ archive une action ; les actions « faites » peuvent être archivées en lot ci-dessus.</div>';
+    var rows=PA_ARCHIVED.filter(paMatch).map(function(a){
+      var when=a.archived_at?String(a.archived_at).slice(0,10):'';
+      return '<div style="display:flex;gap:10px;align-items:flex-start;padding:9px 4px;border-bottom:1px solid rgba(86,10,15,.10);opacity:.8;">'
+        + '<div style="flex:1;min-width:0;">'+paTitleLine(a,true)+'<div class="edit-hint" style="margin-top:2px;">'+paEsc(paThemeLib(a.thematique))+' · '+paEsc(paPiloteNom(a.pilote_id))+' · '+paStatutLabel(a.statut)+(when?(' · archivée le '+when):'')+'</div></div>'
+        + '<button onclick="paEdit(\''+a.id+'\')" type="button" class="add-btn sm" style="flex:0 0 auto;background:#fff;color:#560A0F;">Modifier</button>'
+        + '<button onclick="paRestore(\''+a.id+'\')" type="button" class="add-btn sm" style="flex:0 0 auto;background:#fff;color:#560A0F;">Restaurer</button></div>';
     }).join('');
-    return head + '<div>' + rows + '</div>';
+    return head+'<div>'+rows+'</div>';
   }
-  window.paRestore = async function(id){
-    try { var r = await SB.from('actions').update({archived_at:null}).eq('id',id); if(r.error) throw r.error;
-      PA_ARCHIVED = PA_ARCHIVED.filter(function(x){return x.id!==id;});
-      await paLoadList(); paRepaint();
-    } catch(e){ PA_MSG='Restauration refusée : '+(e.message||e); paRepaint(); }
-  };
-  window.paArchiveDone = async function(){
-    var ids = PA_LIST.filter(function(a){return a.statut==='fait';}).map(function(a){return a.id;});
-    if(!ids.length) return;
-    try { var r = await SB.from('actions').update({archived_at:new Date().toISOString()}).in('id',ids); if(r.error) throw r.error;
-      await paLoadList(); await paLoadArchived(); paRepaint();
-    } catch(e){ PA_MSG='Archivage refusé : '+(e.message||e); paRepaint(); }
-  };
-  window.paSetStatut = async function(id, statut){
-    try { var r = await SB.from('actions').update({statut:statut}).eq('id',id); if(r.error) throw r.error;
-      var a = PA_LIST.find(function(x){return x.id===id;}); if(a) a.statut=statut; paRepaint();
-    } catch(e){ PA_MSG='Mise \u00e0 jour refus\u00e9e : '+(e.message||e); paRepaint(); }
-  };
-  window.paArchive = async function(id){
-    try { var r = await SB.from('actions').update({archived_at:new Date().toISOString()}).eq('id',id); if(r.error) throw r.error;
-      PA_LIST = PA_LIST.filter(function(x){return x.id!==id;}); paRepaint();
-    } catch(e){ PA_MSG='Archivage refus\u00e9 : '+(e.message||e); paRepaint(); }
-  };
+  window.paRestore=async function(id){ try{ var r=await SB.from('actions').update({archived_at:null}).eq('id',id); if(r.error) throw r.error; PA_ARCHIVED=PA_ARCHIVED.filter(function(x){return x.id!==id;}); await paLoadList(); paRepaint(); }catch(e){ PA_MSG='Restauration refusée : '+(e.message||e); paRepaint(); } };
+  window.paArchiveDone=async function(){ var ids=PA_LIST.filter(function(a){return a.statut==='fait';}).map(function(a){return a.id;}); if(!ids.length) return; try{ var r=await SB.from('actions').update({archived_at:new Date().toISOString()}).in('id',ids); if(r.error) throw r.error; await paLoadList(); await paLoadArchived(); paRepaint(); }catch(e){ PA_MSG='Archivage refusé : '+(e.message||e); paRepaint(); } };
+
+  // ---------- Statut / archive / drag ----------
+  window.paSetStatut=async function(id,statut){ try{ var r=await SB.from('actions').update({statut:statut}).eq('id',id); if(r.error) throw r.error; var a=PA_LIST.find(function(x){return x.id===id;}); if(a) a.statut=statut; paRenderResults(); }catch(e){ PA_MSG='Mise à jour refusée : '+(e.message||e); paRepaint(); } };
+  window.paArchive=async function(id){ try{ var r=await SB.from('actions').update({archived_at:new Date().toISOString()}).eq('id',id); if(r.error) throw r.error; PA_LIST=PA_LIST.filter(function(x){return x.id!==id;}); paRenderResults(); }catch(e){ PA_MSG='Archivage refusé : '+(e.message||e); paRepaint(); } };
+  window.paDragStart=function(ev,id){ PA_DRAG_ID=id; try{ ev.dataTransfer.setData('text/plain',id); ev.dataTransfer.effectAllowed='move'; }catch(e){} };
+  window.paDragOver=function(ev){ ev.preventDefault(); try{ ev.dataTransfer.dropEffect='move'; }catch(e){} ev.currentTarget.style.background='rgba(86,10,15,.05)'; };
+  window.paDragLeave=function(ev){ ev.currentTarget.style.background=''; };
+  window.paDrop=async function(ev,quad){ ev.preventDefault(); ev.currentTarget.style.background=''; var id=''; try{ id=ev.dataTransfer.getData('text/plain'); }catch(e){} if(!id) id=PA_DRAG_ID; PA_DRAG_ID=null; if(!id) return; await paMoveTo(id,quad); };
+  async function paMoveTo(id,quad){
+    var a=PA_LIST.find(function(x){return x.id===id;}); if(!a) return;
+    var imp=(quad==='q1'||quad==='q2'), urg=(quad==='q1'||quad==='q3');
+    var patch={priorite:imp?(a.priorite<=2?a.priorite:2):3, urgent_override:urg};
+    try{ var r=await SB.from('actions').update(patch).eq('id',id); if(r.error) throw r.error; Object.assign(a,patch); PA_MSG=''; paRenderResults(); }catch(e){ PA_MSG='Déplacement refusé : '+(e.message||e); paRepaint(); }
+  }
 })();
 
 </script>
