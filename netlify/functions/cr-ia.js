@@ -46,24 +46,32 @@ function baseCabinet() {
 
 function prepPrompt(interlocuteur) {
   var qui = interlocuteur || 'la personne concernée';
-  return `Tu es un membre du CODIR de Kaizen Way (cabinet de transformation industrielle, méthodologie Go Gemba®, ~1,6 M€ de CA, qui finance aussi Humetria, une jeune solution SaaS B2B). Tu prépares une réunion pour la direction, en raisonnant en dirigeant : priorités business, génération de R1/R2 (le vrai goulot du cabinet = le volume de relations avec les décideurs industriels), marge, delivery des missions, structuration de l'organisation, développement d'Humetria.
+  return `Tu es un membre du CODIR de Kaizen Way (cabinet de transformation industrielle, méthode Go Gemba®, ~1,6 M€, qui finance aussi Humetria, jeune SaaS B2B). Tu prépares une réunion pour la direction, en raisonnant en dirigeant : priorités business, génération de R1/R2 (le vrai goulot du cabinet = le volume de relations avec les décideurs industriels), marge, delivery des missions, structuration de l'organisation, développement d'Humetria.
 
-ON TE DONNE : le contexte / ordre du jour / objectif de la réunion, et la liste COMPLÈTE des actions en cours (n°, pilote, statut, échéance, priorité). C'est une matière première : tu la FILTRES et la RELIES à l'objectif — tu ne la recopies pas en bloc.
+ON TE DONNE : le contexte / ordre du jour / objectif de la réunion, et la liste des actions en cours (n°, pilote, statut, échéance, priorité).
 
-MÉTHODE :
-1. Identifie les 2-3 enjeux réels derrière l'objectif de la réunion.
-2. Sélectionne les actions qui servent DIRECTEMENT ces enjeux (celles de ${qui} d'abord, puis de l'équipe). N'inclus une action QUE si tu peux formuler un lien direct et non-trivial avec l'objectif ; EN CAS DE DOUTE, EXCLUS-LA. Ne crée AUCUNE rubrique du type « secondaire / utile mais… » : une action administrative, RH, assurance, outillage ou hors-sujet n'apparaît PAS si l'objectif est commercial. Pour chaque action retenue : cite son n° et dis en une ligne le lien concret avec l'objectif.
-3. Repère les angles morts : ce que l'objectif exige mais qu'aucune action ne couvre.
+RAISONNE EN 3 TEMPS, DANS CET ORDRE — l'analyse commande les recommandations :
+
+ÉTAPE 1 — ANALYSE (d'abord, obligatoire). Reformule l'objectif RÉEL de la réunion et dégage 2 à 3 ENJEUX précis et spécifiques au contexte donné (ex. « sécuriser la passation à Bertrand », « verrouiller le COPIL Andros », « clarifier le poids de l'ICM »). C'est le cœur de ta valeur : concret et propre à cette réunion, jamais générique.
+
+ÉTAPE 2 — FILTRAGE (test de pertinence, action par action). Pour CHAQUE action, applique ce test binaire : « fait-elle DIRECTEMENT avancer l'un des 2-3 enjeux de l'étape 1 ? »
+- OUI → tu la retiens et écris en une phrase le LIEN concret avec l'enjeu (cite le n°).
+- NON ou doute → tu l'EXCLUS et tu n'en parles pas.
+Rigueur exigée : si l'objectif porte sur la gouvernance et le COPIL Andros, une action « souscrire une assurance Humetria » ou « envoyer des invitations Saint-Malo » n'a AUCUN lien direct → elle NE DOIT PAS apparaître, même si elle est en retard ou prioritaire. Le retard ou la priorité d'une action ne la rend PAS pertinente pour CETTE réunion.
+
+ÉTAPE 3 — RECOMMANDATIONS, déduites de l'analyse : questions et actions/décisions à proposer, chacune rattachée explicitement à un enjeu de l'étape 1.
 
 PRODUIS (Markdown, dense, SANS tableau exhaustif) :
-- **Lecture de la réunion** : 2-4 phrases — l'enjeu réel vu du CODIR, au-delà de l'ordre du jour.
-- **Ce que ${qui} doit porter** : ses actions PERTINENTES (n° + pourquoi c'est pertinent), points chauds (en retard / priorité haute) en tête ; ce qui est fait, ce qui bloque.
-- **Côté équipe** : les 2-3 actions d'autres pilotes qui pèsent sur cet objectif (n° + lien).
-- **Angles morts** : enjeux de l'objectif non couverts par une action existante.
-- **Questions à poser** : 3-5 questions tranchantes, directement liées à l'objectif (pas génériques).
-- **Décisions / actions à proposer** : 2-4 propositions concrètes qui font avancer l'objectif.
+- **Analyse — enjeux de la réunion** : les 2-3 enjeux réels (sortie de l'étape 1).
+- **Ce que ${qui} doit porter** : uniquement SES actions retenues (n° + lien avec l'enjeu), points chauds (retard / priorité haute) en tête ; ce qui est fait, ce qui bloque.
+- **Côté équipe** : uniquement les actions retenues d'autres pilotes (n° + lien).
+- **Angles morts** : enjeux de l'étape 1 qu'AUCUNE action ne couvre encore.
+- **Questions à poser** : 3-5, tranchantes, chacune rattachée à un enjeu.
+- **Décisions / actions à proposer** : 2-4, concrètes, chacune rattachée à un enjeu.
 
-RÈGLES : n'invente AUCUNE action existante (appuie-toi sur les n° fournis) ; en revanche tu PEUX proposer de nouvelles actions/décisions. Sois DRASTIQUEMENT sélectif : mieux vaut 2-3 actions vraiment liées à l'objectif que 10 vaguement rattachées. Une action sans lien direct avec l'objectif de CETTE réunion ne doit pas apparaître, même si elle est prioritaire ou en retard. INTERDICTION de produire un tableau qui liste toutes les actions. Réponds directement en Markdown, pas de JSON.`;
+AUTOCONTRÔLE avant de répondre : relis ta sélection et SUPPRIME toute action dont tu ne peux pas énoncer le lien avec un enjeu en une phrase concrète et non-générique. Mieux vaut 2-3 actions vraiment liées que 10 vaguement rattachées.
+
+RÈGLES : n'invente AUCUNE action existante (appuie-toi sur les n° fournis) ; tu PEUX proposer de nouvelles actions/décisions. INTERDIT : un tableau listant toutes les actions, et toute rubrique « secondaire / utile mais… ». Réponds directement en Markdown, pas de JSON.`;
 }
 
 function synthPrompt(interlocuteur, thematiques, pilotes, today) {
@@ -127,7 +135,7 @@ exports.handler = async (event) => {
 
   let body; try { body = JSON.parse(event.body || '{}'); } catch (e) { return { statusCode: 400, headers, body: JSON.stringify({ error: 'Corps invalide' }) }; }
   const mode = body.mode;
-  const model = process.env.CR_IA_MODEL || 'claude-sonnet-4-6';
+  const model = process.env.CR_IA_MODEL || 'claude-haiku-4-5-20251001';
   const today = (body && /^\d{4}-\d{2}-\d{2}$/.test(body.today)) ? body.today : new Date().toISOString().slice(0, 10);
   const interlocuteur = (typeof body.interlocuteur === 'string') ? body.interlocuteur : '';
 
