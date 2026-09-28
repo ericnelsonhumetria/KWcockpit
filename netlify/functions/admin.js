@@ -106,6 +106,19 @@ exports.handler = async (event) => {
       return { statusCode: 200, headers: cors, body: JSON.stringify({ ok: true, email, motDePasseInitial: password }) };
     }
 
+    // ---- INVITER un utilisateur par e-mail (il définit lui-même son mot de passe) ----
+    if (action === 'invite') {
+      const email = (body.email || '').toLowerCase();
+      if (!email) return { statusCode: 400, headers: cors, body: JSON.stringify({ error: 'email requis' }) };
+      const role = body.role || '';
+      const is_admin = Boolean(body.is_admin);
+      const opts = process.env.APP_URL ? { redirectTo: process.env.APP_URL } : undefined;
+      const { error } = await sb.auth.admin.inviteUserByEmail(email, opts);
+      if (error) throw error;
+      await sb.from('user_access').upsert({ email, role, is_admin }, { onConflict: 'email' });
+      return { statusCode: 200, headers: cors, body: JSON.stringify({ ok: true, email }) };
+    }
+
     // ---- RÉINITIALISER le mot de passe (génère un nouveau, jamais lit l'ancien) ----
     if (action === 'reset_password') {
       const userId = body.id;
