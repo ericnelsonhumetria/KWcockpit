@@ -41,6 +41,16 @@ exports.handler = async (event) => {
   let body; try { body = JSON.parse(event.body || '{}'); } catch (e) { return { statusCode: 400, headers, body: JSON.stringify({ error: 'Corps invalide' }) }; }
   const send = body.send === true;
 
+  // Diagnostic SMTP (ne lit rien, n'envoie rien) : POST { diag:true }
+  if (body && body.diag === true) {
+    const su = process.env.SMTP_USER, sp = process.env.SMTP_PASS, mf = process.env.MAIL_FROM;
+    const cfg = { SMTP_USER: !!su, SMTP_PASS: !!sp, MAIL_FROM: mf || null, from_equals_user: (mf || su) === su };
+    if (!su || !sp) return { statusCode: 200, headers, body: JSON.stringify({ diag: true, ok: false, config: cfg, error: 'SMTP_USER/SMTP_PASS manquant(s)' }) };
+    const tr = nodemailer.createTransport({ host: 'smtp.office365.com', port: 587, secure: false, connectionTimeout: 8000, greetingTimeout: 8000, socketTimeout: 8000, auth: { user: su, pass: sp } });
+    try { await tr.verify(); try { tr.close(); } catch (e) {} return { statusCode: 200, headers, body: JSON.stringify({ diag: true, ok: true, config: cfg }) }; }
+    catch (e) { console.error('[relance][diag] verify KO', e && (e.message||e), e && e.code, e && e.responseCode, e && e.response); try { tr.close(); } catch (x) {} return { statusCode: 200, headers, body: JSON.stringify({ diag: true, ok: false, config: cfg, error: (e && (e.message||String(e))) + (e && e.responseCode ? (' ['+e.responseCode+']') : '') }) }; }
+  }
+
   const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 
   // Actions ouvertes avec un pilote
@@ -121,7 +131,8 @@ exports.handler = async (event) => {
       await transporter.sendMail({ from, to: t.email, subject: `Rappel de vos actions (${t.actions.length}) — Kaizen Way`, text, html });
       sent++;
     } catch (e) {
-      errors.push({ email: t.email, error: e.message });
+      console.error('[relance] echec envoi', t.email, e && (e.message || e), e && e.code, e && e.responseCode, e && e.response);
+      errors.push({ email: t.email, error: (e && (e.message || String(e))) + (e && e.responseCode ? (' ['+e.responseCode+']') : '') });
     }
   }
 
