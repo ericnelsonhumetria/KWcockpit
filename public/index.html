@@ -581,6 +581,7 @@ async function doLogin(){
   await initSharedIfEmpty();
   errEl.textContent = "";
 
+  try { await loadTabAccess(); } catch(e){}
   render(role);
   document.getElementById('login').classList.add('hidden');
   document.getElementById('app').classList.remove('hidden');
@@ -624,6 +625,10 @@ function highlightLifecycle(role){
   });
 }
 
+var TAB_ACCESS = {};
+function tabDefault(role, tab){ switch(tab){ case 'dash': case 'objectifs': case 'plandaction': return true; case 'capbp': return role==='audrey'||role==='eric'; case 'dojo': return role!=='najoua'&&role!=='paul'&&role!=='juliette'; case 'cerebro': return ['eric','direction','paul','juliette'].indexOf(role)>=0; case 'parcours': return role==='eric'||role==='sabrine'||role==='audrey'; case 'admin': return role==='eric'; default: return false; } }
+function tabAllowed(role, tab){ if(TAB_ACCESS && TAB_ACCESS[role] && typeof TAB_ACCESS[role][tab]==='boolean') return TAB_ACCESS[role][tab]; return tabDefault(role, tab); }
+async function loadTabAccess(){ try{ if(!SB) return; var r=await SB.from('role_access').select('role,tabs'); TAB_ACCESS={}; ((r&&r.data)||[]).forEach(function(x){ TAB_ACCESS[x.role]=x.tabs||{}; }); }catch(e){ TAB_ACCESS={}; } }
 function render(role){
   CURRENT_ROLE = role;
   CURRENT_TAB = 'dash';
@@ -640,7 +645,7 @@ function render(role){
   // onglet Bonnes pratiques : capitalisation (Audrey + direction pour l'instant)
   const oldBp = tabsEl.querySelector('[data-tab="capbp"]');
   if(oldBp) oldBp.remove();
-  if(role==='audrey' || role==='eric'){
+  if(tabAllowed(role,'capbp')){
     const bpTab = document.createElement('button');
     bpTab.className = 'tab'; bpTab.dataset.tab = 'capbp';
     bpTab.setAttribute('onclick', "switchTab('capbp')");
@@ -650,7 +655,7 @@ function render(role){
   // onglet Dojo : simulations de coaching (ouvre l'app Dojo, session partagée) — pas pour Najoua
   const oldDojo = tabsEl.querySelector('[data-tab="dojo"]');
   if(oldDojo) oldDojo.remove();
-  if(role !== 'najoua' && role !== 'paul' && role !== 'juliette'){
+  if(tabAllowed(role,'dojo')){
     const dojoTab = document.createElement('button');
     dojoTab.className = 'tab'; dojoTab.dataset.tab = 'dojo';
     dojoTab.setAttribute('onclick', "switchTab('dojo')");
@@ -695,14 +700,16 @@ function render(role){
   // onglet Plan d'action : capture vocale + IA + suivi (tous les roles internes)
   const oldPa = tabsEl.querySelector('[data-tab="plandaction"]');
   if(oldPa) oldPa.remove();
-  const paTab = document.createElement('button');
-  paTab.className = 'tab'; paTab.dataset.tab = 'plandaction';
-  paTab.setAttribute('onclick', "switchTab('plandaction')");
-  paTab.innerHTML = 'CR et Actions';
-  tabsEl.appendChild(paTab);
+  if(tabAllowed(role,'plandaction')){
+    const paTab = document.createElement('button');
+    paTab.className = 'tab'; paTab.dataset.tab = 'plandaction';
+    paTab.setAttribute('onclick', "switchTab('plandaction')");
+    paTab.innerHTML = 'CR et Actions';
+    tabsEl.appendChild(paTab);
+  }
   const oldAdmin = tabsEl.querySelector('[data-tab="admin"]');
   if(oldAdmin) oldAdmin.remove();
-  if(role==='eric'){
+  if(tabAllowed(role,'admin')){
     const adminTab = document.createElement('button');
     adminTab.className = 'tab'; adminTab.dataset.tab = 'admin';
     adminTab.setAttribute('onclick', "switchTab('admin')");
@@ -1515,7 +1522,7 @@ function renderAdmin(users){
       <td>${statut}</td>
       <td class="sub-cell">${derniere}</td>
       <td>
-        <button class="add-btn sm" onclick="adminReset('${u.id}','${u.email}')">↻ MDP</button>
+        <button class="add-btn sm" onclick="adminReset('${u.id}','${u.email}')">↻ MDP</button> <button class="add-btn sm ghost" onclick="adminRecovery('${u.email}')">✉ Renvoyer</button>
         <button class="add-btn sm ghost" onclick="adminToggle('${u.id}', ${!u.desactive})">${u.desactive?'Réactiver':'Désactiver'}</button>
       </td>
     </tr>`;
@@ -1530,6 +1537,7 @@ function renderAdmin(users){
       <div id="adminMsg"></div>
     </div>
     <div id="adminPilotesZone"></div>
+    <div id="adminAccessZone"></div>
     <div id="consAccessZone"></div>`;
   renderSalaries();
   try { renderFreelanceTjm(); } catch(e){ console.error('renderFreelanceTjm', e); }
@@ -1537,6 +1545,7 @@ function renderAdmin(users){
   renderConsultantAccess();
   renderDepBareme();
   try { renderAdminPilotes(ADMIN_USERS); } catch(e){ console.error('renderAdminPilotes', e); }
+  try { renderAdminAccess(); } catch(e){ console.error('renderAdminAccess', e); }
 }
 function renderAdminPilotes(users){
   var z=document.getElementById('adminPilotesZone'); if(!z) return;
@@ -1567,6 +1576,22 @@ window.paAdminAddPilote=function(){
 };
 window.paAdminTogglePilote=function(id,actif){ SB.from('action_pilotes').update({actif:actif}).eq('id',id).then(function(r){ if(!r.error) renderAdminPilotes(ADMIN_USERS); else alert('Refusé : '+r.error.message); }); };
 window.paAdminLinkPilote=function(id,uid){ var em=(ADMIN_USERS.find(function(u){return u.id===uid;})||{}).email||null; SB.from('action_pilotes').update({user_id:uid||null, email:uid?em:null}).eq('id',id).then(function(r){ if(!r.error) renderAdminPilotes(ADMIN_USERS); else alert('Refusé : '+r.error.message); }); };
+  function renderAdminAccess(){
+    var z=document.getElementById('adminAccessZone'); if(!z) return;
+    var roles=[['eric','Direction'],['paul','Commerce'],['audrey','Méthodes'],['juliette','Mktg et Produit'],['sabrine','RH'],['najoua','Administration des affaires'],['consultant','Consultant']];
+    var tabs=[['cerebro','Cerebro'],['capbp','Bonnes pratiques'],['dojo','Dojo'],['parcours','Parcours candidats'],['plandaction','CR et Actions'],['admin','Admin']];
+    var head='<tr><th style="text-align:left;padding:6px 8px;">Fonction</th>'+tabs.map(function(t){return '<th style="padding:6px 8px;font-size:12px;">'+t[1]+'</th>';}).join('')+'</tr>';
+    var body=roles.map(function(r){ return '<tr><td style="padding:6px 8px;font-weight:600;color:#560A0F;">'+r[1]+'</td>'+tabs.map(function(t){ var on=tabAllowed(r[0],t[0]); return '<td style="text-align:center;padding:6px 8px;"><input type="checkbox" id="acc_'+r[0]+'_'+t[0]+'"'+(on?' checked':'')+'></td>'; }).join('')+'</tr>'; }).join('');
+    z.innerHTML='<div class="panel" style="padding:12px 16px 16px;margin-top:16px;"><div class="sec-title" style="font-size:16px;">Accès aux fonctions par rôle</div><div class="sec-note">Coche les onglets accessibles pour chaque fonction. « Tableau de bord » et « Objectifs » restent toujours accessibles. L\'effet s\'applique à la prochaine connexion de l\'utilisateur.</div><div style="overflow-x:auto;margin-top:10px;"><table><thead>'+head+'</thead><tbody>'+body+'</tbody></table></div><div style="margin-top:10px;display:flex;gap:8px;align-items:center;"><button class="add-btn" onclick="paSaveAccess()" type="button">Enregistrer les accès</button><span id="accMsg" class="edit-hint"></span></div></div>';
+  }
+  window.paSaveAccess=async function(){
+    var roles=['eric','paul','audrey','juliette','sabrine','najoua','consultant'];
+    var tabs=['cerebro','capbp','dojo','parcours','plandaction','admin'];
+    var rows=roles.map(function(role){ var t={}; tabs.forEach(function(tab){ var cb=document.getElementById('acc_'+role+'_'+tab); t[tab]=!!(cb&&cb.checked); }); return {role:role, tabs:t}; });
+    var m=document.getElementById('accMsg'); if(m){ m.style.color='var(--muted)'; m.textContent='Enregistrement…'; }
+    try{ var r=await SB.from('role_access').upsert(rows,{onConflict:'role'}); if(r.error) throw r.error; await loadTabAccess(); if(m){ m.style.color='#2e7d46'; m.textContent='Accès enregistrés (effet à la prochaine connexion).'; } }
+    catch(e){ if(m){ m.style.color='var(--signal)'; m.textContent='Refusé : '+(e.message||e); } }
+  };
   window.paAdminInvite=async function(){
     var e1=document.getElementById('invEmail'); var email=e1?e1.value.trim().toLowerCase():''; var role=(document.getElementById('invRole')||{}).value||''; var m=document.getElementById('invMsg');
     if(!email){ if(m){m.style.color='var(--signal)';m.textContent='E-mail requis.';} return; }
@@ -1734,6 +1759,12 @@ async function adminReset(id, email){
   if(ok && data.nouveauMotDePasse){
     adminMsg('✓ Nouveau mot de passe pour <b>'+email+'</b> : <code style="background:#fff;padding:2px 8px;border-radius:4px;">'+data.nouveauMotDePasse+'</code><br><span style="font-weight:400;">Transmettez-le à la personne — il ne sera plus affiché. Elle pourra le changer ensuite.</span>');
   } else { adminMsg('⚠ Échec de la réinitialisation'); }
+}
+async function adminRecovery(email){
+  if(!confirm('Envoyer un e-mail de réinitialisation du mot de passe à '+email+' ?')) return;
+  const { ok, data } = await adminCall({ action:'recovery', email });
+  if(ok){ adminMsg('✓ E-mail de réinitialisation envoyé à <b>'+email+'</b>.'); }
+  else { adminMsg('✗ Échec de l\'envoi'+((data&&data.error)?' : '+data.error:'')); }
 }
 async function adminToggle(id, desactiver){
   const { ok } = await adminCall({ action:'toggle_active', id, desactiver });
@@ -4089,7 +4120,7 @@ applyLogo();
         if(!tabsEl) return;
         var old = tabsEl.querySelector('[data-tab="parcours"]');
         if(old) old.remove();
-        if(role==='eric' || role==='sabrine' || role==='audrey'){
+        if(tabAllowed(role,'parcours')){
           var t = document.createElement('button');
           t.className='tab'; t.dataset.tab='parcours';
           t.setAttribute('onclick',"switchTab('parcours')");
@@ -4548,7 +4579,7 @@ async function saveQPMScore(candId){
         var tabsEl = document.getElementById('tabs');
         if(!tabsEl) return;
         var old = tabsEl.querySelector('[data-tab="cerebro"]'); if(old) old.remove();
-        if(CEREBRO_ROLES.indexOf(role) >= 0){
+        if(tabAllowed(role,'cerebro')){
           var t = document.createElement('button');
           t.className = 'tab'; t.dataset.tab = 'cerebro';
           t.setAttribute('onclick', "switchTab('cerebro')");
