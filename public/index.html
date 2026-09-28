@@ -7855,7 +7855,7 @@ function kwLifecycleSyncBtn(){
     var ta=document.getElementById('paTexte'); var t=ta?ta.value.trim():''; if(!t) return;
     try {
       if(PA_AUTODRAFT_ID){ await SB.from('actions').update({texte_brut:t, libelle:t.slice(0,180)}).eq('id',PA_AUTODRAFT_ID); }
-      else { var r=await SB.from('actions').insert({texte_brut:t, libelle:t.slice(0,180), statut:'brouillon', pilote_id:paMyPiloteId(), tags:['_auto']}).select('id').single();
+      else { var r=await SB.from('actions').insert({texte_brut:t, libelle:t.slice(0,180), statut:'brouillon', pilote_id:null, tags:['_auto']}).select('id').single();
         if(!r.error&&r.data){ PA_AUTODRAFT_ID=r.data.id; await paLoadList(); if(PA_VIEW!=='archive') paRenderResults(); } }
     } catch(e){}
   }
@@ -8144,6 +8144,7 @@ function kwLifecycleSyncBtn(){
     return hay.indexOf(qy)>=0;
   }
   function paMatch(a){
+    if((a.tags||[]).some(function(t){return String(t).indexOf('_')===0;})) return false;
     if(PA_FILTER.thematique && a.thematique!==PA_FILTER.thematique) return false;
     if(PA_FILTER.pilote && a.pilote_id!==PA_FILTER.pilote) return false;
     if(PA_FILTER.statut && a.statut!==PA_FILTER.statut) return false;
