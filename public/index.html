@@ -8074,11 +8074,13 @@ function kwLifecycleSyncBtn(){
     if(!f.pilote_id && mode!=='edit') f.pilote_id=paMyPiloteId();
     try {
       if(mode==='edit'){
-        var r=await SB.from('actions').update(f).eq('id',PA_EDIT.id); if(r.error) throw r.error;
+        var r=await SB.from('actions').update(f).eq('id',PA_EDIT.id);
+        if(r.error){ var f2={}; for(var kk in f){ if(kk!=='source'&&kk!=='pieces_jointes') f2[kk]=f[kk]; } r=await SB.from('actions').update(f2).eq('id',PA_EDIT.id); if(r.error) throw r.error; }
         PA_EDIT=null;
       } else {
         var row={texte_brut:PA_DRAFT.texte_brut, libelle:f.libelle, thematique:f.thematique, projet:f.projet, source:f.source, pilote_id:f.pilote_id, echeance:f.echeance, priorite:f.priorite, statut:f.statut, tags:f.tags, pieces_jointes:f.pieces_jointes, commentaire:f.commentaire, confidentiel:f.confidentiel};
-        var r2=await SB.from('actions').insert(row); if(r2.error) throw r2.error;
+        var r2=await SB.from('actions').insert(row);
+        if(r2.error){ var row2={}; for(var kk in row){ if(kk!=='source'&&kk!=='pieces_jointes') row2[kk]=row[kk]; } r2=await SB.from('actions').insert(row2); if(r2.error) throw r2.error; }
         if(PA_AUTODRAFT_ID){ try{ await SB.from('actions').delete().eq('id',PA_AUTODRAFT_ID); }catch(x){} PA_AUTODRAFT_ID=null; }
         PA_DRAFT=null; var ta=document.getElementById('paTexte'); if(ta) ta.value=''; paClearDraftTxt();
       }
