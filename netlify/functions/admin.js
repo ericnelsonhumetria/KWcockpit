@@ -119,6 +119,16 @@ exports.handler = async (event) => {
       return { statusCode: 200, headers: cors, body: JSON.stringify({ ok: true, email }) };
     }
 
+    // ---- RENVOYER le mot de passe (e-mail de réinitialisation, l'utilisateur le redéfinit) ----
+    if (action === 'recovery') {
+      const email = (body.email || '').toLowerCase();
+      if (!email) return { statusCode: 400, headers: cors, body: JSON.stringify({ error: 'email requis' }) };
+      const opts = process.env.APP_URL ? { redirectTo: process.env.APP_URL } : undefined;
+      const { error } = await sb.auth.resetPasswordForEmail(email, opts);
+      if (error) throw error;
+      return { statusCode: 200, headers: cors, body: JSON.stringify({ ok: true, email }) };
+    }
+
     // ---- RÉINITIALISER le mot de passe (génère un nouveau, jamais lit l'ancien) ----
     if (action === 'reset_password') {
       const userId = body.id;
