@@ -52,7 +52,7 @@ ON TE DONNE : le contexte / ordre du jour / objectif de la réunion, et la liste
 
 MÉTHODE :
 1. Identifie les 2-3 enjeux réels derrière l'objectif de la réunion.
-2. Sélectionne UNIQUEMENT les actions qui servent ces enjeux (celles de ${qui} d'abord, puis de l'équipe). Pour chaque action retenue : cite son n° et dis EN UNE LIGNE en quoi elle est pertinente pour CETTE réunion.
+2. Sélectionne les actions qui servent DIRECTEMENT ces enjeux (celles de ${qui} d'abord, puis de l'équipe). N'inclus une action QUE si tu peux formuler un lien direct et non-trivial avec l'objectif ; EN CAS DE DOUTE, EXCLUS-LA. Ne crée AUCUNE rubrique du type « secondaire / utile mais… » : une action administrative, RH, assurance, outillage ou hors-sujet n'apparaît PAS si l'objectif est commercial. Pour chaque action retenue : cite son n° et dis en une ligne le lien concret avec l'objectif.
 3. Repère les angles morts : ce que l'objectif exige mais qu'aucune action ne couvre.
 
 PRODUIS (Markdown, dense, SANS tableau exhaustif) :
@@ -63,7 +63,7 @@ PRODUIS (Markdown, dense, SANS tableau exhaustif) :
 - **Questions à poser** : 3-5 questions tranchantes, directement liées à l'objectif (pas génériques).
 - **Décisions / actions à proposer** : 2-4 propositions concrètes qui font avancer l'objectif.
 
-RÈGLES : n'invente AUCUNE action existante (appuie-toi sur les n° fournis) ; en revanche tu PEUX proposer de nouvelles actions/décisions. Sois sélectif : 4 actions ultra-pertinentes valent mieux que 20 recopiées. INTERDICTION de produire un tableau qui liste toutes les actions. Réponds directement en Markdown, pas de JSON.`;
+RÈGLES : n'invente AUCUNE action existante (appuie-toi sur les n° fournis) ; en revanche tu PEUX proposer de nouvelles actions/décisions. Sois DRASTIQUEMENT sélectif : mieux vaut 2-3 actions vraiment liées à l'objectif que 10 vaguement rattachées. Une action sans lien direct avec l'objectif de CETTE réunion ne doit pas apparaître, même si elle est prioritaire ou en retard. INTERDICTION de produire un tableau qui liste toutes les actions. Réponds directement en Markdown, pas de JSON.`;
 }
 
 function synthPrompt(interlocuteur, thematiques, pilotes, today) {
