@@ -30,7 +30,7 @@
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html { -webkit-text-size-adjust: 100%; }
   body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background: var(--paper); color: var(--ink); line-height: 1.5; }
-  .wrap { max-width: 1100px; margin: 0 auto; padding: 0 20px 60px; }
+  .wrap { max-width: none; margin: 0 auto; padding: 0 20px 60px; }
   .hidden { display: none !important; }
 
   /* ===== LOGIN ===== */
@@ -8120,7 +8120,7 @@ function kwLifecycleSyncBtn(){
       +'.hum-grip{cursor:grab;color:#8a3d55;opacity:.55;font-size:15px;user-select:none;touch-action:none;} .hum-grip:hover{opacity:1;}'
       +'.hum-resize{position:absolute;right:2px;bottom:2px;width:20px;height:20px;cursor:nwse-resize;color:#560A0F;opacity:.4;font-size:15px;line-height:20px;text-align:center;touch-action:none;} .hum-resize:hover{opacity:.95;}'
       +'.hum-tile{width:96px;border:1px solid rgba(86,10,15,.12);border-radius:8px;overflow:hidden;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.06);}'
-      +'#humViewport{position:relative;width:100%;height:74vh;min-height:520px;overflow:auto;border:1px solid rgba(86,10,15,.18);border-radius:12px;background:#fbf8f2;}'
+      +'#humViewport{position:relative;left:50%;margin-left:-50vw;width:100vw;height:82vh;min-height:560px;overflow:auto;border-top:1px solid rgba(86,10,15,.18);border-bottom:1px solid rgba(86,10,15,.18);background:#fbf8f2;}'
       +'#humWorld{position:relative;transform-origin:0 0;background-image:radial-gradient(rgba(86,10,15,.10) 1px,transparent 1px);background-size:40px 40px;}'
       +'#humWorld .hum-card{position:absolute;transition:box-shadow .12s,transform .12s;}'
       +'#humWorld .hum-card.fan{cursor:pointer;} #humWorld .hum-card.fan:hover{transform:translateY(-34px) rotate(0deg) !important;z-index:9999 !important;box-shadow:0 12px 28px rgba(86,10,15,.28);}'
