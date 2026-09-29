@@ -17,9 +17,10 @@
   // Sous-onglets autorises selon le role recu du Cockpit (UX ; l'isolation reelle = RLS Brique B)
   (function(){
     var role = new URLSearchParams(location.search).get('role') || '';
+    var subsParam = new URLSearchParams(location.search).get('cerebro');
     var map = { eric:['comptes','evenements','talents'], direction:['comptes','evenements','talents'],
-                paul:['comptes'], juliette:['evenements'] };
-    window.CEREBRO_ALLOWED = map[role] || ['comptes','evenements'];
+                paul:['comptes'], juliette:['evenements'], communication:['evenements'], sabrine:['talents'] };
+    window.CEREBRO_ALLOWED = (subsParam!==null) ? (subsParam ? subsParam.split(',') : []) : (map[role] || ['comptes','evenements']);
   })();
   window.storage = {
     get: async function(k){ try{ var v=localStorage.getItem(k); return (v===null)?null:{key:k,value:v}; }catch(e){ return null; } },
