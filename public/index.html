@@ -626,7 +626,7 @@ function highlightLifecycle(role){
 }
 
 var TAB_ACCESS = {};
-function tabDefault(role, tab){ if(role==='cto') return true; if(role==='communication') return (tab==='dash'||tab==='objectifs'||tab==='plandaction'||tab==='cerebro'); switch(tab){ case 'dash': case 'objectifs': case 'plandaction': return true; case 'capbp': return role==='audrey'||role==='eric'; case 'dojo': return role!=='najoua'&&role!=='paul'&&role!=='juliette'; case 'cerebro': return ['eric','direction','paul','juliette'].indexOf(role)>=0; case 'parcours': return role==='eric'||role==='sabrine'||role==='audrey'; case 'admin': return role==='eric'; default: return false; } }
+function tabDefault(role, tab){ if(role==='consultant') return tab==='plandaction'; if(role==='cto') return true; if(role==='communication') return (tab==='dash'||tab==='objectifs'||tab==='plandaction'||tab==='cerebro'); switch(tab){ case 'dash': case 'objectifs': case 'plandaction': return true; case 'capbp': return role==='audrey'||role==='eric'; case 'dojo': return role!=='najoua'&&role!=='paul'&&role!=='juliette'; case 'cerebro': return ['eric','direction','paul','juliette'].indexOf(role)>=0; case 'parcours': return role==='eric'||role==='sabrine'||role==='audrey'; case 'admin': return role==='eric'; default: return false; } }
 function tabAllowed(role, tab){ if(TAB_ACCESS && TAB_ACCESS[role] && typeof TAB_ACCESS[role][tab]==='boolean') return TAB_ACCESS[role][tab]; return tabDefault(role, tab); }
 async function loadTabAccess(){ try{ if(!SB) return; var r=await SB.from('role_access').select('role,tabs'); TAB_ACCESS={}; ((r&&r.data)||[]).forEach(function(x){ TAB_ACCESS[x.role]=x.tabs||{}; }); }catch(e){ TAB_ACCESS={}; } }
 function render(role){
@@ -637,11 +637,13 @@ function render(role){
   const tabsEl = document.getElementById('tabs');
   const existing = tabsEl.querySelector('[data-tab="objectifs"]');
   if(existing) existing.remove();
+  if(tabAllowed(role,'objectifs')){
   const objTab = document.createElement('button');
   objTab.className = 'tab'; objTab.dataset.tab = 'objectifs';
   objTab.setAttribute('onclick', "switchTab('objectifs')");
   objTab.innerHTML = (role==='eric') ? 'Objectifs ✎' : 'Mes objectifs';
   tabsEl.appendChild(objTab);
+  }
   // onglet Bonnes pratiques : capitalisation (Audrey + direction pour l'instant)
   const oldBp = tabsEl.querySelector('[data-tab="capbp"]');
   if(oldBp) oldBp.remove();
@@ -716,7 +718,17 @@ function render(role){
     adminTab.innerHTML = 'Admin';
     tabsEl.appendChild(adminTab);
   }
-  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.dataset.tab==='dash'));
+  var dashBtn = document.querySelector('.tab[data-tab="dash"]');
+  var homeBtn = document.querySelector('.head-home');
+  if(!tabAllowed(role,'dash')){
+    if(dashBtn) dashBtn.style.display='none';
+    if(homeBtn) homeBtn.style.display='none';
+    CURRENT_TAB = 'plandaction';
+  } else {
+    if(dashBtn) dashBtn.style.display='';
+    if(homeBtn) homeBtn.style.display='';
+  }
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.dataset.tab===CURRENT_TAB));
   const open = (ACTIONS[role]||[]).filter(a=>!a.done).length;
   const badge = document.getElementById('tabBadge'); if(badge) badge.textContent = open;
   highlightLifecycle(role);
@@ -724,6 +736,8 @@ function render(role){
 }
 
 function switchTab(tab){
+  var GATED=['dash','objectifs','plandaction','capbp','dojo','cerebro','parcours','admin'];
+  if(GATED.indexOf(tab)>=0 && !tabAllowed(CURRENT_ROLE, tab)){ tab = tabAllowed(CURRENT_ROLE,'dash') ? 'dash' : 'plandaction'; }
   CURRENT_TAB = tab;
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.dataset.tab===tab));
   renderTab();
@@ -731,6 +745,7 @@ function switchTab(tab){
 }
 
 function openSubview(role){
+  if(CURRENT_ROLE!=='eric') return;
   // Accès direction : Eric consulte la vue RH ou Finance
   const titre = role==='najoua'?'Finance & admin':'RH — recrutement';
   const banner = `<div class="subview-banner">Vue ${titre} · <b>accès direction (intérim Eric)</b> <button class="add-btn sm" onclick="render('eric')" style="margin-left:auto;">← Retour direction</button></div>`;
@@ -756,7 +771,7 @@ function renderTab(){
     document.getElementById('view').innerHTML = (VIEWS[CURRENT_ROLE]||VIEWS._default)();
     if(CURRENT_ROLE==='paul' || CURRENT_ROLE==='eric') animateBars();
     if(CURRENT_ROLE==='eric'){ animateGoal(); loadRespCommerce(); }
-    if(CURRENT_ROLE==='consultant') loadPdc();
+    /* consultant : plus de plan de charge (accès CR et Actions uniquement) */
   } else if(CURRENT_TAB==='pdc'){
     document.getElementById('view').innerHTML = renderPdc();
   } else if(CURRENT_TAB==='pdccons'){
@@ -3930,7 +3945,7 @@ async function depBaremeSave(){
 const VIEWS = {
 
 /* ---------- CONSULTANT : espace personnel plan de charge ---------- */
-consultant: () => renderPdc(),
+consultant: () => _soberView('Espace consultant')(),
 
 /* ---------- ERIC : DIRECTION ---------- */
 eric: () => `
