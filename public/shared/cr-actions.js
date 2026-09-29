@@ -128,7 +128,7 @@
     var r=document.getElementById('paResults'); if(!r) return;
     if(PA_VIEW==='archive'){ r.innerHTML=paArchiveHtml(); return; }
     var stats=paStatsHtml(PA_LIST.filter(paMatch));
-    r.innerHTML = stats + (PA_VIEW==='periode' ? paPeriodeHtml() : (PA_VIEW==='kanban' ? paKanbanHtml() : (PA_VIEW==='liste' ? paListHtml() : paMatrixHtml())));
+    r.innerHTML = stats + (PA_VIEW==='routine' ? paRoutineHtml() : (PA_VIEW==='projet' ? paProjetHtml() : (PA_VIEW==='periode' ? paPeriodeHtml() : (PA_VIEW==='kanban' ? paKanbanHtml() : (PA_VIEW==='liste' ? paListHtml() : paMatrixHtml())))));
   }
 
   // ---------- Capture (vocal + texte + IA) ----------
@@ -224,6 +224,7 @@
       +   paField('Thématique','<div style="display:flex;gap:4px;"><select id="pfTheme" style="'+paSelStyle()+'">'+themeOpts+'</select><button type="button" onclick="paNewTheme(\''+mode+'\')" title="Nouvelle thématique" class="add-btn sm" style="flex:0 0 auto;background:#fff;color:#560A0F;">+</button></div>')
       +   paField('Projet','<input id="pfProjet" type="text" value="'+paEsc(d.projet||'')+'" placeholder="(optionnel)" style="'+paSelStyle()+'">')
       +   paField('Source','<input id="pfSource" type="text" value="'+paEsc(d.source||'')+'" placeholder="(optionnel) origine / contexte de l\'action" style="'+paSelStyle()+'">')
+      +   paField('Routine','<input id="pfRoutine" type="text" value="'+paEsc(d.routine||'')+'" placeholder="(optionnel) ex. AIC Ligne 3" style="'+paSelStyle()+'">')
       +   paField('Pilote','<select id="pfPilote" style="'+paSelStyle()+'">'+piloteOpts+'</select>')
       + '</div>'
       + '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;">'
@@ -280,6 +281,7 @@
       thematique:val('pfTheme')||'autre',
       projet:val('pfProjet').trim()||null,
       source:val('pfSource').trim()||null,
+      routine:val('pfRoutine').trim()||null,
       pilote_id:val('pfPilote')||null,
       echeance:val('pfEch')||null,
       priorite:parseInt(val('pfPrio'),10)||2,
@@ -310,12 +312,12 @@
     try {
       if(mode==='edit'){
         var r=await SB.from('actions').update(f).eq('id',PA_EDIT.id);
-        if(r.error){ var f2={}; for(var kk in f){ if(kk!=='source'&&kk!=='pieces_jointes') f2[kk]=f[kk]; } r=await SB.from('actions').update(f2).eq('id',PA_EDIT.id); if(r.error) throw r.error; }
+        if(r.error){ var f2={}; for(var kk in f){ if(kk!=='source'&&kk!=='pieces_jointes'&&kk!=='routine') f2[kk]=f[kk]; } r=await SB.from('actions').update(f2).eq('id',PA_EDIT.id); if(r.error) throw r.error; }
         PA_EDIT=null;
       } else {
-        var row={texte_brut:PA_DRAFT.texte_brut, libelle:f.libelle, thematique:f.thematique, projet:f.projet, source:f.source, pilote_id:f.pilote_id, echeance:f.echeance, priorite:f.priorite, statut:f.statut, tags:f.tags, pieces_jointes:f.pieces_jointes, commentaire:f.commentaire, confidentiel:f.confidentiel};
+        var row={texte_brut:PA_DRAFT.texte_brut, libelle:f.libelle, thematique:f.thematique, projet:f.projet, source:f.source, routine:f.routine, pilote_id:f.pilote_id, echeance:f.echeance, priorite:f.priorite, statut:f.statut, tags:f.tags, pieces_jointes:f.pieces_jointes, commentaire:f.commentaire, confidentiel:f.confidentiel};
         var r2=await SB.from('actions').insert(row);
-        if(r2.error){ var row2={}; for(var kk in row){ if(kk!=='source'&&kk!=='pieces_jointes') row2[kk]=row[kk]; } r2=await SB.from('actions').insert(row2); if(r2.error) throw r2.error; }
+        if(r2.error){ var row2={}; for(var kk in row){ if(kk!=='source'&&kk!=='pieces_jointes'&&kk!=='routine') row2[kk]=row[kk]; } r2=await SB.from('actions').insert(row2); if(r2.error) throw r2.error; }
         if(PA_AUTODRAFT_ID){ try{ await SB.from('actions').delete().eq('id',PA_AUTODRAFT_ID); }catch(x){} PA_AUTODRAFT_ID=null; }
         PA_DRAFT=null; var ta=document.getElementById('paTexte'); if(ta) ta.value=''; paClearDraftTxt();
       }
@@ -335,7 +337,7 @@
   window.paSetView=async function(v){ PA_VIEW=v; if(v==='archive'){ try{ await paLoadArchived(); }catch(e){ PA_MSG='Chargement des archives impossible : '+(e.message||e); } } paRepaint(); };
   function paViewToggle(){
     function chip(val,label){ var on=(PA_VIEW===val); return '<button onclick="paSetView(\''+val+'\')" style="font-size:12px;padding:5px 12px;border-radius:999px;border:1px solid '+(on?'#560A0F':'rgba(86,10,15,.28)')+';background:'+(on?'#560A0F':'#fff')+';color:'+(on?'#fff':'#560A0F')+';cursor:pointer;font-family:inherit;font-weight:'+(on?'600':'400')+';margin-right:6px;">'+label+'</button>'; }
-    return '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:2px;margin:16px 0 2px;"><span class="edit-hint" style="margin-right:4px;">Vue :</span>'+chip('matrice','Matrice')+chip('liste','Liste')+chip('kanban','Kanban')+chip('periode','Période')+chip('archive','Archivées')+'</div>';
+    return '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:2px;margin:16px 0 2px;"><span class="edit-hint" style="margin-right:4px;">Vue :</span>'+chip('matrice','Matrice')+chip('liste','Liste')+chip('kanban','Kanban')+chip('periode','Période')+chip('routine','Routine')+chip('projet','Projet')+chip('archive','Archivées')+'</div>';
   }
   function paFiltersHtml(){
     var themeF='<option value="">Toutes thématiques</option>'+(PA_REFS.thematiques||[]).map(function(t){return '<option value="'+t.code+'"'+(PA_FILTER.thematique===t.code?' selected':'')+'>'+paEsc(t.libelle)+'</option>';}).join('');
@@ -506,6 +508,19 @@
   window.paArchiveDone=async function(){ var ids=PA_LIST.filter(function(a){return a.statut==='fait';}).map(function(a){return a.id;}); if(!ids.length) return; try{ var r=await SB.from('actions').update({archived_at:new Date().toISOString()}).in('id',ids); if(r.error) throw r.error; await paLoadList(); await paLoadArchived(); paRepaint(); }catch(e){ PA_MSG='Archivage refusé : '+(e.message||e); paRepaint(); } };
 
   // ---------- Statut / archive / drag ----------
+  function paGroupedHtml(list, keyFn, emptyMsg){
+    if(!list.length) return '<div class="edit-hint" style="padding:10px 2px;">'+emptyMsg+'</div>';
+    var groups={}, order=[];
+    list.forEach(function(a){ var k=String(keyFn(a)); if(!groups[k]){ groups[k]=[]; order.push(k); } groups[k].push(a); });
+    order.sort(function(x,y){return x.localeCompare(y);});
+    var total=list.length;
+    return '<div class="edit-hint" style="margin:2px 0;">'+order.length+' groupe(s) \u00b7 '+total+' action(s)</div>'+order.map(function(k){
+      var items=groups[k].sort(function(a,b){return (a.echeance||'').localeCompare(b.echeance||'');});
+      return '<div style="margin-bottom:12px;"><div style="font-weight:700;color:#560A0F;font-size:13px;margin:6px 0 4px;border-bottom:2px solid rgba(86,10,15,.15);padding-bottom:2px;">'+paEsc(k)+' <span style="font-weight:400;color:var(--muted);font-size:11px;">('+items.length+')</span></div>'+items.map(paPeriodRow).join('')+'</div>';
+    }).join('');
+  }
+  function paRoutineHtml(){ var all=PA_LIST.filter(paMatch).filter(function(a){return a.routine && String(a.routine).trim();}); return paGroupedHtml(all, function(a){return a.routine;}, 'Aucune action rattachée à une routine. Coche « routine » dans un CR, ou renseigne le champ Routine d\'une action.'); }
+  function paProjetHtml(){ var all=PA_LIST.filter(paMatch).filter(function(a){return a.projet && String(a.projet).trim();}); return paGroupedHtml(all, function(a){return a.projet;}, 'Aucune action rattachée à un projet. Renseigne le champ Projet d\'une action.'); }
   function paPeriodRow(a){
     var done=(a.statut==='fait'||a.statut==='abandonne'); var over=paOverdue(a);
     return '<div style="display:flex;gap:10px;align-items:flex-start;padding:7px 6px;border-bottom:1px solid rgba(86,10,15,.08);border-radius:6px;'+(over?'background:#fdecea;':'')+(done?'opacity:.55;':'')+'">'
@@ -665,7 +680,7 @@
     }).join('');
     return head+'<div>'+rows+'</div>';
   }
-  window.crNew=function(){ CR_CUR={ titre:'', date_reunion:today(), interlocuteur_id:'', contexte:'', preparation:'', transcription:'', synthese:'', actions_numeros:[], statut:'prepa' }; CR_DICT=''; crRepaint(); };
+  window.crNew=function(){ CR_CUR={ titre:'', date_reunion:today(), interlocuteur_id:'', contexte:'', preparation:'', transcription:'', synthese:'', actions_numeros:[], est_routine:false, statut:'prepa' }; CR_DICT=''; crRepaint(); };
   function crInsertLabel(lbl){ var ta=document.getElementById('crTranscript'); if(!ta) return; var cur=ta.value.replace(/\s+$/,''); ta.value=(cur?(cur+'\n\n'):'')+lbl; CR_DICT=ta.value; if(CR_CUR) CR_CUR.transcription=ta.value; ta.focus(); try{ ta.setSelectionRange(ta.value.length, ta.value.length); }catch(e){} }
   window.crAddMe=function(){ crInsertLabel('Moi : '); };
   window.crAddSpeaker=function(){ var ta=document.getElementById('crTranscript'); var txt=ta?ta.value:''; var max=0,m,re=/Interlocuteur\s+(\d+)/g; while((m=re.exec(txt))){ var n=parseInt(m[1],10); if(n>max) max=n; } crInsertLabel('Interlocuteur '+(max+1)+' : '); };
@@ -692,6 +707,7 @@
     var g=function(id){ var el=document.getElementById(id); return el?el.value:''; };
     if(!CR_CUR) return;
     CR_CUR.titre=g('crTitre'); CR_CUR.date_reunion=g('crDate')||today(); CR_CUR.interlocuteur_id=g('crInter')||null; CR_CUR.contexte=g('crContexte');
+    var cbR=document.getElementById('crRoutine'); if(cbR) CR_CUR.est_routine=!!cbR.checked;
     var parts=[]; var cbs=document.querySelectorAll('.crPart'); for(var k=0;k<cbs.length;k++){ if(cbs[k].checked) parts.push(cbs[k].value); } CR_CUR.participants=parts;
     var auths=[]; var cbs2=document.querySelectorAll('.crAuth'); for(var k2=0;k2<cbs2.length;k2++){ if(cbs2[k2].checked) auths.push(cbs2[k2].value); } CR_CUR.autorises=auths;
     var tr=document.getElementById('crTranscript'); if(tr) CR_CUR.transcription=tr.value;
@@ -712,6 +728,7 @@
       +'<label style="flex:2;min-width:200px;font-size:11px;color:var(--muted);">Titre / objet<div style="margin-top:2px;"><input id="crTitre" type="text" value="'+e(d.titre||'')+'" style="'+sel()+'"></div></label>'
       +'<label style="flex:1;min-width:130px;font-size:11px;color:var(--muted);">Date<div style="margin-top:2px;"><input id="crDate" type="date" value="'+(d.date_reunion||today())+'" style="'+sel()+'"></div></label>'
       +'<label style="flex:1;min-width:160px;font-size:11px;color:var(--muted);">Interlocuteur<div style="margin-top:2px;"><select id="crInter" style="'+sel()+'">'+piloteOpts+'</select></div></label>'
+      +'<label style="flex:1 1 100%;font-size:12.5px;color:#333;display:inline-flex;align-items:center;gap:6px;margin-top:6px;"><input type="checkbox" id="crRoutine"'+(d.est_routine?' checked':'')+'> C\'est une <b>routine (AIC)</b> \u2014 les actions décidées alimenteront la vue Routine du plan d\'action (sinon : réunion ponctuelle, pas de remontée)</label>'
       +'<div style="flex:1 1 100%;font-size:11px;color:var(--muted);margin-top:2px;">Participants (pour l\'envoi par mail)<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:4px;">'+((CR_REFS.pilotes||[]).filter(function(p){return p.email;}).map(function(p){ var on=(d.participants||[]).indexOf(p.id)>=0; return '<label style="font-size:12.5px;color:#333;display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" class="crPart" value="'+p.id+'"'+(on?' checked':'')+'> '+e(p.nom)+'</label>'; }).join('')||'<span class="edit-hint">Aucun pilote avec e-mail — renseigne-les dans Admin → Pilotes (liaison compte).</span>')+'</div></div>'
       +'<div style="flex:1 1 100%;font-size:11px;color:var(--muted);margin-top:6px;">Autorisés à consulter ce CR (en plus de l\'émetteur et des participants)<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:4px;">'+((CR_REFS.pilotes||[]).filter(function(p){return p.user_id;}).map(function(p){ var on=(d.autorises||[]).indexOf(p.id)>=0; return '<label style="font-size:12.5px;color:#333;display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" class="crAuth" value="'+p.id+'"'+(on?' checked':'')+'> '+e(p.nom)+'</label>'; }).join('')||'<span class="edit-hint">Aucun compte lié.</span>')+'</div></div>'
       +'</div></div>'
@@ -775,7 +792,7 @@
   };
 
   // ---------- Persistance ----------
-  function crRow(){ return { titre:CR_CUR.titre||null, date_reunion:CR_CUR.date_reunion||null, interlocuteur_id:CR_CUR.interlocuteur_id||null, contexte:CR_CUR.contexte||null, preparation:CR_CUR.preparation||null, transcription:CR_CUR.transcription||null, synthese:CR_CUR.synthese||null, actions_numeros:CR_CUR.actions_numeros||[], participants:CR_CUR.participants||[], autorises:CR_CUR.autorises||[], statut:CR_CUR.statut||'prepa' }; }
+  function crRow(){ return { titre:CR_CUR.titre||null, date_reunion:CR_CUR.date_reunion||null, interlocuteur_id:CR_CUR.interlocuteur_id||null, contexte:CR_CUR.contexte||null, preparation:CR_CUR.preparation||null, transcription:CR_CUR.transcription||null, synthese:CR_CUR.synthese||null, actions_numeros:CR_CUR.actions_numeros||[], participants:CR_CUR.participants||[], autorises:CR_CUR.autorises||[], est_routine:!!CR_CUR.est_routine, statut:CR_CUR.statut||'prepa' }; }
   async function crSaveSilent(){
     if(CR_CUR.id){ var r=await SB.from('comptes_rendus').update(crRow()).eq('id',CR_CUR.id); if(r.error) throw r.error; }
     else { var r2=await SB.from('comptes_rendus').insert(crRow()).select('id,numero').single(); if(r2.error) throw r2.error; CR_CUR.id=r2.data.id; CR_CUR.numero=r2.data.numero; }
@@ -872,7 +889,7 @@
     CR_BUSY=true; CR_MSG=''; crRepaint();
     var nums=CR_CUR.actions_numeros?CR_CUR.actions_numeros.slice():[], recap=[];
     for(var i=0;i<drafts.length;i++){ var a=drafts[i];
-      var row={ texte_brut:'[CR] '+a.libelle.trim(), libelle:a.libelle.trim(), thematique:a.thematique||'autre', pilote_id:a.pilote_id||null, echeance:a.echeance||null, priorite:a.priorite||2, statut:'a_faire', tags:[], source:('CR'+((CR_CUR&&CR_CUR.titre)?(' : '+CR_CUR.titre):'')) };
+      var row={ texte_brut:'[CR] '+a.libelle.trim(), libelle:a.libelle.trim(), thematique:a.thematique||'autre', pilote_id:a.pilote_id||null, echeance:a.echeance||null, priorite:a.priorite||2, statut:'a_faire', tags:[], source:('CR'+((CR_CUR&&CR_CUR.titre)?(' : '+CR_CUR.titre):'')), routine:((CR_CUR&&CR_CUR.est_routine&&CR_CUR.titre)?CR_CUR.titre:null) };
       try { var r=await SB.from('actions').insert(row).select('numero,pilote_id,priorite,echeance').single();
         if(!r.error&&r.data){ nums.push(r.data.numero); recap.push('- #'+r.data.numero+' — '+a.libelle.trim()+(piloteNom(a.pilote_id)?(' — '+piloteNom(a.pilote_id)):'')+' — '+crQuad(r.data.priorite,r.data.echeance)); } } catch(x){}
     }
