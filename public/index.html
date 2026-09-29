@@ -1486,6 +1486,38 @@ function periodeStart(){
   return new Date().getFullYear() + '-01-01';
 }
 
+async function loadImpayesNajoua(){
+  var el=document.getElementById('najImpayes'); if(!el) return;
+  if(typeof SB_SESSION==='undefined' || !SB_SESSION){ el.innerHTML='<div class="panel" style="padding:16px;color:var(--signal)">Session expirée — reconnectez-vous.</div>'; return; }
+  el.innerHTML='<div class="panel" style="padding:18px 16px;">Chargement des impayés…</div>';
+  try{
+    var headers={ Authorization:'Bearer '+SB_SESSION.access_token };
+    var start=periodeStart();
+    var r=await fetch('/api/impayes?start='+start,{headers});
+    if(!r.ok){ el.innerHTML='<div class="panel" style="padding:16px;color:var(--signal)">Impayés indisponibles (HTTP '+r.status+').'+(r.status===403?' Accès non autorisé pour ce rôle.':'')+'</div>'; return; }
+    var im=await r.json();
+    var det=Array.isArray(im.impayees_detail)?im.impayees_detail:[];
+    var today=new Date(); today.setHours(0,0,0,0);
+    function jr(ech){ if(!ech) return null; var d=new Date(ech+'T00:00:00'); if(isNaN(d.getTime())) return null; return Math.floor((today-d)/86400000); }
+    var b={a:0,b:0,c:0,d:0}, pasEchu=0;
+    det.forEach(function(x){ var m=+x.reste_du||0; var j=jr(x.echeance); if(j===null||j<0){ pasEchu+=m; } else if(j<=30){ b.a+=m; } else if(j<=60){ b.b+=m; } else if(j<=90){ b.c+=m; } else { b.d+=m; } });
+    var top=det.slice().sort(function(x,y){return (+y.reste_du||0)-(+x.reste_du||0);}).slice(0,8);
+    function kpi(lbl,val,sub,cls){ return '<div class="kpi '+(cls||'')+'"><div class="k-label">'+lbl+'</div><div class="k-val">'+val+'</div><div class="k-trend">'+(sub||'')+'</div></div>'; }
+    var rows=top.map(function(x){ var j=jr(x.echeance); var t=(j===null)?'—':(j<0?('dans '+(-j)+' j'):(j+' j de retard')); var cls=(j!==null&&j>0)?'color:#c0392b;font-weight:700;':''; return '<tr><td>'+escP(x.client||'')+'</td><td class="sub-cell">'+escP(String(x.numero||''))+'</td><td class="sub-cell">'+(x.echeance||'')+'</td><td class="val">'+fmtEuro(x.reste_du)+'</td><td style="'+cls+'">'+t+'</td></tr>'; }).join('');
+    el.innerHTML='<div class="kpis k4">'
+      +kpi('Encours total', fmtEuro(im.encours_ttc), (im.nb_impayees||0)+' facture(s)', im.encours_ttc?'accent':'')
+      +kpi('Échu (à relancer)', fmtEuro(im.echu_ttc), (im.nb_echues||0)+' échue(s)', im.echu_ttc?'warn':'good')
+      +kpi('+90 j', fmtEuro(b.d), 'créances anciennes', b.d?'warn':'')
+      +kpi('À échoir', fmtEuro(pasEchu), 'pas encore dû', '')
+      +'</div>'
+      +'<div class="panel" style="padding:8px 16px 16px;margin-top:12px;"><div class="sec-eyebrow">Balance âgée (retard)</div>'
+      +'<table><thead><tr><th class="val">0–30 j</th><th class="val">31–60 j</th><th class="val">61–90 j</th><th class="val">+90 j</th></tr></thead>'
+      +'<tbody><tr><td class="val">'+fmtEuro(b.a)+'</td><td class="val">'+fmtEuro(b.b)+'</td><td class="val">'+fmtEuro(b.c)+'</td><td class="val" style="color:#c0392b;font-weight:700;">'+fmtEuro(b.d)+'</td></tr></tbody></table></div>'
+      +'<div class="panel" style="padding:8px 16px 16px;margin-top:12px;"><div class="sec-eyebrow">Top débiteurs</div>'
+      +'<table><thead><tr><th>Client</th><th>N° facture</th><th>Échéance</th><th class="val">Reste dû</th><th>Retard</th></tr></thead>'
+      +'<tbody>'+(rows||'<tr><td colspan="5" class="edit-hint">Aucun impayé en cours.</td></tr>')+'</tbody></table></div>';
+  }catch(e){ el.innerHTML='<div class="panel" style="padding:16px;color:var(--signal)">Erreur : '+(e.message||e)+'</div>'; }
+}
 async function loadMethodesVitalite(){
   var el=document.getElementById('methVitalite'); if(!el) return;
   try{
@@ -4145,6 +4177,11 @@ sabrine: () => `
 
 /* ---------- NAJOUA : FINANCE ---------- */
 najoua: () => `
+  <div class="sec-eyebrow">Administration des affaires</div>
+  <div class="sec-title">Impayés clients</div>
+  <div class="sec-note">Encours client, créances échues et relances — source Evoliz + rapprochement bancaire Qonto.</div>
+  <div style="margin:10px 0;"><button class="add-btn" onclick="loadImpayesNajoua()" type="button">↻ Charger les impayés</button></div>
+  <div id="najImpayes"><div class="edit-hint" style="padding:8px 2px;">Cliquez « Charger les impayés » pour afficher l'encours en temps réel.</div></div>
   <div class="sec-eyebrow">Finance & admin</div>
   <div class="sec-title">Trésorerie & facturation</div>
   <div class="sec-note">Maillon stratégique : cette trésorerie finance Humetria · <span class="src fin"><span class="sdot"></span>Qonto + Evoliz (données réelles)</span></div>
