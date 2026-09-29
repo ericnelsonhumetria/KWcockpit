@@ -29,7 +29,7 @@ async function requireCommerceOrDirection(authHeader) {
   const { data: access } = await supabase
     .from('user_access').select('is_admin, role').eq('email', email).maybeSingle();
   const role = access && access.role;
-  const autorise = access && (access.is_admin === true || role === 'direction' || role === 'eric' || role === 'paul');
+  const autorise = access && (access.is_admin === true || role === 'direction' || role === 'eric' || role === 'paul' || role === 'CEO' || role === 'Commerce');
   if (!autorise) return { ok: false, code: 403, msg: 'Accès réservé à la direction et au commerce' };
   return { ok: true, email };
 }
