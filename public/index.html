@@ -771,7 +771,7 @@ function renderTab(){
     document.getElementById('view').innerHTML = (VIEWS[CURRENT_ROLE]||VIEWS._default)();
     if(CURRENT_ROLE==='paul' || CURRENT_ROLE==='eric') animateBars();
     if(CURRENT_ROLE==='eric'){ animateGoal(); loadRespCommerce(); }
-    if(CURRENT_ROLE==='audrey') loadMethodesVitalite();
+    if(CURRENT_ROLE==='audrey' || CURRENT_ROLE==='eric') loadMethodesVitalite();
     /* consultant : plus de plan de charge (accès CR et Actions uniquement) */
   } else if(CURRENT_TAB==='pdc'){
     document.getElementById('view').innerHTML = renderPdc();
@@ -3998,15 +3998,10 @@ eric: () => `
   </div>
 
   <details style="border:1px solid rgba(86,10,15,.15);border-radius:12px;padding:0 16px;margin-top:18px;">
-    <summary style="cursor:pointer;list-style:none;display:flex;align-items:center;gap:10px;padding:13px 2px;font-size:15px;font-weight:600;color:#560A0F;">Plan d'action <span class="pill p-amber">à connecter</span><span class="edit-hint" style="margin-left:auto;font-weight:400;">déplier ▸</span></summary>
+    <summary style="cursor:pointer;list-style:none;display:flex;align-items:center;gap:10px;padding:13px 2px;font-size:15px;font-weight:600;color:#560A0F;">Plan d'action<span class="edit-hint" style="margin-left:auto;font-weight:400;">déplier ▸</span></summary>
     <div style="padding:0 0 14px;">
-      <div class="sec-note" style="margin-top:0;">Alimenté par les rituels Copil & CODIR (Notion), le commerce (HubSpot) et la finance (Qonto) — <b>données indicatives, à connecter</b>.</div>
-      <div class="kpis k4">
-    <div class="kpi accent"><div class="k-label">Actions ouvertes</div><div class="k-val">23</div><div class="k-trend">tous porteurs</div></div>
-    <div class="kpi warn"><div class="k-label">En retard</div><div class="k-val">4</div><div class="k-trend down">▲ à arbitrer</div></div>
-    <div class="kpi good"><div class="k-label">Clôturées (30 j)</div><div class="k-val">17</div><div class="k-trend up">▲ bon rythme</div></div>
-    <div class="kpi"><div class="k-label">Délai moyen</div><div class="k-val">9 <small>j</small></div><div class="k-trend">stable</div></div>
-  </div>
+      <div class="sec-note" style="margin-top:0;">Traitement des actions de tous les pilotes du plan d'action (temps réel).</div>
+      <div id="methVitalite"><div class="edit-hint" style="padding:8px 2px;">Chargement…</div></div>
     </div>
   </details>
 
