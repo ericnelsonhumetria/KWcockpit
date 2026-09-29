@@ -568,6 +568,7 @@ async function doLogin(){
 
   SB_SESSION = data.session;
   CURRENT_EMAIL = email;
+  try{ if(SB && !window.__kwAuthSub && SB.auth && SB.auth.onAuthStateChange){ window.__kwAuthSub=true; SB.auth.onAuthStateChange(function(ev,sess){ if(sess){ SB_SESSION=sess; } }); } }catch(e){}
 
   // Récupère le rôle dans user_access
   let role = 'paul';
@@ -626,7 +627,7 @@ function highlightLifecycle(role){
 }
 
 var TAB_ACCESS = {};
-function tabDefault(role, tab){ if(role==='consultant') return tab==='plandaction'; if(role==='cto') return true; if(role==='communication') return (tab==='dash'||tab==='objectifs'||tab==='plandaction'||tab==='cerebro'); switch(tab){ case 'dash': case 'objectifs': case 'plandaction': return true; case 'capbp': return role==='audrey'||role==='eric'; case 'dojo': return role!=='najoua'&&role!=='paul'&&role!=='juliette'; case 'cerebro_business': return role==='eric'||role==='paul'; case 'cerebro_events': return role==='eric'||role==='juliette'||role==='communication'; case 'cerebro_talents': return role==='eric'||role==='sabrine'; case 'cerebro': return (tabDefault(role,'cerebro_business')||tabDefault(role,'cerebro_events')||tabDefault(role,'cerebro_talents')); case 'parcours': return role==='eric'||role==='sabrine'||role==='audrey'; case 'admin': return role==='eric'; default: return false; } }
+function tabDefault(role, tab){ if(role==='consultant') return tab==='plandaction'; if(role==='cto') return true; if(role==='communication') return (tab==='dash'||tab==='objectifs'||tab==='plandaction'||tab==='cerebro'||tab==='humetria'); switch(tab){ case 'dash': case 'objectifs': case 'plandaction': return true; case 'capbp': return role==='audrey'||role==='eric'; case 'dojo': return role!=='najoua'&&role!=='paul'&&role!=='juliette'; case 'cerebro_business': return role==='eric'||role==='paul'; case 'cerebro_events': return role==='eric'||role==='juliette'||role==='communication'; case 'cerebro_talents': return role==='eric'||role==='sabrine'; case 'cerebro': return (tabDefault(role,'cerebro_business')||tabDefault(role,'cerebro_events')||tabDefault(role,'cerebro_talents')); case 'parcours': return role==='eric'||role==='sabrine'||role==='audrey'; case 'humetria': return role==='eric'||role==='juliette'||role==='paul'; case 'admin': return role==='eric'; default: return false; } }
 function tabAllowed(role, tab){ if(TAB_ACCESS && TAB_ACCESS[role] && typeof TAB_ACCESS[role][tab]==='boolean') return TAB_ACCESS[role][tab]; return tabDefault(role, tab); }
 async function loadTabAccess(){ try{ if(!SB) return; var r=await SB.from('role_access').select('role,tabs'); TAB_ACCESS={}; ((r&&r.data)||[]).forEach(function(x){ TAB_ACCESS[x.role]=x.tabs||{}; }); }catch(e){ TAB_ACCESS={}; } }
 function render(role){
@@ -709,6 +710,15 @@ function render(role){
     paTab.innerHTML = 'Réunions & Rituels et Actions';
     tabsEl.appendChild(paTab);
   }
+  const oldHum = tabsEl.querySelector('[data-tab="humetria"]');
+  if(oldHum) oldHum.remove();
+  if(tabAllowed(role,'humetria')){
+    const humTab = document.createElement('button');
+    humTab.className = 'tab'; humTab.dataset.tab = 'humetria';
+    humTab.setAttribute('onclick', "switchTab('humetria')");
+    humTab.innerHTML = 'Humetria';
+    tabsEl.appendChild(humTab);
+  }
   const oldAdmin = tabsEl.querySelector('[data-tab="admin"]');
   if(oldAdmin) oldAdmin.remove();
   if(tabAllowed(role,'admin')){
@@ -736,7 +746,7 @@ function render(role){
 }
 
 function switchTab(tab){
-  var GATED=['dash','objectifs','plandaction','capbp','dojo','cerebro','parcours','admin'];
+  var GATED=['dash','objectifs','plandaction','capbp','dojo','cerebro','parcours','humetria','admin'];
   if(GATED.indexOf(tab)>=0 && !tabAllowed(CURRENT_ROLE, tab)){ tab = tabAllowed(CURRENT_ROLE,'dash') ? 'dash' : 'plandaction'; }
   CURRENT_TAB = tab;
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.dataset.tab===tab));
@@ -767,6 +777,7 @@ function renderTab(){
     document.body.appendChild(paFab);
   }
   paFab.style.display = (CURRENT_TAB==='plandaction') ? 'none' : '';
+  if(CURRENT_TAB==='humetria'){ if(typeof renderHumetria==='function') renderHumetria(); return; }
   if(CURRENT_TAB==='dash'){
     document.getElementById('view').innerHTML = (VIEWS[CURRENT_ROLE]||VIEWS._default)();
     if(CURRENT_ROLE==='paul' || CURRENT_ROLE==='eric') animateBars();
@@ -1491,7 +1502,7 @@ async function loadImpayesNajoua(){
   if(typeof SB_SESSION==='undefined' || !SB_SESSION){ el.innerHTML='<div class="panel" style="padding:16px;color:var(--signal)">Session expirée — reconnectez-vous.</div>'; return; }
   el.innerHTML='<div class="panel" style="padding:18px 16px;">Chargement des impayés…</div>';
   try{
-    var headers={ Authorization:'Bearer '+SB_SESSION.access_token };
+    var tok=await kwFreshToken(); var headers={ Authorization:'Bearer '+tok };
     var start=periodeStart();
     var r=await fetch('/api/impayes?start='+start,{headers});
     if(!r.ok){ el.innerHTML='<div class="panel" style="padding:16px;color:var(--signal)">Impayés indisponibles (HTTP '+r.status+').'+(r.status===403?' Accès non autorisé pour ce rôle.':'')+'</div>'; return; }
@@ -1579,7 +1590,7 @@ async function loadAdmin(){
   if(!zone || !SB_SESSION){ if(zone) zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Session expirée.</div>'; return; }
   zone.innerHTML = '<div class="panel" style="padding:18px 16px;">Chargement des utilisateurs…</div>';
   try {
-    const res = await fetch('/api/admin', { method:'POST', headers: { Authorization: 'Bearer ' + SB_SESSION.access_token, 'Content-Type':'application/json' }, body: JSON.stringify({ action:'list' }) });
+    const res = await fetch('/api/admin', { method:'POST', headers: { Authorization: 'Bearer ' + (await kwFreshToken()), 'Content-Type':'application/json' }, body: JSON.stringify({ action:'list' }) });
     if(res.status===403){ zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Accès réservé au SI et à la direction.</div>'; return; }
     if(!res.ok){ zone.innerHTML = '<div class="panel" style="padding:16px;color:var(--signal)">Erreur ('+res.status+').</div>'; return; }
     const data = await res.json();
@@ -1642,14 +1653,14 @@ window.paAdminLinkPilote=function(id,uid){ var em=(ADMIN_USERS.find(function(u){
   function renderAdminAccess(){
     var z=document.getElementById('adminAccessZone'); if(!z) return;
     var roles=[['eric','CEO'],['cto','CTO'],['paul','Commerce'],['audrey','Méthodes'],['juliette','Mktg et Produit'],['communication','Communication'],['sabrine','RH'],['najoua','Administration des affaires'],['consultant','Consultant']];
-    var tabs=[['cerebro_business','Cerebro Business'],['cerebro_events','Cerebro Events'],['cerebro_talents','Cerebro Talents'],['capbp','Bonnes pratiques'],['dojo','Dojo'],['parcours','Parcours candidats'],['plandaction','Réunions & Rituels et Actions'],['admin','Admin']];
+    var tabs=[['cerebro_business','Cerebro Business'],['cerebro_events','Cerebro Events'],['cerebro_talents','Cerebro Talents'],['capbp','Bonnes pratiques'],['dojo','Dojo'],['parcours','Parcours candidats'],['plandaction','Réunions & Rituels et Actions'],['humetria','Humetria'],['admin','Admin']];
     var head='<tr><th style="text-align:left;padding:6px 8px;">Fonction</th>'+tabs.map(function(t){return '<th style="padding:6px 8px;font-size:12px;">'+t[1]+'</th>';}).join('')+'</tr>';
     var body=roles.map(function(r){ return '<tr><td style="padding:6px 8px;font-weight:600;color:#560A0F;">'+r[1]+'</td>'+tabs.map(function(t){ var on=tabAllowed(r[0],t[0]); return '<td style="text-align:center;padding:6px 8px;"><input type="checkbox" id="acc_'+r[0]+'_'+t[0]+'"'+(on?' checked':'')+'></td>'; }).join('')+'</tr>'; }).join('');
     z.innerHTML='<div class="panel" style="padding:12px 16px 16px;margin-top:16px;"><div class="sec-title" style="font-size:16px;">Accès aux fonctions par rôle</div><div class="sec-note">Coche les onglets accessibles pour chaque fonction. « Tableau de bord » et « Objectifs » restent toujours accessibles. L\'effet s\'applique à la prochaine connexion de l\'utilisateur.</div><div style="overflow-x:auto;margin-top:10px;"><table><thead>'+head+'</thead><tbody>'+body+'</tbody></table></div><div style="margin-top:10px;display:flex;gap:8px;align-items:center;"><button class="add-btn" onclick="paSaveAccess()" type="button">Enregistrer les accès</button><span id="accMsg" class="edit-hint"></span></div></div>';
   }
   window.paSaveAccess=async function(){
     var roles=['eric','cto','paul','audrey','juliette','communication','sabrine','najoua','consultant'];
-    var tabs=['cerebro_business','cerebro_events','cerebro_talents','capbp','dojo','parcours','plandaction','admin'];
+    var tabs=['cerebro_business','cerebro_events','cerebro_talents','capbp','dojo','parcours','plandaction','humetria','admin'];
     var rows=roles.map(function(role){ var t={}; tabs.forEach(function(tab){ var cb=document.getElementById('acc_'+role+'_'+tab); t[tab]=!!(cb&&cb.checked); }); return {role:role, tabs:t}; });
     var m=document.getElementById('accMsg'); if(m){ m.style.color='var(--muted)'; m.textContent='Enregistrement…'; }
     try{ var r=await SB.from('role_access').upsert(rows,{onConflict:'role'}); if(r.error) throw r.error; await loadTabAccess(); if(m){ m.style.color='#2e7d46'; m.textContent='Accès enregistrés (effet à la prochaine connexion).'; } }
@@ -1850,8 +1861,12 @@ async function pdcResetOne(id, email, spanId){
 
 
 function adminMsg(html){ const m=document.getElementById('adminMsg'); if(m) m.innerHTML = '<div class="save-ok" style="margin-top:10px;display:block;">'+html+'</div>'; }
+async function kwFreshToken(){
+  try{ if(SB && SB.auth && SB.auth.getSession){ var r=await SB.auth.getSession(); if(r && r.data && r.data.session){ SB_SESSION=r.data.session; return SB_SESSION.access_token; } } }catch(e){}
+  return (SB_SESSION && SB_SESSION.access_token) || '';
+}
 async function adminCall(payload){
-  const res = await fetch('/api/admin', { method:'POST', headers: { Authorization: 'Bearer ' + SB_SESSION.access_token, 'Content-Type':'application/json' }, body: JSON.stringify(payload) });
+  const res = await fetch('/api/admin', { method:'POST', headers: { Authorization: 'Bearer ' + (await kwFreshToken()), 'Content-Type':'application/json' }, body: JSON.stringify(payload) });
   return { ok: res.ok, data: await res.json().catch(()=>({})) };
 }
 async function adminSetRole(email, role, is_admin){
@@ -8062,6 +8077,81 @@ function kwLifecycleSyncBtn(){
       setTimeout(showRecoveryOverlay, 700);
     }
   }catch(e){}
+})();
+
+</script>
+<script>
+/* ==== HUMETRIA — hub de pilotage (brick 1 : blocs texte/liens + action auto-liée) ==== */
+(function(){
+  var FONCTIONS=[['eric','Direction'],['cto','Technique'],['juliette','Produit / Marketing'],['communication','Communication'],['paul','Commercial']];
+  function fLabel(f){ for(var i=0;i<FONCTIONS.length;i++){ if(FONCTIONS[i][0]===f) return FONCTIONS[i][1]; } return f||''; }
+  function esc(v){ return (typeof escP==='function')?escP(String(v==null?'':v)):String(v==null?'':v); }
+  function canEdit(fonction){ return (typeof CURRENT_ROLE!=='undefined') && (CURRENT_ROLE==='eric' || CURRENT_ROLE===fonction); }
+  function canCreate(){ return (typeof CURRENT_ROLE!=='undefined') && ['eric','cto','juliette','communication','paul'].indexOf(CURRENT_ROLE)>=0; }
+
+  window.renderHumetria=function(){
+    var v=document.getElementById('view'); if(!v) return;
+    v.innerHTML='<div class="sec-eyebrow">Humetria</div>'
+      +'<div class="sec-title">Hub de pilotage</div>'
+      +'<div class="sec-note">Espace partagé : technique, produit, marketing, communication, commercial. Chaque bloc est édité par sa fonction ; toute action ouverte depuis un bloc est reliée à Humetria.</div>'
+      +(canCreate()?'<div style="margin:10px 0;"><button class="add-btn" onclick="humetriaAddBloc()" type="button">+ Ajouter un bloc</button> <button class="per-btn" onclick="loadHumetriaBlocs()" type="button">↻ Rafraîchir</button></div>':'')
+      +'<div id="humetriaZone"><div class="edit-hint" style="padding:8px 2px;">Chargement…</div></div>';
+    loadHumetriaBlocs();
+  };
+
+  window.loadHumetriaBlocs=async function(){
+    var el=document.getElementById('humetriaZone'); if(!el) return;
+    try{
+      var q=await SB.from('humetria_blocs').select('*').order('ordre',{ascending:true}).order('created_at',{ascending:true});
+      if(q&&q.error) throw q.error;
+      var rows=(q&&q.data)||[]; window.__HUMBLOCS=rows;
+      if(!rows.length){ el.innerHTML='<div class="edit-hint" style="padding:8px 2px;">Aucun bloc pour le moment. '+(canCreate()?'Cliquez « + Ajouter un bloc » pour démarrer.':'')+'</div>'; return; }
+      el.innerHTML='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;">'+rows.map(humetriaCard).join('')+'</div>';
+    }catch(e){ el.innerHTML='<div class="panel" style="padding:16px;color:var(--signal)">Humetria indisponible : '+((e&&e.message)||e)+'</div>'; }
+  };
+
+  function humetriaCard(b){
+    var c=b.contenu||{}; var body='';
+    if(b.type==='liens'){ var L=Array.isArray(c.liens)?c.liens:[]; body=L.length?('<div style="display:flex;flex-direction:column;gap:6px;">'+L.map(function(x,i){return '<div style="display:flex;align-items:center;gap:6px;"><a href="'+esc(x.url)+'" target="_blank" rel="noopener" style="color:#560A0F;font-size:13px;text-decoration:underline;flex:1;word-break:break-word;">'+esc(x.label||x.url)+'</a>'+(canEdit(b.fonction)?'<button class="per-btn" style="font-size:10px;padding:0 6px;" onclick="humetriaDelLien(\''+b.id+'\','+i+')">×</button>':'')+'</div>';}).join('')+'</div>'):'<span class="edit-hint">(aucun lien)</span>'; }
+    else { body='<div style="font-size:13px;white-space:pre-wrap;line-height:1.5;">'+(c.texte?esc(c.texte):'<span class="edit-hint">(vide)</span>')+'</div>'; }
+    var ed=canEdit(b.fonction);
+    var head='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;"><b style="font-size:14px;color:#560A0F;">'+esc(b.titre||'(sans titre)')+'</b><span class="pill p-blue" style="font-size:10px;">'+esc(fLabel(b.fonction))+'</span></div>';
+    var actions='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;border-top:1px solid rgba(86,10,15,.08);padding-top:8px;">'
+      +'<button class="per-btn" style="font-size:11px;" onclick="humetriaNewAction(\''+b.id+'\')">➕ Action</button>';
+    if(ed){
+      if(b.type==='liens') actions+='<button class="per-btn" style="font-size:11px;" onclick="humetriaAddLien(\''+b.id+'\')">+ lien</button>';
+      else actions+='<button class="per-btn" style="font-size:11px;" onclick="humetriaEditTexte(\''+b.id+'\')">Éditer</button>';
+      actions+='<button class="per-btn" style="font-size:11px;" onclick="humetriaRenameBloc(\''+b.id+'\')">Renommer</button>';
+      actions+='<button class="per-btn" style="font-size:11px;color:#c0392b;" onclick="humetriaDelBloc(\''+b.id+'\')">Supprimer</button>';
+    }
+    actions+='</div>';
+    return '<div class="panel" style="padding:14px 16px;">'+head+body+actions+'</div>';
+  }
+  function _b(id){ return (window.__HUMBLOCS||[]).filter(function(r){return r.id===id;})[0]; }
+  async function _upd(id,patch){ patch.updated_at=new Date().toISOString(); var q=await SB.from('humetria_blocs').update(patch).eq('id',id); if(q&&q.error){ alert('Erreur : '+q.error.message); return; } loadHumetriaBlocs(); }
+
+  window.humetriaAddBloc=async function(){
+    var titre=prompt('Titre du bloc (ex. Organisation, Roadmap technique, Plan MarCom, Pitch & supports) :'); if(!titre) return;
+    var type=prompt('Type ? « texte » ou « liens »','texte'); if(type===null) return; type=(type==='liens')?'liens':'texte';
+    var fdef=(CURRENT_ROLE==='eric')?'eric':CURRENT_ROLE;
+    var fonction=prompt('Fonction propriétaire (eric / cto / juliette / communication / paul) :',fdef)||fdef;
+    var q=await SB.from('humetria_blocs').insert({titre:titre,type:type,fonction:fonction,contenu:{}}); if(q&&q.error){ alert('Erreur : '+q.error.message); return; } loadHumetriaBlocs();
+  };
+  window.humetriaRenameBloc=function(id){ var b=_b(id); if(!b) return; var t=prompt('Titre :',b.titre||''); if(t===null) return; _upd(id,{titre:t}); };
+  window.humetriaDelBloc=async function(id){ if(!confirm('Supprimer ce bloc ?')) return; var q=await SB.from('humetria_blocs').delete().eq('id',id); if(q&&q.error){ alert('Erreur : '+q.error.message); return; } loadHumetriaBlocs(); };
+  window.humetriaEditTexte=function(id){ var b=_b(id); if(!b) return; var c=b.contenu||{}; var t=prompt('Contenu du bloc :',c.texte||''); if(t===null) return; _upd(id,{contenu:Object.assign({},c,{texte:t})}); };
+  window.humetriaAddLien=function(id){ var b=_b(id); if(!b) return; var url=prompt('URL du lien / support :'); if(!url) return; var label=prompt('Libellé :',url)||url; var c=b.contenu||{}; var L=Array.isArray(c.liens)?c.liens.slice():[]; L.push({label:label,url:url}); _upd(id,{contenu:Object.assign({},c,{liens:L})}); };
+  window.humetriaDelLien=function(id,i){ var b=_b(id); if(!b) return; var c=b.contenu||{}; var L=Array.isArray(c.liens)?c.liens.slice():[]; L.splice(i,1); _upd(id,{contenu:Object.assign({},c,{liens:L})}); };
+
+  window.humetriaNewAction=async function(id){
+    var b=_b(id); if(!b) return;
+    var lib=prompt('Nouvelle action reliée à « '+(b.titre||'Humetria')+' » :'); if(!lib) return;
+    var row={ libelle:lib, projet:'Humetria', source:'Humetria', tags:['Humetria', b.titre||''] };
+    if(typeof paMyPiloteId==='function'){ try{ var pid=paMyPiloteId(); if(pid) row.pilote_id=pid; }catch(e){} }
+    var q=await SB.from('actions').insert(row);
+    if(q&&q.error){ alert('Erreur création action : '+q.error.message); return; }
+    alert('Action créée et reliée à Humetria › '+(b.titre||''));
+  };
 })();
 
 </script>
