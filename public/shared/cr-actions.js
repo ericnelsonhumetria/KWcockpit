@@ -115,7 +115,7 @@
   };
   function paSheetToggle(){
     function chip(val,label){ var on=PA_SHEET===val; return '<button onclick="paSetSheet(\''+val+'\')" type="button" style="font-size:13px;padding:6px 16px;border-radius:999px;border:1px solid '+(on?'#560A0F':'rgba(86,10,15,.28)')+';background:'+(on?'#560A0F':'#fff')+';color:'+(on?'#fff':'#560A0F')+';cursor:pointer;font-family:inherit;font-weight:'+(on?'700':'500')+';margin-right:8px;">'+label+'</button>'; }
-    return '<div style="display:flex;gap:4px;margin:2px 0 12px;">'+chip('cr','Compte-rendu')+chip('actions','Actions')+'</div>';
+    return '<div style="display:flex;gap:4px;margin:2px 0 12px;">'+chip('cr','Réunions & Rituels')+chip('actions','Actions')+'</div>';
   }
   window.paSetSheet=function(v){ PA_SHEET=v; paRepaint(); };
   function paRepaint(){
@@ -667,7 +667,7 @@
 
   // ---------- Liste des CR ----------
   function crListHtml(){
-    var head='<div class="sec-eyebrow">Réunions</div><div class="sec-title">Comptes-rendus</div>'
+    var head='<div class="sec-eyebrow">Réunions</div><div class="sec-title">Réunions &amp; Rituels</div>'
       +'<div style="margin:8px 0 12px;"><button class="add-btn" onclick="crNew()" type="button">+ Nouveau compte-rendu</button></div>'
       +(CR_MSG?'<div class="edit-hint" style="color:var(--signal);margin-bottom:8px;">'+e(CR_MSG)+'</div>':'');
     if(!CR_LIST.length) return head+'<div class="edit-hint" style="padding:10px 2px;">Aucun compte-rendu. Crée le premier.</div>';
