@@ -771,6 +771,7 @@ function renderTab(){
     document.getElementById('view').innerHTML = (VIEWS[CURRENT_ROLE]||VIEWS._default)();
     if(CURRENT_ROLE==='paul' || CURRENT_ROLE==='eric') animateBars();
     if(CURRENT_ROLE==='eric'){ animateGoal(); loadRespCommerce(); }
+    if(CURRENT_ROLE==='audrey') loadMethodesVitalite();
     /* consultant : plus de plan de charge (accès CR et Actions uniquement) */
   } else if(CURRENT_TAB==='pdc'){
     document.getElementById('view').innerHTML = renderPdc();
@@ -1485,6 +1486,40 @@ function periodeStart(){
   return new Date().getFullYear() + '-01-01';
 }
 
+async function loadMethodesVitalite(){
+  var el=document.getElementById('methVitalite'); if(!el) return;
+  try{
+    var q=await SB.from('actions').select('statut,echeance,priorite,pilote_id,created_at,updated_at,tags').is('archived_at',null);
+    var rows=((q&&q.data)||[]).filter(function(a){ return !(a.tags&&a.tags.some(function(t){return String(t).indexOf('_')===0;})) && a.statut!=='brouillon'; });
+    var pil=await SB.from('action_pilotes').select('id,nom');
+    var pmap={}; ((pil&&pil.data)||[]).forEach(function(p){pmap[p.id]=p.nom;});
+    var today=new Date().toISOString().slice(0,10); var now=Date.now();
+    var OPEN=['a_faire','en_cours','en_attente'];
+    var open=rows.filter(function(a){return OPEN.indexOf(a.statut)>=0;});
+    var done=rows.filter(function(a){return a.statut==='fait';});
+    var totalTraite=open.length+done.length;
+    var taux= totalTraite? Math.round(done.length/totalTraite*100):0;
+    var retard=open.filter(function(a){return a.echeance && a.echeance<today;});
+    var ageSum=0,ageN=0; open.forEach(function(a){ if(a.created_at){ ageSum+=(now-new Date(a.created_at).getTime())/86400000; ageN++; } });
+    var ageMoy=ageN?Math.round(ageSum/ageN):0;
+    var lim14=now-14*86400000; var dormantes=open.filter(function(a){ var t=a.updated_at||a.created_at; return t && new Date(t).getTime()<lim14; });
+    function imp(a){return (a.priorite||2)<=2;}
+    function urg(a){ if(!a.echeance) return false; var t=new Date(a.echeance+'T00:00:00'); if(isNaN(t.getTime())) return false; var lim=new Date(); lim.setHours(0,0,0,0); lim.setDate(lim.getDate()+7); return t<=lim; }
+    var q1=open.filter(function(a){return imp(a)&&urg(a);}).length;
+    var q2=open.filter(function(a){return imp(a)&&!urg(a);}).length;
+    var byP={}; open.forEach(function(a){ var k=a.pilote_id||'__none'; byP[k]=byP[k]||{o:0,r:0}; byP[k].o++; if(a.echeance&&a.echeance<today) byP[k].r++; });
+    var top=Object.keys(byP).map(function(k){return {nom:(pmap[k]||'(non attribué)'),o:byP[k].o,r:byP[k].r};}).sort(function(a,b){return b.o-a.o;}).slice(0,6);
+    function kpi(lbl,val,sub,cls){ return '<div class="kpi '+(cls||'')+'"><div class="k-label">'+lbl+'</div><div class="k-val">'+val+'</div><div class="k-trend">'+(sub||'')+'</div></div>'; }
+    var rowsHtml=top.map(function(t){return '<tr><td>'+escP(t.nom)+'</td><td style="text-align:center;">'+t.o+'</td><td style="text-align:center;'+(t.r?'color:#c0392b;font-weight:700;':'')+'">'+t.r+'</td></tr>';}).join('');
+    el.innerHTML='<div class="kpis k4">'
+      +kpi('Taux de traitement', taux+' <small>%</small>', done.length+'/'+totalTraite+' réalisées', taux>=60?'good':(taux>=40?'':'warn'))
+      +kpi('En retard', retard.length, open.length?(Math.round(retard.length/Math.max(open.length,1)*100)+'% des ouvertes'):'', retard.length?'warn':'good')
+      +kpi('Âge moyen ouvert', ageMoy+' <small>j</small>', dormantes.length+' dormante(s) >14j', dormantes.length?'warn':'')
+      +kpi('Urgent vs planifié', q1+' / '+q2, 'Q1 subi vs Q2 anticipé', q1>q2?'warn':'good')
+      +'</div>'
+      +'<div class="panel" style="padding:8px 16px 16px;margin-top:12px;"><div class="sec-eyebrow">Charge par pilote</div><table><thead><tr><th>Pilote</th><th style="text-align:center;">Ouvertes</th><th style="text-align:center;">En retard</th></tr></thead><tbody>'+(rowsHtml||'<tr><td colspan="3" class="edit-hint">Aucune action ouverte.</td></tr>')+'</tbody></table></div>';
+  }catch(e){ el.innerHTML='<div class="edit-hint" style="color:var(--signal);">Vitalité indisponible : '+(e.message||e)+'</div>'; }
+}
 async function loadRespCommerce(){
   const cell = document.getElementById('resp-commerce');
   const stat = document.getElementById('resp-commerce-statut');
@@ -4020,6 +4055,10 @@ paul: () => `
 
 /* ---------- AUDREY : RÉALISATION & COMPÉTENCES ---------- */
 audrey: () => `
+  <div class="sec-eyebrow">Animation de la performance</div>
+  <div class="sec-title">Vitalité des actions — équipe</div>
+  <div class="sec-note">Traitement des actions de tous les pilotes du plan d'action.</div>
+  <div id="methVitalite"><div class="edit-hint" style="padding:10px 2px;">Chargement…</div></div>
   <div class="sec-eyebrow">Réalisation</div>
   <div class="sec-title">Santé des missions en cours</div>
   <div class="sec-note">Indicateurs = vos objectifs validés par la direction</div>
