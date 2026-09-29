@@ -706,7 +706,7 @@ function render(role){
     const paTab = document.createElement('button');
     paTab.className = 'tab'; paTab.dataset.tab = 'plandaction';
     paTab.setAttribute('onclick', "switchTab('plandaction')");
-    paTab.innerHTML = 'CR et Actions';
+    paTab.innerHTML = 'Réunions & Rituels et Actions';
     tabsEl.appendChild(paTab);
   }
   const oldAdmin = tabsEl.querySelector('[data-tab="admin"]');
@@ -1642,7 +1642,7 @@ window.paAdminLinkPilote=function(id,uid){ var em=(ADMIN_USERS.find(function(u){
   function renderAdminAccess(){
     var z=document.getElementById('adminAccessZone'); if(!z) return;
     var roles=[['eric','CEO'],['cto','CTO'],['paul','Commerce'],['audrey','Méthodes'],['juliette','Mktg et Produit'],['communication','Communication'],['sabrine','RH'],['najoua','Administration des affaires'],['consultant','Consultant']];
-    var tabs=[['cerebro_business','Cerebro Business'],['cerebro_events','Cerebro Events'],['cerebro_talents','Cerebro Talents'],['capbp','Bonnes pratiques'],['dojo','Dojo'],['parcours','Parcours candidats'],['plandaction','CR et Actions'],['admin','Admin']];
+    var tabs=[['cerebro_business','Cerebro Business'],['cerebro_events','Cerebro Events'],['cerebro_talents','Cerebro Talents'],['capbp','Bonnes pratiques'],['dojo','Dojo'],['parcours','Parcours candidats'],['plandaction','Réunions & Rituels et Actions'],['admin','Admin']];
     var head='<tr><th style="text-align:left;padding:6px 8px;">Fonction</th>'+tabs.map(function(t){return '<th style="padding:6px 8px;font-size:12px;">'+t[1]+'</th>';}).join('')+'</tr>';
     var body=roles.map(function(r){ return '<tr><td style="padding:6px 8px;font-weight:600;color:#560A0F;">'+r[1]+'</td>'+tabs.map(function(t){ var on=tabAllowed(r[0],t[0]); return '<td style="text-align:center;padding:6px 8px;"><input type="checkbox" id="acc_'+r[0]+'_'+t[0]+'"'+(on?' checked':'')+'></td>'; }).join('')+'</tr>'; }).join('');
     z.innerHTML='<div class="panel" style="padding:12px 16px 16px;margin-top:16px;"><div class="sec-title" style="font-size:16px;">Accès aux fonctions par rôle</div><div class="sec-note">Coche les onglets accessibles pour chaque fonction. « Tableau de bord » et « Objectifs » restent toujours accessibles. L\'effet s\'applique à la prochaine connexion de l\'utilisateur.</div><div style="overflow-x:auto;margin-top:10px;"><table><thead>'+head+'</thead><tbody>'+body+'</tbody></table></div><div style="margin-top:10px;display:flex;gap:8px;align-items:center;"><button class="add-btn" onclick="paSaveAccess()" type="button">Enregistrer les accès</button><span id="accMsg" class="edit-hint"></span></div></div>';
@@ -4190,7 +4190,7 @@ function _soberView(label){ return function(){ return '<div class="sec-eyebrow">
   +'<div class="sec-title">Bienvenue</div>'
   +'<div class="panel" style="padding:18px 16px;">'
   +'<div style="font-size:14px;color:#444;line-height:1.55;margin-bottom:14px;">Accède à tes espaces via les onglets ci-dessus. Tes accès dépendent de la matrice des rôles (Admin). Cet écran d\'accueil est volontairement sobre.</div>'
-  +'<button class="add-btn" onclick="switchTab(\'plandaction\')" type="button">Ouvrir CR et Actions</button>'
+  +'<button class="add-btn" onclick="switchTab(\'plandaction\')" type="button">Ouvrir Réunions & Rituels et Actions</button>'
   +'</div>'; }; }
 VIEWS._default = _soberView('Bienvenue');
 VIEWS.cto = _soberView('Espace CTO');
@@ -7916,7 +7916,7 @@ function kwLifecycleSyncBtn(){
   };
 })();
 </script>
-<script src="/shared/cr-actions.js?v=2"></script>
+<script src="/shared/cr-actions.js?v=3"></script>
 <script>
 /* ==== ROADMAP TECHNIQUE (CTO) — bloc additif ==== */
 (function(){
