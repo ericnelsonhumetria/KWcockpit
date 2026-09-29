@@ -626,7 +626,7 @@ function highlightLifecycle(role){
 }
 
 var TAB_ACCESS = {};
-function tabDefault(role, tab){ if(role==='consultant') return tab==='plandaction'; if(role==='cto') return true; if(role==='communication') return (tab==='dash'||tab==='objectifs'||tab==='plandaction'||tab==='cerebro'); switch(tab){ case 'dash': case 'objectifs': case 'plandaction': return true; case 'capbp': return role==='audrey'||role==='eric'; case 'dojo': return role!=='najoua'&&role!=='paul'&&role!=='juliette'; case 'cerebro': return ['eric','direction','paul','juliette'].indexOf(role)>=0; case 'parcours': return role==='eric'||role==='sabrine'||role==='audrey'; case 'admin': return role==='eric'; default: return false; } }
+function tabDefault(role, tab){ if(role==='consultant') return tab==='plandaction'; if(role==='cto') return true; if(role==='communication') return (tab==='dash'||tab==='objectifs'||tab==='plandaction'||tab==='cerebro'); switch(tab){ case 'dash': case 'objectifs': case 'plandaction': return true; case 'capbp': return role==='audrey'||role==='eric'; case 'dojo': return role!=='najoua'&&role!=='paul'&&role!=='juliette'; case 'cerebro_business': return role==='eric'||role==='paul'; case 'cerebro_events': return role==='eric'||role==='juliette'||role==='communication'; case 'cerebro_talents': return role==='eric'||role==='sabrine'; case 'cerebro': return (tabDefault(role,'cerebro_business')||tabDefault(role,'cerebro_events')||tabDefault(role,'cerebro_talents')); case 'parcours': return role==='eric'||role==='sabrine'||role==='audrey'; case 'admin': return role==='eric'; default: return false; } }
 function tabAllowed(role, tab){ if(TAB_ACCESS && TAB_ACCESS[role] && typeof TAB_ACCESS[role][tab]==='boolean') return TAB_ACCESS[role][tab]; return tabDefault(role, tab); }
 async function loadTabAccess(){ try{ if(!SB) return; var r=await SB.from('role_access').select('role,tabs'); TAB_ACCESS={}; ((r&&r.data)||[]).forEach(function(x){ TAB_ACCESS[x.role]=x.tabs||{}; }); }catch(e){ TAB_ACCESS={}; } }
 function render(role){
@@ -1575,14 +1575,14 @@ window.paAdminLinkPilote=function(id,uid){ var em=(ADMIN_USERS.find(function(u){
   function renderAdminAccess(){
     var z=document.getElementById('adminAccessZone'); if(!z) return;
     var roles=[['eric','CEO'],['cto','CTO'],['paul','Commerce'],['audrey','Méthodes'],['juliette','Mktg et Produit'],['communication','Communication'],['sabrine','RH'],['najoua','Administration des affaires'],['consultant','Consultant']];
-    var tabs=[['cerebro','Cerebro'],['capbp','Bonnes pratiques'],['dojo','Dojo'],['parcours','Parcours candidats'],['plandaction','CR et Actions'],['admin','Admin']];
+    var tabs=[['cerebro_business','Cerebro Business'],['cerebro_events','Cerebro Events'],['cerebro_talents','Cerebro Talents'],['capbp','Bonnes pratiques'],['dojo','Dojo'],['parcours','Parcours candidats'],['plandaction','CR et Actions'],['admin','Admin']];
     var head='<tr><th style="text-align:left;padding:6px 8px;">Fonction</th>'+tabs.map(function(t){return '<th style="padding:6px 8px;font-size:12px;">'+t[1]+'</th>';}).join('')+'</tr>';
     var body=roles.map(function(r){ return '<tr><td style="padding:6px 8px;font-weight:600;color:#560A0F;">'+r[1]+'</td>'+tabs.map(function(t){ var on=tabAllowed(r[0],t[0]); return '<td style="text-align:center;padding:6px 8px;"><input type="checkbox" id="acc_'+r[0]+'_'+t[0]+'"'+(on?' checked':'')+'></td>'; }).join('')+'</tr>'; }).join('');
     z.innerHTML='<div class="panel" style="padding:12px 16px 16px;margin-top:16px;"><div class="sec-title" style="font-size:16px;">Accès aux fonctions par rôle</div><div class="sec-note">Coche les onglets accessibles pour chaque fonction. « Tableau de bord » et « Objectifs » restent toujours accessibles. L\'effet s\'applique à la prochaine connexion de l\'utilisateur.</div><div style="overflow-x:auto;margin-top:10px;"><table><thead>'+head+'</thead><tbody>'+body+'</tbody></table></div><div style="margin-top:10px;display:flex;gap:8px;align-items:center;"><button class="add-btn" onclick="paSaveAccess()" type="button">Enregistrer les accès</button><span id="accMsg" class="edit-hint"></span></div></div>';
   }
   window.paSaveAccess=async function(){
     var roles=['eric','cto','paul','audrey','juliette','communication','sabrine','najoua','consultant'];
-    var tabs=['cerebro','capbp','dojo','parcours','plandaction','admin'];
+    var tabs=['cerebro_business','cerebro_events','cerebro_talents','capbp','dojo','parcours','plandaction','admin'];
     var rows=roles.map(function(role){ var t={}; tabs.forEach(function(tab){ var cb=document.getElementById('acc_'+role+'_'+tab); t[tab]=!!(cb&&cb.checked); }); return {role:role, tabs:t}; });
     var m=document.getElementById('accMsg'); if(m){ m.style.color='var(--muted)'; m.textContent='Enregistrement…'; }
     try{ var r=await SB.from('role_access').upsert(rows,{onConflict:'role'}); if(r.error) throw r.error; await loadTabAccess(); if(m){ m.style.color='#2e7d46'; m.textContent='Accès enregistrés (effet à la prochaine connexion).'; } }
@@ -4626,7 +4626,7 @@ async function saveQPMScore(candId){
         var tabsEl = document.getElementById('tabs');
         if(!tabsEl) return;
         var old = tabsEl.querySelector('[data-tab="cerebro"]'); if(old) old.remove();
-        if(tabAllowed(role,'cerebro')){
+        if(tabAllowed(role,'cerebro_business')||tabAllowed(role,'cerebro_events')||tabAllowed(role,'cerebro_talents')){
           var t = document.createElement('button');
           t.className = 'tab'; t.dataset.tab = 'cerebro';
           t.setAttribute('onclick', "switchTab('cerebro')");
@@ -4642,13 +4642,14 @@ async function saveQPMScore(candId){
     renderTab = function(){
       if(typeof CURRENT_TAB !== 'undefined' && CURRENT_TAB === 'cerebro'){
         var role = (typeof CURRENT_ROLE !== 'undefined') ? CURRENT_ROLE : '';
-        var src = '/cerebro/?role=' + encodeURIComponent(role);
+        var subs=[]; if(tabAllowed(role,'cerebro_business'))subs.push('comptes'); if(tabAllowed(role,'cerebro_events'))subs.push('evenements'); if(tabAllowed(role,'cerebro_talents'))subs.push('talents');
+        var src = '/cerebro/?role=' + encodeURIComponent(role) + '&cerebro=' + encodeURIComponent(subs.join(',')) + '&v=2';
         document.getElementById('view').innerHTML =
           '<div class="sec-eyebrow">Prospection &amp; signaux</div>'+
           '<div class="sec-title">Cerebro</div>'+
           '<div class="sec-note">Detection de comptes et d\'opportunites, assistee par IA.</div>'+
           '<iframe id="cerebroFrame" title="Cerebro" src="'+src+'" scrolling="no" '+
-            'style="width:100%;height:620px;min-height:560px;border:1px solid var(--line,#3a2b2e);border-radius:10px;background:#0c0a0b;margin-top:8px;overflow:hidden;display:block;"></iframe>';
+            'style="width:100%;min-height:560px;border:none;border-radius:12px;background:transparent;margin-top:6px;overflow:hidden;display:block;"></iframe>';
         // Auto-resize same-origin : l'iframe epouse son contenu -> plus de double barre.
         (function(){
           var fr = document.getElementById('cerebroFrame');
