@@ -4182,19 +4182,7 @@ najoua: () => `
   <div class="sec-note">Encours client, créances échues et relances — source Evoliz + rapprochement bancaire Qonto.</div>
   <div style="margin:10px 0;"><button class="add-btn" onclick="loadImpayesNajoua()" type="button">↻ Charger les impayés</button></div>
   <div id="najImpayes"><div class="edit-hint" style="padding:8px 2px;">Cliquez « Charger les impayés » pour afficher l'encours en temps réel.</div></div>
-  <div class="sec-eyebrow">Finance & admin</div>
-  <div class="sec-title">Trésorerie & facturation</div>
-  <div class="sec-note">Maillon stratégique : cette trésorerie finance Humetria · <span class="src fin"><span class="sdot"></span>Qonto + Evoliz (données réelles)</span></div>
-  <div id="finZone">
-    <div class="panel" style="padding:18px 16px;">
-      <div style="margin-bottom:12px;">
-        <span class="field-label" style="display:block;">Période : <b>année fiscale en cours</b> (1er janvier → 31 décembre)</span>
-      </div>
-      <button class="add-btn" onclick="kwRefreshAllFinance(this)">⟱ Charger les données financières</button>
-      <span class="edit-hint" style="margin-left:10px;">Trésorerie (Qonto) + CA, encours et impayés (Evoliz), en lecture seule. La liste des impayés s'affiche après chargement.</span>
-    </div>
-  </div>
-  <div class="footer-note"><span class="ic">↳</span><span>Données réelles : Qonto (trésorerie) + Evoliz (CA, encours, impayés).</span></div>
+  ${footer("Impayés clients — source Evoliz + rapprochement bancaire Qonto. La trésorerie Qonto reste réservée à la direction.")}
 `
 
 };
