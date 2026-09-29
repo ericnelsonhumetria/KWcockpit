@@ -163,6 +163,41 @@ async function getPitchCallIds(headers) {
   return ids;
 }
 
+// Deals dont le nom contient "Humetria" (tag [Humetria]) -> import base Prospects.
+async function getHumetriaDeals(headers, stages, owners) {
+  const out = [];
+  let after = null, pages = 0;
+  const props = ['dealname', 'dealstage', 'amount', 'closedate', 'createdate', 'hubspot_owner_id', 'pipeline'];
+  do {
+    const body = { filterGroups: [{ filters: [{ propertyName: 'dealname', operator: 'CONTAINS_TOKEN', value: 'Humetria' }] }], properties: props, limit: 100 };
+    if (after) body.after = after;
+    let res;
+    try {
+      res = await fetchWithTimeout('https://api.hubapi.com/crm/v3/objects/deals/search',
+        { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, 9000);
+    } catch (e) { break; }
+    if (!res.ok) throw new Error('HubSpot search ' + res.status);
+    const data = await res.json();
+    (data.results || []).forEach(d => {
+      const pr = d.properties || {};
+      const name = pr.dealname || '';
+      if (!/humetria/i.test(name)) return;
+      const o = pr.hubspot_owner_id ? owners[String(pr.hubspot_owner_id)] : null;
+      out.push({
+        id: String(d.id),
+        nom: name.replace(/^\s*\[\s*humetria\s*\]\s*/i, '').trim() || name,
+        stage: (stages && stages[pr.dealstage]) || pr.dealstage || '',
+        amount: Number(pr.amount || 0),
+        closedate: pr.closedate || null,
+        owner: (o && o.display) || '',
+      });
+    });
+    after = (data.paging && data.paging.next) ? data.paging.next.after : null;
+    pages += 1;
+  } while (after && pages < 10);
+  return out;
+}
+
 exports.handler = async (event) => {
   const cors = {
     'Access-Control-Allow-Origin': process.env.APP_ORIGIN || '*',
@@ -180,6 +215,12 @@ exports.handler = async (event) => {
 
   try {
     const { pipelineId, stages } = await getStages(headers);
+    const qp0 = event.queryStringParameters || {};
+    if (qp0.mode === 'humetria_deals') {
+      const owners0 = await getOwners(headers);
+      const list = await getHumetriaDeals(headers, stages, owners0);
+      return { statusCode: 200, headers: { ...cors, 'Content-Type': 'application/json' }, body: JSON.stringify({ deals: list }) };
+    }
 
     // Retrouve l'id d'étape à partir d'un libellé (correspondance souple)
     function stageIdFor(labelPart) {
