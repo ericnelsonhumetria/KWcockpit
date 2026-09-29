@@ -23,7 +23,7 @@ async function requireFinance(authHeader) {
   const email = (userData.user.email || '').toLowerCase();
   const { data: access } = await supabase
     .from('user_access').select('is_admin, role').eq('email', email).single();
-  const ok = access && (access.is_admin === true || ['direction', 'eric', 'najoua'].includes(access.role));
+  const ok = access && (access.is_admin === true || ['direction', 'eric', 'najoua', 'CEO', 'Administration des affaires'].includes(access.role));
   if (!ok) return { ok: false, code: 403, msg: 'Accès réservé à la direction / finance' };
   return { ok: true, email };
 }
