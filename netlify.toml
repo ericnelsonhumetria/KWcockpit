@@ -74,6 +74,11 @@
   schedule = "0 6 * * *"
 
 [[redirects]]
+  from = "/api/humetria-ia"
+  to = "/.netlify/functions/humetria-ia"
+  status = 200
+
+[[redirects]]
   from = "/api/cr-ia"
   to = "/.netlify/functions/cr-ia"
   status = 200
