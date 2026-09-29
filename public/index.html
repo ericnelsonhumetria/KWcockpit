@@ -8008,5 +8008,62 @@ function kwLifecycleSyncBtn(){
 })();
 
 </script>
+<script>
+/* ==== RÉCUPÉRATION MOT DE PASSE (lien e-mail de reset) — bloc additif ==== */
+(function(){
+  function hasRecovery(){
+    var h=(location.hash||'')+'&'+(location.search||'');
+    return /type=recovery/.test(h) || /(access_token=|[?&]code=)/.test(h) && /recovery/i.test(h);
+  }
+  window.showRecoveryOverlay=function(){
+    if(document.getElementById('kwRecovery')) return;
+    var ov=document.createElement('div'); ov.id='kwRecovery';
+    ov.style.cssText='position:fixed;inset:0;z-index:99999;background:rgba(20,8,10,.55);display:flex;align-items:center;justify-content:center;padding:20px;';
+    ov.innerHTML='<div style="background:#f3ede1;border-radius:16px;padding:28px 26px;max-width:420px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.35);font-family:inherit;">'
+      +'<div style="font-weight:800;font-size:18px;color:#560A0F;margin-bottom:4px;">Nouveau mot de passe</div>'
+      +'<div style="font-size:13px;color:#6b5b58;margin-bottom:16px;">Choisissez un nouveau mot de passe pour votre compte Cockpit KW.</div>'
+      +'<label style="font-size:12px;font-weight:700;letter-spacing:.06em;color:#6b5b58;">MOT DE PASSE</label>'
+      +'<input id="kwRecPwd" type="password" autocomplete="new-password" style="width:100%;padding:11px 12px;margin:6px 0 12px;border:1px solid rgba(86,10,15,.25);border-radius:8px;font-size:15px;box-sizing:border-box;">'
+      +'<label style="font-size:12px;font-weight:700;letter-spacing:.06em;color:#6b5b58;">CONFIRMER</label>'
+      +'<input id="kwRecPwd2" type="password" autocomplete="new-password" style="width:100%;padding:11px 12px;margin:6px 0 12px;border:1px solid rgba(86,10,15,.25);border-radius:8px;font-size:15px;box-sizing:border-box;">'
+      +'<div id="kwRecMsg" style="font-size:13px;min-height:18px;margin-bottom:10px;"></div>'
+      +'<button id="kwRecBtn" type="button" style="width:100%;padding:13px;background:#560A0F;color:#fff;border:none;border-radius:8px;font-weight:700;font-size:15px;cursor:pointer;">Valider le mot de passe</button>'
+      +'</div>';
+    document.body.appendChild(ov);
+    var btn=document.getElementById('kwRecBtn'), msg=document.getElementById('kwRecMsg');
+    async function submit(){
+      var p1=document.getElementById('kwRecPwd').value||'', p2=document.getElementById('kwRecPwd2').value||'';
+      if(p1.length<8){ msg.style.color='#c0392b'; msg.textContent='8 caractères minimum.'; return; }
+      if(p1!==p2){ msg.style.color='#c0392b'; msg.textContent='Les deux mots de passe diffèrent.'; return; }
+      btn.disabled=true; msg.style.color='#6b5b58'; msg.textContent='Enregistrement…';
+      try{
+        var sb=(typeof initSupabase==='function')?initSupabase():null;
+        if(!sb){ throw new Error('Configuration Supabase absente.'); }
+        var r=await sb.auth.updateUser({ password:p1 });
+        if(r&&r.error){ throw r.error; }
+        msg.style.color='#1e7d34'; msg.textContent='Mot de passe mis à jour. Vous pouvez vous connecter.';
+        try{ await sb.auth.signOut(); }catch(e){}
+        setTimeout(function(){ location.href=location.pathname; }, 1400);
+      }catch(e){ btn.disabled=false; msg.style.color='#c0392b'; msg.textContent='Échec : '+((e&&e.message)||e); }
+    }
+    btn.onclick=submit;
+    document.getElementById('kwRecPwd2').addEventListener('keydown',function(ev){ if(ev.key==='Enter') submit(); });
+    setTimeout(function(){ var i=document.getElementById('kwRecPwd'); if(i) i.focus(); }, 100);
+  };
+  try{
+    if(hasRecovery()){
+      var sb=(typeof initSupabase==='function')?initSupabase():null; // déclenche detectSessionInUrl
+      if(sb && sb.auth && sb.auth.onAuthStateChange){
+        sb.auth.onAuthStateChange(function(ev, sess){
+          if(ev==='PASSWORD_RECOVERY' || ev==='SIGNED_IN'){ if(sess && typeof SB_SESSION!=='undefined'){ SB_SESSION=sess; } showRecoveryOverlay(); }
+        });
+      }
+      // Filet : afficher l'écran même si l'événement est manqué (session établie par detectSessionInUrl)
+      setTimeout(showRecoveryOverlay, 700);
+    }
+  }catch(e){}
+})();
+
+</script>
 </body>
 </html>
