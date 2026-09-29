@@ -7917,5 +7917,96 @@ function kwLifecycleSyncBtn(){
 })();
 </script>
 <script src="/shared/cr-actions.js?v=2"></script>
+<script>
+/* ==== ROADMAP TECHNIQUE (CTO) — bloc additif ==== */
+(function(){
+  if(typeof VIEWS!=='object'||!VIEWS) return;
+  var STATUTS=[['a_faire','À faire'],['en_cours','En cours'],['bloque','Bloqué'],['fait','Réalisé']];
+  function prog(it){ var se=Array.isArray(it.sous_etapes)?it.sous_etapes:[]; if(!se.length) return it.statut==='fait'?100:0; var d=se.filter(function(x){return x&&x.done;}).length; return Math.round(d/se.length*100); }
+  function esc(v){ return (typeof escP==='function')?escP(String(v==null?'':v)):String(v==null?'':v); }
+
+  VIEWS.cto=function(){
+    return '<div class="sec-eyebrow">Direction technique</div>'
+      +'<div class="sec-title">Roadmap technique</div>'
+      +'<div class="sec-note">Construisez et suivez les chantiers techniques — statut, priorité, sous-étapes cochables.</div>'
+      +'<div style="margin:10px 0;"><button class="add-btn" onclick="roadmapAdd()" type="button">+ Ajouter un chantier</button> <button class="per-btn" onclick="loadRoadmap()" type="button">↻ Rafraîchir</button></div>'
+      +'<div id="roadmapProg"></div>'
+      +'<div id="roadmapZone"><div class="edit-hint" style="padding:8px 2px;">Chargement…</div></div>';
+  };
+
+  window.loadRoadmap=async function(){
+    var el=document.getElementById('roadmapZone'); if(!el) return;
+    try{
+      var q=await SB.from('tech_roadmap').select('*').order('ordre',{ascending:true}).order('created_at',{ascending:true});
+      if(q&&q.error){ throw q.error; }
+      var rows=(q&&q.data)||[]; window.__ROADMAP=rows;
+      var pe=document.getElementById('roadmapProg');
+      if(pe){ var tot=rows.length, fait=rows.filter(function(r){return r.statut==='fait';}).length; var allSe=0,doneSe=0; rows.forEach(function(r){var se=Array.isArray(r.sous_etapes)?r.sous_etapes:[]; allSe+=se.length; doneSe+=se.filter(function(x){return x&&x.done;}).length;}); var pct=allSe?Math.round(doneSe/allSe*100):(tot?Math.round(fait/tot*100):0);
+        pe.innerHTML='<div class="panel" style="padding:12px 16px;margin-bottom:12px;"><div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px;"><span><b>'+fait+'</b>/'+tot+' chantiers réalisés · '+doneSe+'/'+allSe+' sous-étapes</span><span><b>'+pct+'%</b></span></div><div style="height:8px;background:rgba(86,10,15,.1);border-radius:5px;overflow:hidden;"><div style="height:100%;width:'+pct+'%;background:#560A0F;"></div></div></div>';
+      }
+      var html='';
+      STATUTS.forEach(function(st){
+        var items=rows.filter(function(r){return r.statut===st[0];});
+        if(!items.length) return;
+        html+='<div class="sec-eyebrow" style="margin-top:14px;">'+st[1]+' ('+items.length+')</div>';
+        items.forEach(function(it){ html+=roadmapCard(it); });
+      });
+      el.innerHTML= html || '<div class="edit-hint" style="padding:8px 2px;">Aucun chantier. Cliquez « + Ajouter un chantier ».</div>';
+    }catch(e){ el.innerHTML='<div class="panel" style="padding:16px;color:var(--signal)">Roadmap indisponible : '+((e&&e.message)||e)+'</div>'; }
+  };
+
+  function roadmapCard(it){
+    var se=Array.isArray(it.sous_etapes)?it.sous_etapes:[]; var p=prog(it);
+    var seHtml=se.map(function(s,i){ return '<label style="display:flex;align-items:center;gap:8px;font-size:13px;padding:2px 0;"><input type="checkbox" '+(s&&s.done?'checked':'')+' onchange="roadmapToggle(\''+it.id+'\','+i+')"> <span style="'+(s&&s.done?'text-decoration:line-through;color:#999;':'')+'">'+esc(s&&s.label)+'</span> <button class="per-btn" style="font-size:10px;padding:0 6px;margin-left:auto;" onclick="roadmapDelStep(\''+it.id+'\','+i+')">×</button></label>'; }).join('');
+    var prio=['','🔴 Haute','🟠 Moyenne','🟢 Basse'][it.priorite]||'';
+    return '<div class="panel" style="padding:12px 16px;margin-top:8px;">'
+      +'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">'
+        +'<b style="font-size:14px;">'+esc(it.titre||'(sans titre)')+'</b>'
+        +'<span class="pill p-blue">'+esc(it.categorie)+'</span>'
+        +(it.trimestre?'<span class="pill p-amber">'+esc(it.trimestre)+'</span>':'')
+        +(prio?'<span style="font-size:12px;">'+prio+'</span>':'')
+        +'<span style="margin-left:auto;font-size:12px;color:#666;">'+p+'%</span>'
+      +'</div>'
+      +(it.description?'<div class="sec-note" style="margin:6px 0;">'+esc(it.description)+'</div>':'')
+      +'<div style="height:6px;background:rgba(86,10,15,.1);border-radius:4px;overflow:hidden;margin:6px 0;"><div style="height:100%;width:'+p+'%;background:#560A0F;"></div></div>'
+      +(seHtml?'<div style="margin:6px 0;">'+seHtml+'</div>':'')
+      +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">'
+        +'<button class="per-btn" style="font-size:11px;" onclick="roadmapAddStep(\''+it.id+'\')">+ sous-étape</button>'
+        +'<select class="per-btn" style="font-size:11px;" onchange="roadmapSetStatut(\''+it.id+'\',this.value)">'+STATUTS.map(function(x){return '<option value="'+x[0]+'" '+(x[0]===it.statut?'selected':'')+'>'+x[1]+'</option>';}).join('')+'</select>'
+        +'<button class="per-btn" style="font-size:11px;" onclick="roadmapEdit(\''+it.id+'\')">Modifier</button>'
+        +'<button class="per-btn" style="font-size:11px;color:#c0392b;" onclick="roadmapDel(\''+it.id+'\')">Supprimer</button>'
+      +'</div>'
+    +'</div>';
+  }
+  function _it(id){ return (window.__ROADMAP||[]).filter(function(r){return r.id===id;})[0]; }
+  async function _upd(id,patch){ patch.updated_at=new Date().toISOString(); var q=await SB.from('tech_roadmap').update(patch).eq('id',id); if(q&&q.error){ alert('Erreur : '+q.error.message); return; } loadRoadmap(); }
+
+  window.roadmapAdd=async function(){
+    var t=prompt('Titre du chantier :'); if(!t) return;
+    var cat=prompt('Catégorie (Cockpit / Clap! / Humetria / Infra / Sécurité / Data / Autre) :','Cockpit')||'Cockpit';
+    var tri=prompt('Trimestre (ex. 2026-Q1) :','')||'';
+    var q=await SB.from('tech_roadmap').insert({titre:t,categorie:cat,trimestre:tri}); if(q&&q.error){ alert('Erreur : '+q.error.message); return; } loadRoadmap();
+  };
+  window.roadmapEdit=async function(id){ var it=_it(id); if(!it) return;
+    var t=prompt('Titre :',it.titre||''); if(t===null) return;
+    var d=prompt('Description :',it.description||''); if(d===null) return;
+    var cat=prompt('Catégorie :',it.categorie||'Cockpit'); if(cat===null) return;
+    var tri=prompt('Trimestre :',it.trimestre||''); if(tri===null) return;
+    var pr=prompt('Priorité (1=haute, 2=moyenne, 3=basse) :',String(it.priorite||2)); if(pr===null) return;
+    _upd(id,{titre:t,description:d,categorie:cat,trimestre:tri,priorite:parseInt(pr,10)||2});
+  };
+  window.roadmapDel=async function(id){ if(!confirm('Supprimer ce chantier ?')) return; var q=await SB.from('tech_roadmap').delete().eq('id',id); if(q&&q.error){ alert('Erreur : '+q.error.message); return; } loadRoadmap(); };
+  window.roadmapSetStatut=function(id,st){ _upd(id,{statut:st}); };
+  window.roadmapAddStep=function(id){ var l=prompt('Libellé de la sous-étape :'); if(!l) return; var it=_it(id); if(!it) return; var se=Array.isArray(it.sous_etapes)?it.sous_etapes.slice():[]; se.push({label:l,done:false}); _upd(id,{sous_etapes:se}); };
+  window.roadmapDelStep=function(id,i){ var it=_it(id); if(!it) return; var se=Array.isArray(it.sous_etapes)?it.sous_etapes.slice():[]; se.splice(i,1); _upd(id,{sous_etapes:se}); };
+  window.roadmapToggle=function(id,i){ var it=_it(id); if(!it) return; var se=Array.isArray(it.sous_etapes)?it.sous_etapes.slice():[]; if(!se[i]) return; se[i]=Object.assign({},se[i],{done:!se[i].done}); _upd(id,{sous_etapes:se}); };
+
+  if(typeof renderTab==='function'){
+    var _rt=renderTab;
+    renderTab=function(){ _rt.apply(this,arguments); if(typeof CURRENT_TAB!=='undefined'&&CURRENT_TAB==='dash'&&CURRENT_ROLE==='cto'&&document.getElementById('roadmapZone')) loadRoadmap(); };
+  }
+})();
+
+</script>
 </body>
 </html>
