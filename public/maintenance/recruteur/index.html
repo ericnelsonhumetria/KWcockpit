@@ -52,14 +52,14 @@ pre{white-space:pre-wrap;font-size:12.5px;background:var(--th);padding:10px;bord
 <header><b>KAIZEN WAY <span>·</span> Recrutement Maintenance</b><span id="who" class="noprint"></span></header>
 <main id="app"><div class="card">Chargement…</div></main>
 <script>
-/* KW · Espace recruteur · Mise en situation Maintenance v3 */
+/* KW · Espace recruteur · Mise en situation Maintenance v3 · format 45 min (3 situations) */
 var SB_URL = "https://omftqlvkmjlxoinruayr.supabase.co";
 var SB_KEY = "sb_publishable_RgKYatx7zHx_SJvrvoyt2w_fXhLKQ1w";
 var CAND_URL = location.origin + "/maintenance/?c=";
 var EVAL_FN = "/.netlify/functions/maintenance-eval";
 var POIDS = {securite:2, methode:2, technique:2, causeracine:1, perennisation:1, pilotage:1};
 var LIB = {securite:"Sécurité", methode:"Méthode de diagnostic", technique:"Maîtrise technique", causeracine:"Cause racine", perennisation:"Pérennisation", pilotage:"Pilotage et posture"};
-var SITS = ["S1 · Le convoyeur qui redéclenche","S2 · Le défaut intermittent","S3 · Le variateur en défaut","S4 · Trois appels en même temps"];
+var SITS = ["S1 · Le convoyeur qui redéclenche","S2 · Le défaut intermittent","S3 · Trois appels en même temps"];
 var sbc = null, user = null, CANDS = [], RES = {}, showArch = false, evalRunning = {}, queue = Promise.resolve(), openId = null;
 var app = document.getElementById("app");
 
@@ -207,12 +207,12 @@ async function runEval(cid, force){
     if (force) await callEval(cid, "reset");
     var cur = await sbc.from("parcours_resultats").select("an:detail->analyses").eq("candidat_id", cid).eq("epreuve", "maintenance").single();
     var an = (cur.data && cur.data.an) || [];
-    for (var i = 0; i < 4; i++){
+    for (var i = 0; i < SITS.length; i++){
       if (an[i]) continue;
-      prog("Évaluation " + (i + 1) + " / 5…");
+      prog("Évaluation " + (i + 1) + " / " + (SITS.length + 1) + "…");
       try{ await callEval(cid, i, false); }catch(e){ await callEval(cid, i, true); }
     }
-    prog("Évaluation 5 / 5…");
+    prog("Évaluation " + (SITS.length + 1) + " / " + (SITS.length + 1) + "…");
     try{ await callEval(cid, "synth", false); }catch(e){ await callEval(cid, "synth", true); }
   }catch(e){
     evalRunning[cid] = false;
