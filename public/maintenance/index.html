@@ -58,7 +58,7 @@ ul{margin:4px 0 10px 20px;padding:0}
 <script>
 /* KW · Mise en situation Responsable Maintenance · page CANDIDAT v3
    Aucun scénario secret ni grille dans cette page : tout passe par /.netlify/functions/maintenance-candidat */
-var SIT = [{"id":"S1","titre":"Le convoyeur qui redéclenche","minutes":20,"perso":"Chef d’équipe de nuit","ouverture":"5h40. Le convoyeur d’alimentation de la ligne 2 s’est arrêté. Le disjoncteur moteur dans l’armoire est déclenché. Mon opérateur l’a réarmé deux fois, ça repart puis ça redéclenche au bout de deux-trois minutes. La ligne est arrêtée et on a un camion à 8h. Tu fais quoi ?","cloture":"Bon, la ligne est relancée, le camion partira. Maintenant, qu’est-ce que tu fais pour que ça ne se reproduise pas ?"},{"id":"S2","titre":"Le défaut intermittent","minutes":20,"perso":"Régleur de la cellule d’assemblage","ouverture":"Depuis trois jours, la cellule d’assemblage s’arrête toute seule six à dix fois par poste. Message sur l’IHM : « Défaut position vérin V3, temps dépassé ». On acquitte, ça repart. L’équipe de jour a changé le capteur de fin de course hier, ça n’a rien changé. Les opérateurs en ont marre.","cloture":"OK, c’est reparti. Et pour que ça ne revienne pas, sur cette cellule et ailleurs, tu fais quoi ?"},{"id":"S3","titre":"Le variateur qui se met en défaut","minutes":15,"perso":"Technicien de maintenance","ouverture":"Le grand convoyeur de transfert, celui qui est sur variateur, se met en défaut à chaque arrêt de ligne depuis lundi. Faut couper le variateur et le remettre sous tension pour repartir. Le fournisseur dit qu’il faut sûrement le remplacer, trois semaines de délai. On commande ?","cloture":"Ça tourne. Qu’est-ce que tu mets en place pour que ce genre de truc n’arrive plus ?"},{"id":"S4","titre":"Trois appels en même temps","minutes":15,"perso":"Chef de ligne, cariste, responsable logistique","ouverture":"6h05. Tu as deux techniciens disponibles. Trois appels en cinq minutes.\n\nCHEF DE LIGNE 1 (ligne goulot) : « La barrière immatérielle du poste de chargement se met en défaut sans arrêt, la ligne est arrêtée. On a une commande urgente pour notre plus gros client à 10h. Le technicien de nuit dit qu’on peut ponter la barrière, il suffit que tu valides. »\n\nCARISTE : « Il y a une flaque d’huile qui grossit sous la presse 4, juste au bord de l’allée des chariots. »\n\nRESPONSABLE LOGISTIQUE : « Un tiers des luminaires de la zone expédition est éteint depuis ce matin, on y voit mal pour lire les étiquettes. »\n\nTu fais quoi, dans quel ordre, avec qui ?","cloture":"La matinée est passée. Avec le recul, qu’est-ce que tu changes dans ton organisation ?"}];
+var SIT = [{"id":"S1","titre":"Le convoyeur qui redéclenche","minutes":14,"perso":"Chef d’équipe de nuit","ouverture":"5h40. Le convoyeur d’alimentation de la ligne 2 s’est arrêté. Le disjoncteur moteur dans l’armoire est déclenché. Mon opérateur l’a réarmé deux fois, ça repart puis ça redéclenche au bout de deux-trois minutes. La ligne est arrêtée et on a un camion à 8h. Tu fais quoi ?","cloture":"Bon, la ligne est relancée, le camion partira. Maintenant, qu’est-ce que tu fais pour que ça ne se reproduise pas ?"},{"id":"S2","titre":"Le défaut intermittent","minutes":14,"perso":"Régleur de la cellule d’assemblage","ouverture":"Depuis trois jours, la cellule d’assemblage s’arrête toute seule six à dix fois par poste. Message sur l’IHM : « Défaut position vérin V3, temps dépassé ». On acquitte, ça repart. L’équipe de jour a changé le capteur de fin de course hier, ça n’a rien changé. Les opérateurs en ont marre.","cloture":"OK, c’est reparti. Et pour que ça ne revienne pas, sur cette cellule et ailleurs, tu fais quoi ?"},{"id":"S3","titre":"Trois appels en même temps","minutes":10,"perso":"Chef de ligne, cariste, responsable logistique","ouverture":"6h05. Tu as deux techniciens disponibles. Trois appels en cinq minutes.\n\nCHEF DE LIGNE 1 (ligne goulot) : « La barrière immatérielle du poste de chargement se met en défaut sans arrêt, la ligne est arrêtée. On a une commande urgente pour notre plus gros client à 10h. Le technicien de nuit dit qu’on peut ponter la barrière, il suffit que tu valides. »\n\nCARISTE : « Il y a une flaque d’huile qui grossit sous la presse 4, juste au bord de l’allée des chariots. »\n\nRESPONSABLE LOGISTIQUE : « Un tiers des luminaires de la zone expédition est éteint depuis ce matin, on y voit mal pour lire les étiquettes. »\n\nTu fais quoi, dans quel ordre, avec qui ?","cloture":"La matinée est passée. Avec le recul, qu’est-ce que tu changes dans ton organisation ?"}];
 var CLIENT = "Plantex";
 var FN = "/.netlify/functions/maintenance-candidat";
 var TOKEN = (new URLSearchParams(location.search).get("c") || "").trim();
@@ -86,7 +86,7 @@ async function api(action, payload, tries){
   }
   throw last;
 }
-function transcripts(){
+function transcripts(){ /* 3 situations */
   return SIT.map(function(s, i){ var st = ST.sits[i]; return {situation: s.id, titre: s.titre, duree_s: st.dur, cloture_forcee: !!st.forced, messages: st.msgs.slice(1), cloture_question: s.cloture, cloture_reponse: st.cloture}; });
 }
 async function sync(statut){ try{ await api("save", {statut: statut, client: CLIENT, transcripts: transcripts()}, 3); return true; }catch(e){ return false; } }
@@ -100,15 +100,15 @@ function newState(nom){
 function screenIntro(nom){
   app.innerHTML =
   '<div class="card"><h1>Mise en situation · Diagnostic de pannes</h1>' +
-  '<p class="mu">Poste : Responsable Maintenance · Durée indicative : 70 minutes · 4 situations</p>' +
+  '<p class="mu">Poste : Responsable Maintenance · Durée : 45 minutes · 3 situations</p>' +
   (nom ? '<p>Bonjour <b>' + esc(nom) + '</b>.</p>' : '') +
   '<div class="gold"><p>Vous êtes responsable maintenance d’une usine. Vous avez deux techniciens électromécaniciens par poste, une GMAO, un magasin de pièces détachées.</p>' +
-  '<p>Vous allez vivre quatre situations de panne. Vos interlocuteurs sont joués par une IA : chef d’équipe, régleur, technicien…</p>' +
+  '<p>Vous allez vivre trois situations de terrain. Vos interlocuteurs sont joués par une IA : chef d’équipe, régleur, technicien…</p>' +
   '<p><b>Règle du jeu :</b> vous disposez de tous les outils et documents habituels (multimètre, pince ampèremétrique, mégohmmètre, manomètre, caméra thermique, schémas, IHM, GMAO). Votre interlocuteur ne vous donnera une information <b>que si vous la demandez</b> ou si vous lui dites <b>quelle vérification vous faites</b>. Dites concrètement ce que vous faites, avec quel instrument, et ce que vous en concluez.</p>' +
   '<p>Quand vous estimez la situation traitée, cliquez sur « Situation traitée » puis confirmez. Une dernière question vous sera posée, puis vous passerez à la suivante.</p></div>' +
-  '<p class="mu">Seul votre raisonnement compte. Un chronomètre indicatif s’affiche par situation. Prévoyez 70 minutes sans interruption ; si la page se ferme, rouvrez votre lien dans le même onglet pour reprendre.</p>' +
+  '<p class="mu">Seul votre raisonnement compte. Un chronomètre s’affiche par situation : chaque situation est clôturée automatiquement une minute après son temps prévu. Prévoyez 45 minutes sans interruption ; si la page se ferme, rouvrez votre lien dans le même onglet pour reprendre.</p>' +
   '<button id="go">Commencer</button></div>';
-  document.getElementById("go").onclick = function(){ ST = newState(nom); save(); sync("en_cours"); screenSit(); };
+  document.getElementById("go").onclick = function(){ ST = newState(nom); ST.t_start = Date.now(); save(); sync("en_cours"); screenSit(); };
 }
 
 function screenSit(){
@@ -117,7 +117,7 @@ function screenSit(){
   document.getElementById("hdrMeta").textContent = "Situation " + (ST.idx + 1) + " / " + SIT.length;
   app.innerHTML =
   '<div class="card"><div class="sitbar"><div><span class="pill">' + s.id + '</span> <b>' + esc(s.titre) + '</b><div class="mu">Interlocuteur : ' + esc(s.perso) + '</div></div>' +
-  '<div class="timer" id="tm">00:00 / ' + s.minutes + ':00</div></div>' +
+  '<div style="text-align:right"><div class="timer" id="tm">00:00 / ' + s.minutes + ':00</div><div class="mu" id="gt"></div></div></div>' +
   '<div id="chat"></div>' +
   '<div class="compose"><textarea id="inp" placeholder="Ce que vous dites ou faites…"></textarea><button id="send">Envoyer</button></div>' +
   '<div class="err" id="err"></div>' +
@@ -167,7 +167,9 @@ function startTimer(){
     var sec = Math.floor((Date.now() - st.t0) / 1000), lim = s.minutes * 60;
     el.textContent = String(Math.floor(sec / 60)).padStart(2, "0") + ":" + String(sec % 60).padStart(2, "0") + " / " + s.minutes + ":00";
     el.className = "timer" + (sec > lim ? " over" : (sec > lim * 0.8 ? " warn" : ""));
-    if (st.phase === "jeu" && sec > lim + 180 && !busy) openCloture(true);
+    var tot = ST.t_start ? Math.floor((Date.now() - ST.t_start) / 1000) : 0, gl = document.getElementById("gt");
+    if (gl) { gl.textContent = "Temps total " + String(Math.floor(tot / 60)).padStart(2, "0") + ":" + String(tot % 60).padStart(2, "0") + " / 45:00"; gl.className = "mu" + (tot > 2700 ? " err" : ""); }
+    if (st.phase === "jeu" && (sec > lim + 60 || tot > 2760) && !busy) openCloture(true);
   }, 1000);
 }
 
