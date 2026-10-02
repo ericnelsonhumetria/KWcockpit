@@ -8545,5 +8545,28 @@ function kwLifecycleSyncBtn(){
 })();
 
 </script>
+<script>
+/* COCKPIT KW - BLOC : accès Espace recruteur Maintenance (onglet Parcours candidats)
+   Additif : enrobe renderTab() sans le modifier. */
+(function(){
+  if (typeof renderTab !== 'function') return;
+  var _rtMaint = renderTab;
+  renderTab = function(){
+    _rtMaint.apply(this, arguments);
+    try{
+      if (typeof CURRENT_TAB === 'undefined' || CURRENT_TAB !== 'parcours') return;
+      var zone = document.getElementById('parcoursZone');
+      if (!zone || document.getElementById('maintAccess')) return;
+      var p = document.createElement('div');
+      p.id = 'maintAccess'; p.className = 'panel';
+      p.style.cssText = 'padding:14px 16px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;border-left:4px solid #EFB810;';
+      p.innerHTML = '<div><b>Mise en situation Responsable Maintenance</b>'
+        + '<div style="color:var(--muted);font-size:13px;margin-top:2px;">Espace dédié : création des candidats, liens, rapports, décisions.</div></div>'
+        + '<a class="add-btn" href="/maintenance/recruteur/" target="_blank" rel="noopener" style="text-decoration:none;">Ouvrir l\u2019espace recruteur</a>';
+      zone.parentNode.insertBefore(p, zone);
+    }catch(e){}
+  };
+})();
+</script>
 </body>
 </html>
