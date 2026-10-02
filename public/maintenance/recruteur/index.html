@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<title>KW · Recrutement Maintenance · Espace recruteur</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗂️</text></svg>">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{--bx:#560A0F;--or:#EFB810;--bg:#F7F3F2;--card:#FFFFFF;--tx:#1E1A1A;--mu:#6B6262;--ln:#E4DADA;--th:#F1E9E9;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+*,*:before,*:after{box-sizing:inherit}
+html,body{margin:0}
+body{background:var(--bg);color:var(--tx);font-family:Calibri,"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;font-size:15px;line-height:1.45}
+header{background:var(--bx);color:#fff;padding:12px 18px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+header b span{color:var(--or)}
+main{max-width:1180px;margin:0 auto;padding:18px 14px 40px}
+.card{background:var(--card);border:1px solid var(--ln);border-radius:12px;padding:18px;margin-bottom:16px}
+h1{font-size:22px;color:var(--bx);margin:0 0 8px}
+h2{font-size:17px;color:var(--bx);margin:0 0 8px}
+p{margin:0 0 8px}
+.mu{color:var(--mu);font-size:13px}
+button{font:inherit;border:0;border-radius:8px;padding:8px 14px;cursor:pointer;background:var(--bx);color:#fff;font-weight:600}
+button.sec{background:transparent;color:var(--bx);border:1.5px solid var(--bx)}
+button.sm{padding:4px 9px;font-size:13px}
+button:disabled{opacity:.45;cursor:not-allowed}
+input,select,textarea{font:inherit;padding:8px 10px;border:1px solid var(--ln);border-radius:8px;background:var(--card);color:var(--tx)}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+.row label{display:flex;flex-direction:column;gap:3px;font-size:13px;color:var(--mu)}
+.tbl-wrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{border-bottom:1px solid var(--ln);padding:8px;text-align:left;vertical-align:top}
+th{background:var(--bx);color:#fff;font-weight:600;white-space:nowrap}
+.badge{display:inline-block;border-radius:12px;padding:1px 9px;font-size:12px;font-weight:700;white-space:nowrap}
+.b-oui{background:#DDF2E6;color:#1E6B45}.b-res{background:#FCEBD3;color:#8A4B06}.b-non{background:#FADADD;color:#9B0018}.b-neu{background:var(--th);color:var(--mu)}
+.gold{border-left:4px solid var(--or);background:#FDF6E3;padding:10px 12px;border-radius:6px;margin:10px 0;color:#1E1A1A}
+.elim{background:#FDECEC;border-left:4px solid #B00020;padding:10px 12px;border-radius:6px;margin:10px 0;color:#1E1A1A}
+.score{font-size:36px;font-weight:800;color:var(--bx)}
+.pill{display:inline-block;background:var(--or);color:#3a2a00;border-radius:20px;padding:1px 9px;font-size:12px;font-weight:700}
+.linkbox{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
+.linkbox input{flex:1;min-width:260px}
+.err{color:#B00020;font-size:13px}
+ul{margin:4px 0 8px 18px;padding:0}
+.syn{max-width:340px}
+pre{white-space:pre-wrap;font-size:12.5px;background:var(--th);padding:10px;border-radius:8px}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#171313;--card:#221C1C;--tx:#EFE8E8;--mu:#A99E9E;--ln:#3A2F2F;--th:#2F2626}}
+:root[data-theme="dark"]{--bg:#171313;--card:#221C1C;--tx:#EFE8E8;--mu:#A99E9E;--ln:#3A2F2F;--th:#2F2626}
+@media print{header,.noprint{display:none!important} body.pr #newc,body.pr #listc{display:none!important} body{background:#fff;color:#000} .card{border:0;padding:0}}
+</style>
+</head>
+<body>
+<header><b>KAIZEN WAY <span>·</span> Recrutement Maintenance</b><span id="who" class="noprint"></span></header>
+<main id="app"><div class="card">Chargement…</div></main>
+<script>
+/* KW · Espace recruteur · Mise en situation Maintenance v3 */
+var SB_URL = "https://omftqlvkmjlxoinruayr.supabase.co";
+var SB_KEY = "sb_publishable_RgKYatx7zHx_SJvrvoyt2w_fXhLKQ1w";
+var CAND_URL = location.origin + "/maintenance/?c=";
+var EVAL_FN = "/.netlify/functions/maintenance-eval";
+var POIDS = {securite:2, methode:2, technique:2, causeracine:1, perennisation:1, pilotage:1};
+var LIB = {securite:"Sécurité", methode:"Méthode de diagnostic", technique:"Maîtrise technique", causeracine:"Cause racine", perennisation:"Pérennisation", pilotage:"Pilotage et posture"};
+var SITS = ["S1 · Le convoyeur qui redéclenche","S2 · Le défaut intermittent","S3 · Le variateur en défaut","S4 · Trois appels en même temps"];
+var sbc = null, user = null, CANDS = [], RES = {}, showArch = false, evalRunning = {}, queue = Promise.resolve(), openId = null;
+var app = document.getElementById("app");
+
+function esc(s){ return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
+function fmt(d){ if (!d) return "—"; var x = new Date(d); return x.toLocaleDateString("fr-FR") + " " + x.toLocaleTimeString("fr-FR", {hour:"2-digit", minute:"2-digit"}); }
+function capBadge(c){ if (!c) return '<span class="badge b-neu">—</span>'; var k = c === "Oui" ? "b-oui" : c === "Non" ? "b-non" : "b-res"; return '<span class="badge ' + k + '">' + esc(c) + '</span>'; }
+function decBadge(v){ if (!v) return '<span class="mu">à décider</span>'; var k = v === "Retenu" ? "b-oui" : v === "Non retenu" ? "b-non" : "b-res"; return '<span class="badge ' + k + '">' + esc(v) + '</span>'; }
+function li(a){ return (a || []).filter(Boolean).map(function(x){ return "<li>" + esc(x) + "</li>"; }).join("") || '<li class="mu">—</li>'; }
+async function copy(txt, btn){
+  try{ await navigator.clipboard.writeText(txt); }catch(e){ var i = document.createElement("textarea"); i.value = txt; document.body.appendChild(i); i.select(); try{ document.execCommand("copy"); }catch(e2){} i.remove(); }
+  if (btn){ var o = btn.textContent; btn.textContent = "Copié ✓"; setTimeout(function(){ btn.textContent = o; }, 1500); }
+}
+
+/* ---------- Auth ---------- */
+async function boot(){
+  if (!window.supabase || SB_KEY.indexOf("COLLER") === 0){ app.innerHTML = '<div class="card"><h2>Configuration manquante</h2><p>Renseignez la clé publishable Supabase (SB_KEY) dans ce fichier.</p></div>'; return; }
+  sbc = window.supabase.createClient(SB_URL, SB_KEY);
+  var s = await sbc.auth.getSession();
+  if (s.data && s.data.session){ user = s.data.session.user; main(); } else loginScreen();
+}
+function loginScreen(msg){
+  document.getElementById("who").innerHTML = "";
+  app.innerHTML = '<div class="card" style="max-width:420px;margin:40px auto"><h1>Espace recruteur</h1><p class="mu">Identifiants Cockpit KW.</p>' +
+  '<div class="row" style="flex-direction:column;align-items:stretch"><label>Email<input id="em" type="email" autocomplete="username"></label><label>Mot de passe<input id="pw" type="password" autocomplete="current-password"></label><button id="lg">Se connecter</button></div><p class="err" id="le">' + esc(msg || "") + '</p></div>';
+  var go = async function(){
+    var r = await sbc.auth.signInWithPassword({email: document.getElementById("em").value.trim(), password: document.getElementById("pw").value});
+    if (r.error){ document.getElementById("le").textContent = "Connexion refusée : " + r.error.message; return; }
+    user = r.data.user; main();
+  };
+  document.getElementById("lg").onclick = go;
+  document.getElementById("pw").addEventListener("keydown", function(e){ if (e.key === "Enter") go(); });
+}
+async function jwt(){ var s = await sbc.auth.getSession(); return s.data && s.data.session ? s.data.session.access_token : ""; }
+
+/* ---------- Écran principal ---------- */
+function main(){
+  document.getElementById("who").innerHTML = esc(user.email) + ' · <a href="#" id="lo" style="color:#EFB810">Déconnexion</a>';
+  document.getElementById("lo").onclick = async function(e){ e.preventDefault(); await sbc.auth.signOut(); loginScreen(); };
+  app.innerHTML =
+  '<div class="card noprint" id="newc"><h2>Nouveau candidat</h2><div class="row">' +
+  '<label>Nom et prénom *<input id="n_nom" size="26"></label><label>Email<input id="n_em" type="email" size="26"></label>' +
+  '<label>Client<input id="n_cl" value="Plantex" size="14"></label><label>Validité du lien<select id="n_j"><option value="7">7 jours</option><option value="14" selected>14 jours</option><option value="30">30 jours</option></select></label>' +
+  '<button id="n_go">Créer et générer le lien</button></div><div id="n_out"></div></div>' +
+  '<div class="card" id="listc"><div class="row" style="justify-content:space-between;margin-bottom:10px"><h2 style="margin:0">Candidats</h2>' +
+  '<div class="row noprint"><label style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" id="arch"> Afficher les archivés</label><button class="sec sm" id="rf">Actualiser</button></div></div>' +
+  '<div class="tbl-wrap" id="list"><p class="mu">Chargement…</p></div></div>' +
+  '<div id="detail"></div>';
+  document.getElementById("n_go").onclick = createCand;
+  document.getElementById("arch").onchange = function(){ showArch = this.checked; renderList(); };
+  document.getElementById("rf").onclick = loadAll;
+  loadAll();
+}
+
+async function createCand(){
+  var nom = document.getElementById("n_nom").value.trim(), out = document.getElementById("n_out");
+  if (!nom){ out.innerHTML = '<p class="err">Le nom est obligatoire.</p>'; return; }
+  var cl = document.getElementById("n_cl").value.trim() || "Plantex";
+  var j = Number(document.getElementById("n_j").value);
+  var b = document.getElementById("n_go"); b.disabled = true;
+  var r = await sbc.from("parcours_candidats").insert({
+    nom: nom, email: document.getElementById("n_em").value.trim() || null,
+    poste: "Responsable Maintenance · " + cl, statut: "invite",
+    expires_at: new Date(Date.now() + j * 864e5).toISOString()
+  }).select("id,token").single();
+  b.disabled = false;
+  if (r.error){ out.innerHTML = '<p class="err">Création impossible : ' + esc(r.error.message) + '</p>'; return; }
+  var link = CAND_URL + r.data.token;
+  out.innerHTML = '<div class="linkbox"><input readonly value="' + esc(link) + '"><button id="cp">Copier le lien</button></div><p class="mu">Lien personnel valable ' + j + ' jours, à envoyer au candidat. Une seule passation possible.</p>';
+  document.getElementById("cp").onclick = function(){ copy(link, this); };
+  document.getElementById("n_nom").value = ""; document.getElementById("n_em").value = "";
+  loadAll();
+}
+
+async function loadAll(){
+  var c = await sbc.from("parcours_candidats").select("id,token,nom,email,poste,statut,created_at,expires_at").ilike("poste", "%maintenance%").order("created_at", {ascending:false});
+  if (c.error){
+    if (/JWT|auth/i.test(c.error.message)) { loginScreen("Session expirée, reconnectez-vous."); return; }
+    document.getElementById("list").innerHTML = '<p class="err">' + esc(c.error.message) + '</p>'; return;
+  }
+  CANDS = c.data || []; RES = {};
+  var ids = CANDS.map(function(x){ return x.id; });
+  if (ids.length){
+    var r = await sbc.from("parcours_resultats").select("candidat_id,statut,score,completed_at,ev:detail->evaluation,dec:detail->decision,an:detail->analyses").eq("epreuve", "maintenance").in("candidat_id", ids);
+    if (!r.error) (r.data || []).forEach(function(x){ RES[x.candidat_id] = x; });
+  }
+  renderList();
+  CANDS.forEach(function(x){ var r = RES[x.id]; if (x.statut !== "archive" && r && r.statut === "termine" && !r.ev) enqueueEval(x.id, false); });
+}
+
+function etat(c, r){
+  if (c.statut === "archive") return "Archivé";
+  if (r && r.statut === "termine") return "Terminé " + fmt(r.completed_at).split(" ")[0];
+  if (r) return "En cours";
+  if (c.expires_at && new Date(c.expires_at) < new Date()) return "Lien expiré";
+  return "Invité";
+}
+function renderList(){
+  var rows = CANDS.filter(function(c){ return showArch || c.statut !== "archive"; });
+  if (!rows.length){ document.getElementById("list").innerHTML = '<p class="mu">Aucun candidat.</p>'; return; }
+  var h = '<table><tr><th>Candidat</th><th>Client</th><th>État</th><th>Score</th><th>Capacité poste (IA)</th><th>Décision</th><th>Synthèse</th><th class="noprint">Actions</th></tr>';
+  rows.forEach(function(c){
+    var r = RES[c.id], ev = r && r.ev, dec = r && r.dec;
+    var cl = (c.poste || "").split("·")[1] || "";
+    var syn = ev ? esc(String(ev.justification || "").slice(0, 220)) : (evalRunning[c.id] ? '<span class="mu" id="pg_' + c.id + '">Évaluation en cours…</span>' : (r && r.statut === "termine" ? '<span class="mu">Évaluation en attente</span>' : '<span class="mu">—</span>'));
+    h += '<tr><td><b>' + esc(c.nom) + '</b><div class="mu">' + esc(c.email || "") + '</div></td><td>' + esc(cl.trim()) + '</td><td>' + esc(etat(c, r)) + '</td>' +
+      '<td>' + (ev ? '<b>' + ev.pct + ' %</b>' + (ev.eliminatoire ? '<div class="badge b-non">Éliminatoire</div>' : '') : '—') + '</td>' +
+      '<td>' + capBadge(ev && ev.capacite_poste) + '</td><td>' + (r && r.statut === "termine" ? decBadge(dec && dec.valeur) : '<span class="mu">—</span>') + '</td>' +
+      '<td class="syn">' + syn + '</td><td class="noprint" style="white-space:nowrap">' +
+      (r && r.statut === "termine" ? '<button class="sm" data-a="rep" data-id="' + c.id + '">Rapport</button> ' : '') +
+      (c.statut !== "archive" && !(r && r.statut === "termine") ? '<button class="sec sm" data-a="lnk" data-id="' + c.id + '">Lien</button> ' : '') +
+      '<button class="sec sm" data-a="arc" data-id="' + c.id + '">' + (c.statut === "archive" ? "Restaurer" : "Archiver") + '</button></td></tr>';
+  });
+  h += '</table>';
+  var L = document.getElementById("list"); L.innerHTML = h;
+  L.querySelectorAll("button[data-a]").forEach(function(b){
+    b.onclick = function(){
+      var id = b.dataset.id, c = CANDS.find(function(x){ return x.id === id; });
+      if (b.dataset.a === "rep") openReport(id);
+      if (b.dataset.a === "lnk") copy(CAND_URL + c.token, b);
+      if (b.dataset.a === "arc") archive(c, b);
+    };
+  });
+}
+
+async function archive(c, b){
+  if (b.dataset.armed !== "1"){ b.dataset.armed = "1"; b.textContent = "Confirmer ?"; return; }
+  var r = RES[c.id];
+  var st = c.statut === "archive" ? (r && r.statut === "termine" ? "termine" : (r ? "en_cours" : "invite")) : "archive";
+  var u = await sbc.from("parcours_candidats").update({statut: st}).eq("id", c.id);
+  if (u.error){ alert(u.error.message); return; }
+  loadAll();
+}
+
+/* ---------- Évaluation (côté serveur, pilotée d'ici) ---------- */
+async function callEval(cid, step, retry){
+  var r = await fetch(EVAL_FN, {method:"POST", headers:{"Content-Type":"application/json", "Authorization":"Bearer " + await jwt()}, body: JSON.stringify({candidat_id: cid, step: step, retry: !!retry})});
+  var d = await r.json().catch(function(){ return {error: "Réponse illisible (HTTP " + r.status + ", délai dépassé ?)"}; });
+  if (!r.ok) throw new Error(d.error || ("HTTP " + r.status));
+  return d;
+}
+async function runEval(cid, force){
+  evalRunning[cid] = true; renderList();
+  var prog = function(t){ var e = document.getElementById("pg_" + cid); if (e) e.textContent = t; var e2 = document.getElementById("rp_prog"); if (e2 && openId === cid) e2.textContent = t; };
+  try{
+    if (force) await callEval(cid, "reset");
+    var cur = await sbc.from("parcours_resultats").select("an:detail->analyses").eq("candidat_id", cid).eq("epreuve", "maintenance").single();
+    var an = (cur.data && cur.data.an) || [];
+    for (var i = 0; i < 4; i++){
+      if (an[i]) continue;
+      prog("Évaluation " + (i + 1) + " / 5…");
+      try{ await callEval(cid, i, false); }catch(e){ await callEval(cid, i, true); }
+    }
+    prog("Évaluation 5 / 5…");
+    try{ await callEval(cid, "synth", false); }catch(e){ await callEval(cid, "synth", true); }
+  }catch(e){
+    evalRunning[cid] = false;
+    var rr = RES[cid]; if (rr) rr.err = String(e.message || e);
+    renderList(); prog("Échec : " + (e.message || e));
+    if (openId === cid) openReport(cid);
+    return;
+  }
+  evalRunning[cid] = false;
+  await loadAll();
+  if (openId === cid) openReport(cid);
+}
+function enqueueEval(cid, force){ if (evalRunning[cid]) return; evalRunning[cid] = true; queue = queue.then(function(){ return runEval(cid, force); }); renderList(); }
+
+/* ---------- Rapport ---------- */
+async function openReport(cid){
+  openId = cid;
+  var D = document.getElementById("detail");
+  D.innerHTML = '<div class="card">Chargement du rapport…</div>';
+  var q = await sbc.from("parcours_resultats").select("statut,score,completed_at,detail").eq("candidat_id", cid).eq("epreuve", "maintenance").single();
+  var c = CANDS.find(function(x){ return x.id === cid; }) || {};
+  if (q.error){ D.innerHTML = '<div class="card err">' + esc(q.error.message) + '</div>'; return; }
+  var d = q.data.detail || {}, ev = d.evaluation, an = d.analyses || [], trs = d.transcripts || [], dec = d.decision || {};
+  var h = '<div class="card"><div class="row noprint" style="justify-content:space-between"><span class="mu">Rapport recruteur · confidentiel</span><div class="row">' +
+    '<button class="sec sm" id="r_pr">Imprimer / PDF</button><button class="sec sm" id="r_re">' + (ev ? "Relancer l’évaluation" : "Lancer l’évaluation") + '</button><button class="sec sm" id="r_cl">Fermer</button></div></div>' +
+    '<h1>' + esc(c.nom || d.candidat) + '</h1><p class="mu">' + esc(c.poste || "") + ' · épreuve terminée le ' + fmt(q.data.completed_at) + (ev && ev.modele ? ' · évalué par ' + esc(ev.modele) : '') + '</p>' +
+    '<p class="mu" id="rp_prog">' + (evalRunning[cid] ? "Évaluation en cours…" : "") + '</p>';
+  if (ev){
+    h += '<div class="score">' + ev.pct + ' %</div><p><b>' + esc(ev.profil) + '</b>' + (ev.plafond ? ' · plafond 50 % appliqué (maîtrise technique ≤ 1)' : '') + '</p>' +
+      '<div class="gold"><p style="margin:0 0 6px"><b>Capacité à tenir le poste (IA) : </b>' + capBadge(ev.capacite_poste) + '</p><p style="margin:0">' + esc(ev.justification) + '</p></div>' +
+      (ev.eliminatoire ? '<div class="elim"><b>Éliminatoire constaté :</b><ul>' + (ev.eliminatoires || []).map(function(e){ return "<li>" + esc(e.situation) + " — " + esc(e.fait) + "</li>"; }).join("") + '</ul></div>' : '');
+  } else {
+    var er = RES[cid] && RES[cid].err;
+    h += '<div class="elim">' + (er ? "Évaluation en échec : " + esc(er) : "Évaluation non disponible.") + ' Les étapes réussies sont conservées.</div>';
+  }
+  h += '<div class="gold noprint-off"><b>Décision recruteur</b><div class="row" style="margin-top:6px"><select id="d_v"><option value="">— à décider —</option>' +
+    ["Retenu","Entretien complémentaire","Non retenu"].map(function(o){ return '<option' + (dec.valeur === o ? " selected" : "") + '>' + o + '</option>'; }).join("") +
+    '</select><input id="d_c" style="flex:1;min-width:240px" placeholder="Commentaire (motif, réserves, suite)" value="' + esc(dec.commentaire || "") + '"><button class="sm noprint" id="d_s">Enregistrer</button></div>' +
+    (dec.date ? '<p class="mu" style="margin-top:6px">Décidé par ' + esc(dec.par) + ' le ' + fmt(dec.date) + '</p>' : '') + '<p class="err" id="d_e"></p></div></div>';
+  h += '<div class="card"><h2>Débrief par situation</h2>';
+  SITS.forEach(function(t, i){
+    var a = an[i], tr = trs[i] || {};
+    h += '<div style="border-top:1px solid var(--ln);padding-top:10px;margin-top:10px"><p><span class="pill">' + t.split(" ")[0] + '</span> <b>' + esc(t.split("· ")[1]) + '</b> <span class="mu">· ' + Math.round((tr.duree_s || 0) / 60) + ' min' + (tr.cloture_forcee ? ' · clôture forcée' : '') + '</span></p>';
+    if (!a){ h += '<p class="mu">Analyse non disponible.</p></div>'; return; }
+    h += '<p><b>' + esc(a.verdict) + '</b> · cause trouvée : ' + (a.cause_trouvee ? "oui" : "non") + ' · cause racine traitée : ' + (a.cause_racine_traitee ? "oui" : "non") + '</p><p>' + esc(a.synthese) + '</p>' +
+      '<div class="tbl-wrap"><table><tr><th>Actions pertinentes</th><th>Erreurs</th><th>Oublis</th></tr><tr><td><ul>' + li(a.actions_pertinentes) + '</ul></td><td><ul>' + li(a.erreurs) + '</ul></td><td><ul>' + li(a.oublis) + '</ul></td></tr></table></div>' +
+      '<p style="margin-top:6px"><b>Sécurité :</b> ' + esc(a.securite) + '</p>' + (a.eliminatoire ? '<div class="elim"><b>Éliminatoire :</b> ' + esc(a.eliminatoire) + '</div>' : '') + '</div>';
+  });
+  h += '</div>';
+  if (ev){
+    h += '<div class="card"><h2>Grille</h2><div class="tbl-wrap"><table><tr><th>Critère</th><th>Poids</th><th>Note</th><th>Commentaire</th></tr>' +
+      Object.keys(POIDS).map(function(k){ var x = (ev.criteres || {})[k] || {}; return '<tr><td>' + LIB[k] + '</td><td>×' + POIDS[k] + '</td><td><b>' + (x.score == null ? "—" : x.score) + '</b>/5</td><td>' + esc(x.commentaire) + '</td></tr>'; }).join("") +
+      '</table></div><h2 style="margin-top:14px">Points forts</h2><ul>' + li(ev.pointsForts) + '</ul><h2>Lacunes</h2><ul>' + li(ev.lacunes) + '</ul>' +
+      '<h2>Si recruté : plan d’intégration</h2><ul>' + li(ev.plan_integration) + '</ul><h2>Questions à creuser en entretien</h2><ul>' + li(ev.questions_entretien) + '</ul></div>';
+  }
+  h += '<div class="card"><div class="row noprint"><button class="sec sm" id="r_tx">Afficher les transcriptions</button></div><div id="txs" style="display:none;margin-top:10px">' +
+    trs.map(function(tr){ return '<h2>' + esc(tr.situation + " · " + tr.titre) + '</h2><pre>' + esc((tr.messages || []).map(function(m){ return (m.role === "user" ? "CANDIDAT : " : "INTERLOCUTEUR : ") + m.content; }).join("\n\n") + "\n\nQUESTION DE CLÔTURE : " + (tr.cloture_question || "") + "\nCANDIDAT : " + (tr.cloture_reponse || "")) + '</pre>'; }).join("") + '</div></div>';
+  D.innerHTML = h;
+  D.scrollIntoView({behavior: "smooth", block: "start"});
+  document.getElementById("r_cl").onclick = function(){ openId = null; D.innerHTML = ""; };
+  document.getElementById("r_pr").onclick = function(){ document.getElementById("txs").style.display = "block"; document.body.classList.add("pr"); window.print(); setTimeout(function(){ document.body.classList.remove("pr"); }, 500); };
+  document.getElementById("r_tx").onclick = function(){ var t = document.getElementById("txs"); t.style.display = t.style.display === "none" ? "block" : "none"; };
+  var re = document.getElementById("r_re");
+  re.onclick = function(){
+    if (evalRunning[cid]) return;
+    if (ev && re.dataset.armed !== "1"){ re.dataset.armed = "1"; re.textContent = "Confirmer : tout réévaluer ?"; return; }
+    enqueueEval(cid, !!ev); document.getElementById("rp_prog").textContent = "Évaluation en file…";
+  };
+  document.getElementById("d_s").onclick = async function(){
+    var e = document.getElementById("d_e"); e.textContent = "";
+    var cur = await sbc.from("parcours_resultats").select("detail").eq("candidat_id", cid).eq("epreuve", "maintenance").single();
+    if (cur.error){ e.textContent = cur.error.message; return; }
+    var det = cur.data.detail || {};
+    det.decision = {valeur: document.getElementById("d_v").value, commentaire: document.getElementById("d_c").value.trim(), par: user.email, date: new Date().toISOString()};
+    var u = await sbc.from("parcours_resultats").update({detail: det}).eq("candidat_id", cid).eq("epreuve", "maintenance");
+    if (u.error){ e.textContent = u.error.message; return; }
+    await loadAll(); openReport(cid);
+  };
+}
+
+boot();
+</script>
+</body>
+</html>
