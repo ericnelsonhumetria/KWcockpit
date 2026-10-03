@@ -60,6 +60,7 @@ var EVAL_FN = "/.netlify/functions/maintenance-eval";
 var POIDS = {securite:2, methode:2, technique:2, causeracine:1, perennisation:1, pilotage:1};
 var LIB = {securite:"Sécurité", methode:"Méthode de diagnostic", technique:"Maîtrise technique", causeracine:"Cause racine", perennisation:"Pérennisation", pilotage:"Pilotage et posture"};
 var SITS = ["S1 · Le convoyeur qui redéclenche","S2 · Le défaut intermittent","S3 · Trois appels en même temps"];
+var SOLS = null;
 var sbc = null, user = null, CANDS = [], RES = {}, showArch = false, evalRunning = {}, queue = Promise.resolve(), openId = null;
 var app = document.getElementById("app");
 
@@ -68,6 +69,33 @@ function fmt(d){ if (!d) return "—"; var x = new Date(d); return x.toLocaleDat
 function capBadge(c){ if (!c) return '<span class="badge b-neu">—</span>'; var k = c === "Oui" ? "b-oui" : c === "Non" ? "b-non" : "b-res"; return '<span class="badge ' + k + '">' + esc(c) + '</span>'; }
 function decBadge(v){ if (!v) return '<span class="mu">à décider</span>'; var k = v === "Retenu" ? "b-oui" : v === "Non retenu" ? "b-non" : "b-res"; return '<span class="badge ' + k + '">' + esc(v) + '</span>'; }
 function li(a){ return (a || []).filter(Boolean).map(function(x){ return "<li>" + esc(x) + "</li>"; }).join("") || '<li class="mu">—</li>'; }
+/* Intégrité de saisie : collages (mesure côté candidat) */
+var PASTE_MIN = 30;
+function msgFlag(m){ var x = m && m.meta; if (!x || !x.len) return null;
+  var untyped = x.len >= 80 && (x.typed || 0) < x.len * 0.5;
+  if ((x.pasted || 0) >= PASTE_MIN || untyped) return {level: 2, x: x};
+  if ((x.pastes || 0) > 0) return {level: 1, x: x};
+  return null; }
+function integ(trs){
+  var measured = false, level = 0, pastes = 0, pasted = 0, items = [];
+  (trs || []).forEach(function(tr){
+    var list = (tr.messages || []).filter(function(m){ return m.role === "user"; }).map(function(m, k){ return {m: m, k: k + 1, clo: false}; });
+    if (tr.cloture_reponse) list.push({m: {content: tr.cloture_reponse, meta: tr.cloture_meta}, k: "clôture", clo: true});
+    list.forEach(function(o){
+      if (o.m.meta) measured = true;
+      var f = msgFlag(o.m); if (!f) return;
+      pastes += f.x.pastes || 0; pasted += f.x.pasted || 0; level = Math.max(level, f.level);
+      items.push({sit: tr.situation, k: o.k, level: f.level, len: f.x.len, pasted: f.x.pasted || 0, typed: f.x.typed || 0, ext: String(o.m.content || "").slice(0, 140)});
+    });
+  });
+  return {measured: measured, level: level, pastes: pastes, pasted: pasted, items: items};
+}
+function integBadge(I){
+  if (!I || !I.measured) return '<span class="badge b-neu">Non mesuré</span>';
+  if (I.level === 2) return '<span class="badge b-non">Collage significatif</span>';
+  if (I.level === 1) return '<span class="badge b-res">Collage mineur</span>';
+  return '<span class="badge b-oui">Aucun collage</span>';
+}
 async function copy(txt, btn){
   try{ await navigator.clipboard.writeText(txt); }catch(e){ var i = document.createElement("textarea"); i.value = txt; document.body.appendChild(i); i.select(); try{ document.execCommand("copy"); }catch(e2){} i.remove(); }
   if (btn){ var o = btn.textContent; btn.textContent = "Copié ✓"; setTimeout(function(){ btn.textContent = o; }, 1500); }
@@ -142,7 +170,7 @@ async function loadAll(){
   CANDS = c.data || []; RES = {};
   var ids = CANDS.map(function(x){ return x.id; });
   if (ids.length){
-    var r = await sbc.from("parcours_resultats").select("candidat_id,statut,score,completed_at,ev:detail->evaluation,dec:detail->decision,an:detail->analyses").eq("epreuve", "maintenance").in("candidat_id", ids);
+    var r = await sbc.from("parcours_resultats").select("candidat_id,statut,score,completed_at,ev:detail->evaluation,dec:detail->decision,an:detail->analyses,tr:detail->transcripts").eq("epreuve", "maintenance").in("candidat_id", ids);
     if (!r.error) (r.data || []).forEach(function(x){ RES[x.candidat_id] = x; });
   }
   renderList();
@@ -159,14 +187,14 @@ function etat(c, r){
 function renderList(){
   var rows = CANDS.filter(function(c){ return showArch || c.statut !== "archive"; });
   if (!rows.length){ document.getElementById("list").innerHTML = '<p class="mu">Aucun candidat.</p>'; return; }
-  var h = '<table><tr><th>Candidat</th><th>Client</th><th>État</th><th>Score</th><th>Capacité poste (IA)</th><th>Décision</th><th>Synthèse</th><th class="noprint">Actions</th></tr>';
+  var h = '<table><tr><th>Candidat</th><th>Client</th><th>État</th><th>Score</th><th>Capacité poste (IA)</th><th>Saisie</th><th>Décision</th><th>Synthèse</th><th class="noprint">Actions</th></tr>';
   rows.forEach(function(c){
     var r = RES[c.id], ev = r && r.ev, dec = r && r.dec;
     var cl = (c.poste || "").split("·")[1] || "";
     var syn = ev ? esc(String(ev.justification || "").slice(0, 220)) : (evalRunning[c.id] ? '<span class="mu" id="pg_' + c.id + '">Évaluation en cours…</span>' : (r && r.statut === "termine" ? '<span class="mu">Évaluation en attente</span>' : '<span class="mu">—</span>'));
     h += '<tr><td><b>' + esc(c.nom) + '</b><div class="mu">' + esc(c.email || "") + '</div></td><td>' + esc(cl.trim()) + '</td><td>' + esc(etat(c, r)) + '</td>' +
       '<td>' + (ev ? '<b>' + ev.pct + ' %</b>' + (ev.eliminatoire ? '<div class="badge b-non">Éliminatoire</div>' : '') : '—') + '</td>' +
-      '<td>' + capBadge(ev && ev.capacite_poste) + '</td><td>' + (r && r.statut === "termine" ? decBadge(dec && dec.valeur) : '<span class="mu">—</span>') + '</td>' +
+      '<td>' + capBadge(ev && ev.capacite_poste) + '</td><td>' + (r && r.statut === "termine" ? integBadge(integ(r.tr)) : '<span class="mu">—</span>') + '</td><td>' + (r && r.statut === "termine" ? decBadge(dec && dec.valeur) : '<span class="mu">—</span>') + '</td>' +
       '<td class="syn">' + syn + '</td><td class="noprint" style="white-space:nowrap">' +
       (r && r.statut === "termine" ? '<button class="sm" data-a="rep" data-id="' + c.id + '">Rapport</button> ' : '') +
       (c.statut !== "archive" && !(r && r.statut === "termine") ? '<button class="sec sm" data-a="lnk" data-id="' + c.id + '">Lien</button> ' : '') +
@@ -234,6 +262,7 @@ async function openReport(cid){
   D.innerHTML = '<div class="card">Chargement du rapport…</div>';
   var q = await sbc.from("parcours_resultats").select("statut,score,completed_at,detail").eq("candidat_id", cid).eq("epreuve", "maintenance").single();
   var c = CANDS.find(function(x){ return x.id === cid; }) || {};
+  if (!SOLS){ try{ var rs = await fetch(EVAL_FN, {method:"POST", headers:{"Content-Type":"application/json", "Authorization":"Bearer " + await jwt()}, body: JSON.stringify({candidat_id: cid, step: "solutions"})}); var dj = await rs.json(); if (rs.ok && dj.solutions) SOLS = dj.solutions; }catch(e){} }
   if (q.error){ D.innerHTML = '<div class="card err">' + esc(q.error.message) + '</div>'; return; }
   var d = q.data.detail || {}, ev = d.evaluation, an = d.analyses || [], trs = d.transcripts || [], dec = d.decision || {};
   var h = '<div class="card"><div class="row noprint" style="justify-content:space-between"><span class="mu">Rapport recruteur · confidentiel</span><div class="row">' +
@@ -248,6 +277,14 @@ async function openReport(cid){
     var er = RES[cid] && RES[cid].err;
     h += '<div class="elim">' + (er ? "Évaluation en échec : " + esc(er) : "Évaluation non disponible.") + ' Les étapes réussies sont conservées.</div>';
   }
+  var I = integ(trs);
+  h += '<div style="margin:10px 0"><b>Intégrité de saisie : </b>' + integBadge(I) +
+    (I.measured ? ' <span class="mu">· ' + I.pastes + ' collage(s), ' + I.pasted + ' caractères collés</span>' : ' <span class="mu">· passation antérieure à la mesure</span>') + '</div>';
+  if (I.items.length){
+    h += '<div class="tbl-wrap"><table><tr><th>Situation</th><th>Message</th><th>Longueur</th><th>Collé</th><th>Tapé</th><th>Extrait</th></tr>' +
+      I.items.map(function(it){ return '<tr><td>' + esc(it.sit) + '</td><td>' + esc(it.k) + '</td><td>' + it.len + '</td><td><b>' + it.pasted + '</b></td><td>' + it.typed + '</td><td class="mu">' + esc(it.ext) + (it.ext.length >= 140 ? '…' : '') + '</td></tr>'; }).join("") +
+      '</table></div><p class="mu" style="margin-top:6px">Indice à vérifier en entretien (faire refaire oralement le raisonnement concerné), jamais un motif d’exclusion à lui seul. Un candidat peut coller une valeur ou un texte rédigé dans un bloc-notes.</p>';
+  }
   h += '<div class="gold noprint-off"><b>Décision recruteur</b><div class="row" style="margin-top:6px"><select id="d_v"><option value="">— à décider —</option>' +
     ["Retenu","Entretien complémentaire","Non retenu"].map(function(o){ return '<option' + (dec.valeur === o ? " selected" : "") + '>' + o + '</option>'; }).join("") +
     '</select><input id="d_c" style="flex:1;min-width:240px" placeholder="Commentaire (motif, réserves, suite)" value="' + esc(dec.commentaire || "") + '"><button class="sm noprint" id="d_s">Enregistrer</button></div>' +
@@ -256,10 +293,11 @@ async function openReport(cid){
   SITS.forEach(function(t, i){
     var a = an[i], tr = trs[i] || {};
     h += '<div style="border-top:1px solid var(--ln);padding-top:10px;margin-top:10px"><p><span class="pill">' + t.split(" ")[0] + '</span> <b>' + esc(t.split("· ")[1]) + '</b> <span class="mu">· ' + Math.round((tr.duree_s || 0) / 60) + ' min' + (tr.cloture_forcee ? ' · clôture forcée' : '') + '</span></p>';
-    if (!a){ h += '<p class="mu">Analyse non disponible.</p></div>'; return; }
+    var sol = SOLS && SOLS[i], solH = sol ? '<details class="sol" style="margin-top:8px"><summary style="cursor:pointer;color:var(--bx);font-weight:700">Ce qui était attendu</summary><div style="padding:8px 0 0"><p><b>Cause réelle :</b> ' + esc(sol.cause) + '</p><p><b>' + (i === 2 ? 'Diagnostics réels' : 'Cause racine') + ' :</b> ' + esc(sol.racine) + '</p><p style="margin-bottom:2px"><b>Démarche attendue :</b></p><ol style="margin:2px 0 8px 18px;padding:0">' + sol.attendus.map(function(x){ return '<li>' + esc(x) + '</li>'; }).join('') + '</ol><p style="margin-bottom:2px"><b>Pièges :</b></p><ul>' + sol.pieges.map(function(x){ return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></div></details>' : '';
+    if (!a){ h += '<p class="mu">Analyse non disponible.</p>' + solH + '</div>'; return; }
     h += '<p><b>' + esc(a.verdict) + '</b> · cause trouvée : ' + (a.cause_trouvee ? "oui" : "non") + ' · cause racine traitée : ' + (a.cause_racine_traitee ? "oui" : "non") + '</p><p>' + esc(a.synthese) + '</p>' +
       '<div class="tbl-wrap"><table><tr><th>Actions pertinentes</th><th>Erreurs</th><th>Oublis</th></tr><tr><td><ul>' + li(a.actions_pertinentes) + '</ul></td><td><ul>' + li(a.erreurs) + '</ul></td><td><ul>' + li(a.oublis) + '</ul></td></tr></table></div>' +
-      '<p style="margin-top:6px"><b>Sécurité :</b> ' + esc(a.securite) + '</p>' + (a.eliminatoire ? '<div class="elim"><b>Éliminatoire :</b> ' + esc(a.eliminatoire) + '</div>' : '') + '</div>';
+      '<p style="margin-top:6px"><b>Sécurité :</b> ' + esc(a.securite) + '</p>' + (a.eliminatoire ? '<div class="elim"><b>Éliminatoire :</b> ' + esc(a.eliminatoire) + '</div>' : '') + solH + '</div>';
   });
   h += '</div>';
   if (ev){
@@ -269,11 +307,11 @@ async function openReport(cid){
       '<h2>Si recruté : plan d’intégration</h2><ul>' + li(ev.plan_integration) + '</ul><h2>Questions à creuser en entretien</h2><ul>' + li(ev.questions_entretien) + '</ul></div>';
   }
   h += '<div class="card"><div class="row noprint"><button class="sec sm" id="r_tx">Afficher les transcriptions</button></div><div id="txs" style="display:none;margin-top:10px">' +
-    trs.map(function(tr){ return '<h2>' + esc(tr.situation + " · " + tr.titre) + '</h2><pre>' + esc((tr.messages || []).map(function(m){ return (m.role === "user" ? "CANDIDAT : " : "INTERLOCUTEUR : ") + m.content; }).join("\n\n") + "\n\nQUESTION DE CLÔTURE : " + (tr.cloture_question || "") + "\nCANDIDAT : " + (tr.cloture_reponse || "")) + '</pre>'; }).join("") + '</div></div>';
+    trs.map(function(tr){ var tag = function(m){ var f = msgFlag(m); return f ? " [COLLÉ : " + (f.x.pasted || 0) + " car. collés / " + f.x.len + ", " + (f.x.typed || 0) + " tapés]" : ""; }; return '<h2>' + esc(tr.situation + " · " + tr.titre) + '</h2><pre>' + esc((tr.messages || []).map(function(m){ return (m.role === "user" ? "CANDIDAT" + tag(m) + " : " : "INTERLOCUTEUR : ") + m.content; }).join("\n\n") + "\n\nQUESTION DE CLÔTURE : " + (tr.cloture_question || "") + "\nCANDIDAT" + tag({meta: tr.cloture_meta}) + " : " + (tr.cloture_reponse || "")) + '</pre>'; }).join("") + '</div></div>';
   D.innerHTML = h;
   D.scrollIntoView({behavior: "smooth", block: "start"});
   document.getElementById("r_cl").onclick = function(){ openId = null; D.innerHTML = ""; };
-  document.getElementById("r_pr").onclick = function(){ document.getElementById("txs").style.display = "block"; document.body.classList.add("pr"); window.print(); setTimeout(function(){ document.body.classList.remove("pr"); }, 500); };
+  document.getElementById("r_pr").onclick = function(){ document.getElementById("txs").style.display = "block"; document.querySelectorAll("details.sol").forEach(function(x){ x.open = true; }); document.body.classList.add("pr"); window.print(); setTimeout(function(){ document.body.classList.remove("pr"); }, 500); };
   document.getElementById("r_tx").onclick = function(){ var t = document.getElementById("txs"); t.style.display = t.style.display === "none" ? "block" : "none"; };
   var re = document.getElementById("r_re");
   re.onclick = function(){
