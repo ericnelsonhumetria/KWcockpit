@@ -72,23 +72,24 @@ function li(a){ return (a || []).filter(Boolean).map(function(x){ return "<li>" 
 /* Intégrité de saisie : collages (mesure côté candidat) */
 var PASTE_MIN = 30;
 function msgFlag(m){ var x = m && m.meta; if (!x || !x.len) return null;
-  var untyped = x.len >= 80 && (x.typed || 0) < x.len * 0.5;
+  var untyped = x.len >= 80 && ((x.typed || 0) + (x.dictated || 0)) < x.len * 0.5;
   if ((x.pasted || 0) >= PASTE_MIN || untyped) return {level: 2, x: x};
   if ((x.pastes || 0) > 0) return {level: 1, x: x};
   return null; }
 function integ(trs){
-  var measured = false, level = 0, pastes = 0, pasted = 0, items = [];
+  var measured = false, level = 0, pastes = 0, pasted = 0, dict = 0, items = [];
   (trs || []).forEach(function(tr){
     var list = (tr.messages || []).filter(function(m){ return m.role === "user"; }).map(function(m, k){ return {m: m, k: k + 1, clo: false}; });
     if (tr.cloture_reponse) list.push({m: {content: tr.cloture_reponse, meta: tr.cloture_meta}, k: "clôture", clo: true});
     list.forEach(function(o){
       if (o.m.meta) measured = true;
+      if (o.m.meta && o.m.meta.len && (o.m.meta.dictated || 0) >= o.m.meta.len * 0.5) dict++;
       var f = msgFlag(o.m); if (!f) return;
       pastes += f.x.pastes || 0; pasted += f.x.pasted || 0; level = Math.max(level, f.level);
-      items.push({sit: tr.situation, k: o.k, level: f.level, len: f.x.len, pasted: f.x.pasted || 0, typed: f.x.typed || 0, ext: String(o.m.content || "").slice(0, 140)});
+      items.push({sit: tr.situation, k: o.k, level: f.level, len: f.x.len, pasted: f.x.pasted || 0, typed: f.x.typed || 0, dictated: f.x.dictated || 0, ext: String(o.m.content || "").slice(0, 140)});
     });
   });
-  return {measured: measured, level: level, pastes: pastes, pasted: pasted, items: items};
+  return {measured: measured, level: level, pastes: pastes, pasted: pasted, dict: dict, items: items};
 }
 function integBadge(I){
   if (!I || !I.measured) return '<span class="badge b-neu">Non mesuré</span>';
@@ -279,10 +280,10 @@ async function openReport(cid){
   }
   var I = integ(trs);
   h += '<div style="margin:10px 0"><b>Intégrité de saisie : </b>' + integBadge(I) +
-    (I.measured ? ' <span class="mu">· ' + I.pastes + ' collage(s), ' + I.pasted + ' caractères collés</span>' : ' <span class="mu">· passation antérieure à la mesure</span>') + '</div>';
+    (I.measured ? ' <span class="mu">· ' + I.pastes + ' collage(s), ' + I.pasted + ' caractères collés · ' + I.dict + ' message(s) dicté(s)</span>' : ' <span class="mu">· passation antérieure à la mesure</span>') + '</div>';
   if (I.items.length){
-    h += '<div class="tbl-wrap"><table><tr><th>Situation</th><th>Message</th><th>Longueur</th><th>Collé</th><th>Tapé</th><th>Extrait</th></tr>' +
-      I.items.map(function(it){ return '<tr><td>' + esc(it.sit) + '</td><td>' + esc(it.k) + '</td><td>' + it.len + '</td><td><b>' + it.pasted + '</b></td><td>' + it.typed + '</td><td class="mu">' + esc(it.ext) + (it.ext.length >= 140 ? '…' : '') + '</td></tr>'; }).join("") +
+    h += '<div class="tbl-wrap"><table><tr><th>Situation</th><th>Message</th><th>Longueur</th><th>Collé</th><th>Tapé</th><th>Dicté</th><th>Extrait</th></tr>' +
+      I.items.map(function(it){ return '<tr><td>' + esc(it.sit) + '</td><td>' + esc(it.k) + '</td><td>' + it.len + '</td><td><b>' + it.pasted + '</b></td><td>' + it.typed + '</td><td>' + it.dictated + '</td><td class="mu">' + esc(it.ext) + (it.ext.length >= 140 ? '…' : '') + '</td></tr>'; }).join("") +
       '</table></div><p class="mu" style="margin-top:6px">Indice à vérifier en entretien (faire refaire oralement le raisonnement concerné), jamais un motif d’exclusion à lui seul. Un candidat peut coller une valeur ou un texte rédigé dans un bloc-notes.</p>';
   }
   h += '<div class="gold noprint-off"><b>Décision recruteur</b><div class="row" style="margin-top:6px"><select id="d_v"><option value="">— à décider —</option>' +
@@ -307,7 +308,7 @@ async function openReport(cid){
       '<h2>Si recruté : plan d’intégration</h2><ul>' + li(ev.plan_integration) + '</ul><h2>Questions à creuser en entretien</h2><ul>' + li(ev.questions_entretien) + '</ul></div>';
   }
   h += '<div class="card"><div class="row noprint"><button class="sec sm" id="r_tx">Afficher les transcriptions</button></div><div id="txs" style="display:none;margin-top:10px">' +
-    trs.map(function(tr){ var tag = function(m){ var f = msgFlag(m); return f ? " [COLLÉ : " + (f.x.pasted || 0) + " car. collés / " + f.x.len + ", " + (f.x.typed || 0) + " tapés]" : ""; }; return '<h2>' + esc(tr.situation + " · " + tr.titre) + '</h2><pre>' + esc((tr.messages || []).map(function(m){ return (m.role === "user" ? "CANDIDAT" + tag(m) + " : " : "INTERLOCUTEUR : ") + m.content; }).join("\n\n") + "\n\nQUESTION DE CLÔTURE : " + (tr.cloture_question || "") + "\nCANDIDAT" + tag({meta: tr.cloture_meta}) + " : " + (tr.cloture_reponse || "")) + '</pre>'; }).join("") + '</div></div>';
+    trs.map(function(tr){ var tag = function(m){ var f = msgFlag(m), x = m && m.meta, dic = x && x.len && (x.dictated || 0) >= x.len * 0.5 ? " [DICTÉ]" : ""; return dic + (f ? " [COLLÉ : " + (f.x.pasted || 0) + " car. collés / " + f.x.len + ", " + (f.x.typed || 0) + " tapés, " + (f.x.dictated || 0) + " dictés]" : ""); }; return '<h2>' + esc(tr.situation + " · " + tr.titre) + '</h2><pre>' + esc((tr.messages || []).map(function(m){ return (m.role === "user" ? "CANDIDAT" + tag(m) + " : " : "INTERLOCUTEUR : ") + m.content; }).join("\n\n") + "\n\nQUESTION DE CLÔTURE : " + (tr.cloture_question || "") + "\nCANDIDAT" + tag({meta: tr.cloture_meta}) + " : " + (tr.cloture_reponse || "")) + '</pre>'; }).join("") + '</div></div>';
   D.innerHTML = h;
   D.scrollIntoView({behavior: "smooth", block: "start"});
   document.getElementById("r_cl").onclick = function(){ openId = null; D.innerHTML = ""; };
