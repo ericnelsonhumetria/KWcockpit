@@ -36,6 +36,9 @@ input[type=text]{font:inherit;padding:10px;border:1px solid var(--ln);border-rad
 .msg.sys{align-self:center;background:transparent;color:var(--mu);font-size:13px;font-style:italic}
 .who{display:block;font-size:12px;font-weight:700;opacity:.7;margin-bottom:2px}
 .compose{display:flex;gap:8px;margin-top:10px;align-items:flex-end}
+#mic.rec{background:#B00020;color:#fff;border-color:#B00020;animation:pulse 1.2s infinite}
+@keyframes pulse{50%{opacity:.6}}
+#interim{font-size:13px;color:var(--mu);font-style:italic;min-height:18px;margin-top:4px}
 textarea{flex:1;font:inherit;padding:10px;border:1px solid var(--ln);border-radius:8px;min-height:52px;max-height:160px;resize:vertical}
 .actions{display:flex;justify-content:space-between;gap:8px;margin-top:10px;flex-wrap:wrap}
 .dots:after{content:"…";animation:d 1.2s infinite}
@@ -63,6 +66,38 @@ var CLIENT = "Plantex";
 var FN = "/.netlify/functions/maintenance-candidat";
 var TOKEN = (new URLSearchParams(location.search).get("c") || "").trim();
 var ST = null, timerId = null, busy = false;
+var COMP = {pastes: 0, pasted: 0, typed: 0, dictated: 0};
+function resetComp(){ COMP = {pastes: 0, pasted: 0, typed: 0, dictated: 0}; }
+/* Dictée vocale : reconnaissance du navigateur, aucun audio conservé */
+var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+var rec = null, recOn = false, recHint = "";
+function setInterim(t){ var e = document.getElementById("interim"); if (e) e.textContent = t ? "… " + t : (recOn ? "Dictée en cours : parlez, puis cliquez sur ■ pour relire avant d’envoyer." : recHint); }
+function micUI(){ var b = document.getElementById("mic"); if (!b) return; b.className = recOn ? "rec" : "sec"; b.textContent = recOn ? "■ Arrêter" : "🎤 Dicter"; setInterim(""); }
+function micErr(t){ var e = document.getElementById("err"); if (e) e.textContent = t; }
+function micStart(){
+  if (!SR || busy) return;
+  micErr(""); recHint = "";
+  rec = new SR(); rec.lang = "fr-FR"; rec.continuous = true; rec.interimResults = true;
+  rec.onresult = function(e){
+    var interim = "";
+    for (var i = e.resultIndex; i < e.results.length; i++){
+      var r = e.results[i];
+      if (r.isFinal){
+        var t = (r[0].transcript || "").trim(), inp = document.getElementById("inp");
+        if (t && inp && !inp.disabled){ var sep = inp.value && !/\s$/.test(inp.value) ? " " : ""; inp.value += sep + t; COMP.dictated += t.length + sep.length; }
+      } else interim += r[0].transcript;
+    }
+    setInterim(interim);
+  };
+  rec.onerror = function(e){
+    if (e.error === "not-allowed" || e.error === "service-not-allowed"){ recOn = false; micUI(); micErr("Accès au micro refusé. Autorisez le micro dans votre navigateur, ou répondez par écrit."); }
+    else if (e.error === "network" || e.error === "audio-capture"){ recOn = false; micUI(); micErr("Dictée indisponible (" + e.error + "). Répondez par écrit."); }
+  };
+  rec.onend = function(){ if (recOn){ try{ rec.start(); }catch(x){ recOn = false; micUI(); } } else micUI(); };
+  recOn = true; try{ rec.start(); }catch(x){ recOn = false; }
+  micUI();
+}
+function micStop(){ recOn = false; if (rec){ try{ rec.stop(); }catch(x){} } micUI(); }
 var app = document.getElementById("app");
 var SKEY = "kw_maint_v3_" + TOKEN;
 
@@ -87,7 +122,7 @@ async function api(action, payload, tries){
   throw last;
 }
 function transcripts(){ /* 3 situations */
-  return SIT.map(function(s, i){ var st = ST.sits[i]; return {situation: s.id, titre: s.titre, duree_s: st.dur, cloture_forcee: !!st.forced, messages: st.msgs.slice(1), cloture_question: s.cloture, cloture_reponse: st.cloture}; });
+  return SIT.map(function(s, i){ var st = ST.sits[i]; return {situation: s.id, titre: s.titre, duree_s: st.dur, cloture_forcee: !!st.forced, messages: st.msgs.slice(1), cloture_question: s.cloture, cloture_reponse: st.cloture, cloture_meta: st.cloture_meta || null}; });
 }
 async function sync(statut){ try{ await api("save", {statut: statut, client: CLIENT, transcripts: transcripts()}, 3); return true; }catch(e){ return false; } }
 
@@ -106,12 +141,14 @@ function screenIntro(nom){
   '<p>Vous allez vivre trois situations de terrain. Vos interlocuteurs sont joués par une IA : chef d’équipe, régleur, technicien…</p>' +
   '<p><b>Règle du jeu :</b> vous disposez de tous les outils et documents habituels (multimètre, pince ampèremétrique, mégohmmètre, manomètre, caméra thermique, schémas, IHM, GMAO). Votre interlocuteur ne vous donnera une information <b>que si vous la demandez</b> ou si vous lui dites <b>quelle vérification vous faites</b>. Dites concrètement ce que vous faites, avec quel instrument, et ce que vous en concluez.</p>' +
   '<p>Quand vous estimez la situation traitée, cliquez sur « Situation traitée » puis confirmez. Une dernière question vous sera posée, puis vous passerez à la suivante.</p></div>' +
-  '<p class="mu">Seul votre raisonnement compte. Un chronomètre s’affiche par situation : chaque situation est clôturée automatiquement une minute après son temps prévu. Prévoyez 45 minutes sans interruption ; si la page se ferme, rouvrez votre lien dans le même onglet pour reprendre.</p>' +
+  '<p class="mu">Seul votre raisonnement compte. Un chronomètre s’affiche par situation : chaque situation est clôturée automatiquement une minute après son temps prévu. Vous pouvez écrire ou dicter vos réponses (bouton 🎤, navigateurs Chrome, Edge ou Safari) puis les relire et les corriger avant envoi ; la dictée utilise la reconnaissance vocale de votre navigateur et aucun enregistrement audio n’est conservé. Les collages de texte dans la zone de réponse sont enregistrés. Prévoyez 45 minutes sans interruption ; si la page se ferme, rouvrez votre lien dans le même onglet pour reprendre.</p>' +
   '<button id="go">Commencer</button></div>';
   document.getElementById("go").onclick = function(){ ST = newState(nom); ST.t_start = Date.now(); save(); sync("en_cours"); screenSit(); };
 }
 
 function screenSit(){
+  if (recOn) micStop();
+  resetComp();
   var s = SIT[ST.idx], st = ST.sits[ST.idx];
   if (!st.t0) { st.t0 = Date.now(); save(); }
   document.getElementById("hdrMeta").textContent = "Situation " + (ST.idx + 1) + " / " + SIT.length;
@@ -119,14 +156,18 @@ function screenSit(){
   '<div class="card"><div class="sitbar"><div><span class="pill">' + s.id + '</span> <b>' + esc(s.titre) + '</b><div class="mu">Interlocuteur : ' + esc(s.perso) + '</div></div>' +
   '<div style="text-align:right"><div class="timer" id="tm">00:00 / ' + s.minutes + ':00</div><div class="mu" id="gt"></div></div></div>' +
   '<div id="chat"></div>' +
-  '<div class="compose"><textarea id="inp" placeholder="Ce que vous dites ou faites…"></textarea><button id="send">Envoyer</button></div>' +
+  '<div class="compose"><textarea id="inp" placeholder="Écrivez ou dictez ce que vous dites ou faites…"></textarea>' + (SR ? '<button class="sec" id="mic" type="button">🎤 Dicter</button>' : '') + '<button id="send">Envoyer</button></div><div id="interim"></div>' +
   '<div class="err" id="err"></div>' +
-  '<div class="actions"><span class="mu">Entrée pour envoyer · Maj+Entrée pour aller à la ligne</span>' +
+  '<div class="actions"><span class="mu">Entrée pour envoyer · Maj+Entrée pour aller à la ligne' + (SR ? '' : ' · Dictée vocale non disponible sur ce navigateur') + '</span>' +
   '<button class="sec" id="fin">Situation traitée</button></div></div>';
   renderChat();
   var inp = document.getElementById("inp");
   inp.addEventListener("keydown", function(e){ if (e.key === "Enter" && !e.shiftKey){ e.preventDefault(); send(); } });
+  inp.addEventListener("paste", function(e){ var t = (e.clipboardData && e.clipboardData.getData("text")) || ""; COMP.pastes++; COMP.pasted += t.length; });
+  inp.addEventListener("drop", function(e){ var t = (e.dataTransfer && e.dataTransfer.getData("text")) || ""; COMP.pastes++; COMP.pasted += t.length; });
+  inp.addEventListener("input", function(e){ var it = e.inputType || ""; if ((it === "insertText" || it === "insertCompositionText" || it === "insertReplacementText") && e.data) COMP.typed += e.data.length; else if (it === "insertLineBreak") COMP.typed += 1; });
   document.getElementById("send").onclick = send;
+  var mb = document.getElementById("mic"); if (mb) mb.onclick = function(){ recOn ? micStop() : micStart(); };
   var armTimer = null;
   document.getElementById("fin").onclick = function(){
     if (st.phase !== "jeu" || busy) return;
@@ -183,25 +224,29 @@ function openCloture(forced){
 
 async function send(){
   var inp = document.getElementById("inp"), err = document.getElementById("err");
+  if (recOn){ recHint = "Dictée arrêtée : relisez votre texte puis cliquez sur Envoyer."; micStop(); return; }
+  recHint = ""; setInterim("");
   var txt = inp.value.trim(); if (!txt || busy) return;
   var st = ST.sits[ST.idx];
   err.textContent = "";
-  if (st.phase === "cloture"){ st.cloture = txt; st.phase = "fini"; inp.value = ""; save(); renderChat(); showNext(); sync("en_cours"); return; }
+  var meta = {t: Date.now(), len: txt.length, pastes: COMP.pastes, pasted: COMP.pasted, typed: COMP.typed, dictated: COMP.dictated};
+  if (st.phase === "cloture"){ st.cloture = txt; st.cloture_meta = meta; resetComp(); st.phase = "fini"; inp.value = ""; save(); renderChat(); showNext(); sync("en_cours"); return; }
   if (st.phase !== "jeu") return;
-  st.msgs.push({role:"user", content: txt}); inp.value = ""; busy = true; save(); renderChat(); lock(true);
+  st.msgs.push({role:"user", content: txt, meta: meta}); resetComp(); inp.value = ""; busy = true; save(); renderChat(); lock(true);
   try{
     var d = await api("chat", {situation: ST.idx, messages: st.msgs});
     if (!d.text) throw new Error(d.error || "Réponse vide");
-    st.msgs.push({role:"assistant", content: d.text});
+    st.msgs.push({role:"assistant", content: d.text, meta: {t: Date.now()}});
   }catch(e){
-    st.msgs.pop(); inp.value = txt;
+    st.msgs.pop(); inp.value = txt; COMP = {pastes: meta.pastes, pasted: meta.pasted, typed: meta.typed, dictated: meta.dictated};
     err.textContent = "Connexion perdue, votre message n’a pas été transmis. Renvoyez-le.";
   }
   busy = false; save(); renderChat(); lock(false); inp.focus();
 }
-function lock(b){ ["send","fin"].forEach(function(id){ var e = document.getElementById(id); if (e && !(id === "fin" && ST.sits[ST.idx].phase !== "jeu")) e.disabled = b; }); }
+function lock(b){ ["send","fin","mic"].forEach(function(id){ var e = document.getElementById(id); if (e && !(id === "fin" && ST.sits[ST.idx].phase !== "jeu")) e.disabled = b; }); }
 
 function showNext(){
+  if (recOn) micStop(); var mbn = document.getElementById("mic"); if (mbn) mbn.disabled = true;
   document.getElementById("inp").disabled = true; document.getElementById("send").disabled = true;
   var last = ST.idx === SIT.length - 1;
   var a = document.querySelector(".actions");
@@ -210,6 +255,7 @@ function showNext(){
 }
 
 async function finish(){
+  if (recOn) micStop();
   clearInterval(timerId);
   document.getElementById("hdrMeta").textContent = "Épreuve terminée";
   app.innerHTML = '<div class="card"><h2>Merci.</h2><p class="dots">Enregistrement de votre épreuve</p><p class="mu">Ne fermez pas la page.</p></div>';
