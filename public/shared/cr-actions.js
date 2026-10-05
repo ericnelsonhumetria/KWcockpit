@@ -803,24 +803,43 @@
   window.crMail=function(kind){ crReadHeader(); var content=kind==='prep'?(CR_CUR.preparation||''):(CR_CUR.synthese||''); if(!content) return; var emails=(CR_CUR.participants||[]).map(function(id){ var p=((CR_REFS&&CR_REFS.pilotes)||[]).find(function(x){return x.id===id;}); return p?p.email:null; }).filter(Boolean); if(!emails.length){ window.alert('Aucun participant avec e-mail sélectionné. Coche des participants (leur e-mail se renseigne dans Admin → Pilotes, en les liant à un compte).'); return; } var subj=(kind==='prep'?'Préparation — ':'Compte-rendu — ')+(CR_CUR.titre||'réunion'); try{ if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(content); }catch(x){} var body=encodeURIComponent('Bonjour,\n\n'+(kind==='prep'?'Préparation':'Compte-rendu')+' de la réunion « '+(CR_CUR.titre||'')+' ».\n\nLe contenu complet a été copié dans le presse-papier : colle-le ici (Ctrl+V).\n'); window.location.href='mailto:'+encodeURIComponent(emails.join(','))+'?subject='+encodeURIComponent(subj)+'&body='+body; };
 
   // ---------- Dictée (transcription) ----------
+  var CR_INTERIM='', CR_FAILS=[], CR_WAKE=null, CR_SAVE_T=null, CR_SR=null, CR_ALIVE=0, CR_IOS=/iPhone|iPad|iPod/i.test(navigator.userAgent);
+  var LBL_START='🎤 Dicter les échanges', LBL_STOP='⏹ Arrêter';
+  function crMicLabel(t){ var b=document.getElementById('crMic'); if(b) b.textContent=t; }
+  function crMicStatus(t,warn){ var b=document.getElementById('crMic'); if(!b) return; var st=document.getElementById('crMicStatus'); if(!st){ st=document.createElement('span'); st.id='crMicStatus'; st.setAttribute('role','status'); st.style.cssText='margin-left:8px;font-size:12px;'; b.insertAdjacentElement('afterend',st); } st.style.color=warn?'#9a3412':'#6b5b58'; st.textContent=t||''; }
+  async function crWakeOn(){ try{ if(navigator.wakeLock && !CR_WAKE){ CR_WAKE=await navigator.wakeLock.request('screen'); CR_WAKE.addEventListener('release',function(){ CR_WAKE=null; }); } }catch(_){} }
+  function crWakeOff(){ try{ if(CR_WAKE) CR_WAKE.release(); }catch(_){} CR_WAKE=null; }
+  function crFlushInterim(){ if(CR_INTERIM&&CR_INTERIM.trim()){ CR_DICT+=(CR_DICT&&!/\s$/.test(CR_DICT)?' ':'')+CR_INTERIM.trim(); } CR_INTERIM=''; }
+  async function crSaveTranscript(){ if(!CR_CUR||!CR_CUR.id) return; var t=CR_DICT+(CR_INTERIM?((CR_DICT?' ':'')+CR_INTERIM):''); CR_CUR.transcription=t; try{ await SB.from('comptes_rendus').update({transcription:t, transcription_par:crUid(), transcription_le:new Date().toISOString()}).eq('id',CR_CUR.id); }catch(_){} }
+  function crStopAll(msg,warn){ CR_RECORDING=false; if(CR_REC){ try{ CR_REC.onend=null; CR_REC.stop(); }catch(x){} } crFlushInterim(); var ta=document.getElementById('crTranscript'); if(ta) ta.value=CR_DICT; if(CR_CUR) CR_CUR.transcription=CR_DICT; crSaveTranscript(); if(CR_SAVE_T){ clearInterval(CR_SAVE_T); CR_SAVE_T=null; } crWakeOff(); crMicLabel(LBL_START); crMicStatus(msg||'',warn); }
   window.crDictate=function(){
-    var SR=window.SpeechRecognition||window.webkitSpeechRecognition; if(!SR) return;
-    if(CR_RECORDING){ CR_RECORDING=false; if(CR_REC){ try{ CR_REC.stop(); }catch(x){} } var b0=document.getElementById('crMic'); if(b0) b0.textContent='🎤 Dicter les échanges'; return; }
-    var ta0=document.getElementById('crTranscript'); CR_DICT=ta0?ta0.value.replace(/\s+$/,''):'';
-    CR_RECORDING=true; var b1=document.getElementById('crMic'); if(b1) b1.textContent='⏹ Arrêter';
+    var SR=window.SpeechRecognition||window.webkitSpeechRecognition; if(!SR){ alert('Dictée non disponible sur ce navigateur : utilisez Chrome ou Edge sur ordinateur.'); return; }
+    if(CR_RECORDING){ crStopAll('Dictée arrêtée, texte enregistré.'); return; }
+    var ta0=document.getElementById('crTranscript'); CR_DICT=ta0?ta0.value.replace(/\s+$/,''):''; CR_INTERIM=''; CR_FAILS=[]; CR_SR=SR;
+    CR_RECORDING=true; crMicLabel(LBL_STOP); crMicStatus('● Enregistrement');
     if(CR_CUR&&CR_CUR.id) crAcquireLock();
+    crWakeOn();
+    if(!CR_SAVE_T) CR_SAVE_T=setInterval(function(){ if(!CR_RECORDING) return; crSaveTranscript(); if(Date.now()-CR_ALIVE>30000 && CR_REC){ crFlushInterim(); try{ CR_REC.onend=null; CR_REC.abort(); }catch(_){} crRestart(300); } },20000);
     crStartRec(SR);
   };
+  function crRestart(delay){ if(!CR_RECORDING) return; var now=Date.now(); CR_FAILS=CR_FAILS.filter(function(t){return now-t<15000;}); CR_FAILS.push(now);
+    if(CR_FAILS.length>6){ crStopAll('Dictée arrêtée : le micro ne répond plus (pris par Teams ou Zoom, ou débranché ?). Relancez.',true); return; }
+    if(CR_FAILS.length>2) crMicStatus('● Reprise automatique…');
+    setTimeout(function(){ if(CR_RECORDING) crStartRec(CR_SR); }, delay||250); }
   function crStartRec(SR){
-    CR_REC=new SR(); CR_REC.lang='fr-FR'; CR_REC.interimResults=true; CR_REC.continuous=true;
-    CR_REC.onresult=function(ev){ var interim='';
+    var rec=new SR(); CR_REC=rec; rec.lang='fr-FR'; rec.interimResults=true; rec.continuous=true;
+    rec.onstart=function(){ CR_ALIVE=Date.now(); };
+    rec.onaudiostart=function(){ CR_ALIVE=Date.now(); crMicStatus('● Enregistrement'); };
+    rec.onresult=function(ev){ CR_ALIVE=Date.now(); var interim='';
       for(var i=ev.resultIndex;i<ev.results.length;i++){ var r=ev.results[i]; if(r.isFinal){ var seg=(r[0].transcript||'').trim(); if(seg){ CR_DICT+=(CR_DICT&&!/\s$/.test(CR_DICT)?' ':'')+seg; } } else interim+=r[0].transcript; }
-      var ta=document.getElementById('crTranscript'); if(ta) ta.value=CR_DICT+(interim?(CR_DICT?' ':'')+interim:'');
-    };
-    CR_REC.onerror=function(ev){ if(ev&&(ev.error==='not-allowed'||ev.error==='service-not-allowed')){ CR_RECORDING=false; var b=document.getElementById('crMic'); if(b) b.textContent='🎤 Dicter les échanges'; } };
-    CR_REC.onend=function(){ if(CR_RECORDING){ try{ crStartRec(SR); return; }catch(x){} } var b=document.getElementById('crMic'); if(b) b.textContent='🎤 Dicter les échanges'; };
-    try{ CR_REC.start(); }catch(x){}
+      CR_INTERIM=interim; var ta=document.getElementById('crTranscript'); if(ta) ta.value=CR_DICT+(interim?(CR_DICT?' ':'')+interim:''); CR_FAILS=[]; };
+    rec.onerror=function(ev){ var er=ev&&ev.error;
+      if(er==='not-allowed'||er==='service-not-allowed'){ crStopAll(CR_IOS?'Sur iPhone/iPad, la dictée s\'arrête à chaque pause : appuyez à nouveau sur Dicter.':'Micro refusé : autorisez le micro pour ce site.',true); return; }
+      if(er==='audio-capture'){ crStopAll('Aucun micro disponible (déjà utilisé par une autre application ?).',true); return; } };
+    rec.onend=function(){ if(rec!==CR_REC) return; crFlushInterim(); var ta=document.getElementById('crTranscript'); if(ta) ta.value=CR_DICT; if(CR_RECORDING){ crRestart(300); return; } crMicLabel(LBL_START); };
+    try{ rec.start(); CR_ALIVE=Date.now(); }catch(x){ crRestart(800); }
   }
+  if(!window.__crVisBound){ window.__crVisBound=true; document.addEventListener('visibilitychange',function(){ if(document.visibilityState==='visible' && CR_RECORDING){ crWakeOn(); if(Date.now()-CR_ALIVE>8000){ crFlushInterim(); try{ if(CR_REC){ CR_REC.onend=null; CR_REC.abort(); } }catch(_){} crRestart(200); } } }); }
   // ===== Éditabilité (prépa / synthèse / actions) + images =====
   function crPrepBlock(d){
     if(!d.preparation && !CR_EDIT_PREP) return '';
