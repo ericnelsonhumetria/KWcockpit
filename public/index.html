@@ -7931,7 +7931,7 @@ function kwLifecycleSyncBtn(){
   };
 })();
 </script>
-<script src="/shared/cr-actions.js?v=3"></script>
+<script src="/shared/cr-actions.js?v=4"></script>
 <script>
 /* ==== ROADMAP TECHNIQUE (CTO) — bloc additif ==== */
 (function(){
@@ -8044,59 +8044,58 @@ function kwLifecycleSyncBtn(){
 
 </script>
 <script>
-/* ==== RÉCUPÉRATION MOT DE PASSE (lien e-mail de reset) — bloc additif ==== */
+/* ==== RÉCUPÉRATION MOT DE PASSE (lien e-mail de reset) — bloc additif v2 ==== */
 (function(){
-  function hasRecovery(){
-    var h=(location.hash||'')+'&'+(location.search||'');
-    return /type=recovery/.test(h) || /(access_token=|[?&]code=)/.test(h) && /recovery/i.test(h);
-  }
-  window.showRecoveryOverlay=function(){
+  var P=new URLSearchParams(location.search), H=new URLSearchParams((location.hash||'').replace(/^#/,''));
+  function g(k){ return P.get(k)||H.get(k)||''; }
+  var type=g('type'), tokenHash=g('token_hash'), code=P.get('code')||'', at=H.get('access_token')||'', rt=H.get('refresh_token')||'', errCode=g('error_code'), errDesc=g('error_description');
+  if(!(type==='recovery' || tokenHash || code || errCode)) return;
+  var EXPIRED='Ce lien a expiré ou a déjà été utilisé. Demandez un nouvel e-mail de réinitialisation et cliquez-le une seule fois, dans l\'heure.';
+  function friendly(e){ var m=(e&&e.message)||String(e||''); if(/expired|invalid|otp|missing|verifier|not found/i.test(m)) return EXPIRED; return 'Échec : '+m; }
+  function show(){
     if(document.getElementById('kwRecovery')) return;
     var ov=document.createElement('div'); ov.id='kwRecovery';
     ov.style.cssText='position:fixed;inset:0;z-index:99999;background:rgba(20,8,10,.55);display:flex;align-items:center;justify-content:center;padding:20px;';
-    ov.innerHTML='<div style="background:#f3ede1;border-radius:16px;padding:28px 26px;max-width:420px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.35);font-family:inherit;">'
+    ov.innerHTML='<div style="background:#f3ede1;border-radius:16px;padding:28px 26px;max-width:420px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.35);">'
       +'<div style="font-weight:800;font-size:18px;color:#560A0F;margin-bottom:4px;">Nouveau mot de passe</div>'
       +'<div style="font-size:13px;color:#6b5b58;margin-bottom:16px;">Choisissez un nouveau mot de passe pour votre compte Cockpit KW.</div>'
-      +'<label style="font-size:12px;font-weight:700;letter-spacing:.06em;color:#6b5b58;">MOT DE PASSE</label>'
+      +'<label for="kwRecPwd" style="font-size:12px;font-weight:700;letter-spacing:.06em;color:#6b5b58;">MOT DE PASSE</label>'
       +'<input id="kwRecPwd" type="password" autocomplete="new-password" style="width:100%;padding:11px 12px;margin:6px 0 12px;border:1px solid rgba(86,10,15,.25);border-radius:8px;font-size:15px;box-sizing:border-box;">'
-      +'<label style="font-size:12px;font-weight:700;letter-spacing:.06em;color:#6b5b58;">CONFIRMER</label>'
+      +'<label for="kwRecPwd2" style="font-size:12px;font-weight:700;letter-spacing:.06em;color:#6b5b58;">CONFIRMER</label>'
       +'<input id="kwRecPwd2" type="password" autocomplete="new-password" style="width:100%;padding:11px 12px;margin:6px 0 12px;border:1px solid rgba(86,10,15,.25);border-radius:8px;font-size:15px;box-sizing:border-box;">'
       +'<div id="kwRecMsg" style="font-size:13px;min-height:18px;margin-bottom:10px;"></div>'
       +'<button id="kwRecBtn" type="button" style="width:100%;padding:13px;background:#560A0F;color:#fff;border:none;border-radius:8px;font-weight:700;font-size:15px;cursor:pointer;">Valider le mot de passe</button>'
+      +'<button id="kwRecBack" type="button" style="width:100%;padding:10px;margin-top:8px;background:transparent;color:#560A0F;border:1px solid rgba(86,10,15,.3);border-radius:8px;font-size:13px;cursor:pointer;">Revenir à la connexion</button>'
       +'</div>';
     document.body.appendChild(ov);
     var btn=document.getElementById('kwRecBtn'), msg=document.getElementById('kwRecMsg');
+    document.getElementById('kwRecBack').onclick=function(){ location.href=location.pathname; };
+    if(errCode){ msg.style.color='#c0392b'; msg.textContent=EXPIRED; btn.disabled=true; btn.style.opacity='.5'; return; }
     async function submit(){
       var p1=document.getElementById('kwRecPwd').value||'', p2=document.getElementById('kwRecPwd2').value||'';
       if(p1.length<8){ msg.style.color='#c0392b'; msg.textContent='8 caractères minimum.'; return; }
       if(p1!==p2){ msg.style.color='#c0392b'; msg.textContent='Les deux mots de passe diffèrent.'; return; }
-      btn.disabled=true; msg.style.color='#6b5b58'; msg.textContent='Enregistrement…';
+      btn.disabled=true; msg.style.color='#6b5b58'; msg.textContent='Vérification du lien…';
       try{
         var sb=(typeof initSupabase==='function')?initSupabase():null;
-        if(!sb){ throw new Error('Configuration Supabase absente.'); }
-        var r=await sb.auth.updateUser({ password:p1 });
-        if(r&&r.error){ throw r.error; }
+        if(!sb) throw new Error('Configuration Supabase absente.');
+        var s=null; try{ var gs=await sb.auth.getSession(); s=gs&&gs.data&&gs.data.session; }catch(_){}
+        if(!s && tokenHash){ var r1=await sb.auth.verifyOtp({ token_hash:tokenHash, type:'recovery' }); if(r1.error) throw r1.error; s=r1.data&&r1.data.session; }
+        if(!s && code){ var r2=await sb.auth.exchangeCodeForSession(code); if(r2.error) throw r2.error; s=r2.data&&r2.data.session; }
+        if(!s && at && rt){ var r3=await sb.auth.setSession({ access_token:at, refresh_token:rt }); if(r3.error) throw r3.error; s=r3.data&&r3.data.session; }
+        if(!s) throw new Error('session missing');
+        msg.textContent='Enregistrement…';
+        var r=await sb.auth.updateUser({ password:p1 }); if(r&&r.error) throw r.error;
         msg.style.color='#1e7d34'; msg.textContent='Mot de passe mis à jour. Vous pouvez vous connecter.';
-        try{ await sb.auth.signOut(); }catch(e){}
+        try{ await sb.auth.signOut(); }catch(_){}
         setTimeout(function(){ location.href=location.pathname; }, 1400);
-      }catch(e){ btn.disabled=false; msg.style.color='#c0392b'; msg.textContent='Échec : '+((e&&e.message)||e); }
+      }catch(e){ btn.disabled=false; msg.style.color='#c0392b'; msg.textContent=friendly(e); }
     }
     btn.onclick=submit;
     document.getElementById('kwRecPwd2').addEventListener('keydown',function(ev){ if(ev.key==='Enter') submit(); });
     setTimeout(function(){ var i=document.getElementById('kwRecPwd'); if(i) i.focus(); }, 100);
-  };
-  try{
-    if(hasRecovery()){
-      var sb=(typeof initSupabase==='function')?initSupabase():null; // déclenche detectSessionInUrl
-      if(sb && sb.auth && sb.auth.onAuthStateChange){
-        sb.auth.onAuthStateChange(function(ev, sess){
-          if(ev==='PASSWORD_RECOVERY' || ev==='SIGNED_IN'){ if(sess && typeof SB_SESSION!=='undefined'){ SB_SESSION=sess; } showRecoveryOverlay(); }
-        });
-      }
-      // Filet : afficher l'écran même si l'événement est manqué (session établie par detectSessionInUrl)
-      setTimeout(showRecoveryOverlay, 700);
-    }
-  }catch(e){}
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',show); else show();
 })();
 
 </script>
@@ -8544,29 +8543,6 @@ function kwLifecycleSyncBtn(){
   window.humetriaNewAction=async function(id){ var b=_b(id); if(!b) return; var lib=prompt('Nouvelle action reliée à « '+(b.titre||'Humetria')+' » :'); if(!lib) return; var row={ libelle:lib, projet:'Humetria', source:'Humetria', tags:['Humetria', b.titre||''] }; if(typeof paMyPiloteId==='function'){ try{ var pid=paMyPiloteId(); if(pid) row.pilote_id=pid; }catch(e){} } var q=await SB.from('actions').insert(row); if(q&&q.error){ alert('Erreur création action : '+q.error.message); return; } alert('Action créée et reliée à Humetria › '+(b.titre||'')); };
 })();
 
-</script>
-<script>
-/* COCKPIT KW - BLOC : accès Espace recruteur Maintenance (onglet Parcours candidats)
-   Additif : enrobe renderTab() sans le modifier. */
-(function(){
-  if (typeof renderTab !== 'function') return;
-  var _rtMaint = renderTab;
-  renderTab = function(){
-    _rtMaint.apply(this, arguments);
-    try{
-      if (typeof CURRENT_TAB === 'undefined' || CURRENT_TAB !== 'parcours') return;
-      var zone = document.getElementById('parcoursZone');
-      if (!zone || document.getElementById('maintAccess')) return;
-      var p = document.createElement('div');
-      p.id = 'maintAccess'; p.className = 'panel';
-      p.style.cssText = 'padding:14px 16px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;border-left:4px solid #EFB810;';
-      p.innerHTML = '<div><b>Mise en situation Responsable Maintenance</b>'
-        + '<div style="color:var(--muted);font-size:13px;margin-top:2px;">Espace dédié : création des candidats, liens, rapports, décisions.</div></div>'
-        + '<a class="add-btn" href="/maintenance/recruteur/" target="_blank" rel="noopener" style="text-decoration:none;">Ouvrir l\u2019espace recruteur</a>';
-      zone.parentNode.insertBefore(p, zone);
-    }catch(e){}
-  };
-})();
 </script>
 </body>
 </html>
