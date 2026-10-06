@@ -700,7 +700,11 @@
     try { var q=await SB.from('comptes_rendus').select('*').eq('id',id).single(); if(q.error) throw q.error; CR_CUR=q.data; CR_DICT=CR_CUR.transcription||''; crRepaint(); }
     catch(err){ CR_MSG='Ouverture impossible : '+(err.message||err); crRepaint(); }
   };
-  window.crBack=function(){ crReleaseLock(); CR_CUR=null; CR_MSG=''; crLoadList().then(crRepaint); };
+  window.crBack=async function(){
+    if(CR_CUR && document.getElementById('crTitre')){ if(CR_RECORDING){ try{ crStopAll(''); }catch(_){} } crReadHeader();
+      var has=(CR_CUR.titre||'').trim()||(CR_CUR.contexte||'').trim()||(CR_CUR.transcription||'').trim()||(CR_CUR.synthese||'').trim();
+      if(has){ try{ await crSaveSilent(); }catch(err){ CR_MSG='Enregistrement refusé : '+(err.message||err); crRepaint(); alert('Le compte-rendu n\'a pas pu être enregistré : '+(err.message||err)+'\nIl reste ouvert pour ne rien perdre.'); return; } } }
+    crReleaseLock(); CR_CUR=null; CR_MSG=''; crLoadList().then(crRepaint); };
 
   // ---------- Éditeur (prépa + réalisation) ----------
   function crReadHeader(){
@@ -748,7 +752,7 @@
       +(lockedOther ? ('<div style="background:#fdecea;border:1px solid #c0392b;border-radius:8px;padding:8px 12px;margin-top:8px;color:#c0392b;font-size:12.5px;">⚠ Transcription en cours par <b>'+e(crLockName(d.transcription_par))+'</b> depuis '+crLockHeure(d)+'. <button class="add-btn sm" onclick="crTakeOver()" type="button" style="margin-left:6px;">Prendre la main</button></div>') : ('<div style="margin-top:8px;"><button class="add-btn" onclick="crSynth()" type="button"'+(CR_BUSY?' disabled':'')+'>'+(CR_BUSY?'… synthèse':'✨ Générer la synthèse + les actions')+'</button></div>'))
       +crSynthBlock(d)
       +'</div>'
-      +'<div style="display:flex;gap:8px;margin-top:12px;"><button class="add-btn" onclick="crSave()" type="button">✓ Enregistrer le CR</button><button class="add-btn sm" onclick="crBack()" type="button" style="background:#fff;color:#560A0F;">Fermer</button></div>';
+      +'<div style="display:flex;gap:8px;margin-top:12px;"><button class="add-btn" onclick="crSave()" type="button">✓ Enregistrer le CR</button><button class="add-btn sm" onclick="crBack()" type="button" style="background:#fff;color:#560A0F;">Fermer</button><span id="crSaveMsg" role="status" style="align-self:center;font-size:12.5px;"></span></div>';
   }
 
   // ---------- Préparation IA ----------
@@ -797,7 +801,9 @@
     if(CR_CUR.id){ var r=await SB.from('comptes_rendus').update(crRow()).eq('id',CR_CUR.id); if(r.error) throw r.error; }
     else { var r2=await SB.from('comptes_rendus').insert(crRow()).select('id,numero').single(); if(r2.error) throw r2.error; CR_CUR.id=r2.data.id; CR_CUR.numero=r2.data.numero; }
   }
-  window.crSave=async function(){ crReadHeader(); CR_MSG=''; try{ await crSaveSilent(); await crLoadList(); crRepaint(); }catch(err){ CR_MSG='Enregistrement refusé : '+(err.message||err); crRepaint(); } };
+  window.crSave=async function(){ if(CR_RECORDING){ try{ crStopAll(''); }catch(_){} } crReadHeader(); CR_MSG=''; var b=document.getElementById('crSaveMsg'); if(b){ b.style.color='#6b5b58'; b.textContent='Enregistrement…'; }
+    try{ await crSaveSilent(); await crLoadList(); crRepaint(); var b2=document.getElementById('crSaveMsg'); if(b2){ b2.style.color='#1e7d34'; b2.textContent='✓ Enregistré · CR #'+((CR_CUR&&CR_CUR.numero)||''); } }
+    catch(err){ CR_MSG='Enregistrement refusé : '+(err.message||err); crRepaint(); var b3=document.getElementById('crSaveMsg'); if(b3){ b3.style.color='#c0392b'; b3.textContent=CR_MSG; } alert(CR_MSG); } };
   window.crCopy=function(){ var t=CR_CUR&&CR_CUR.synthese?CR_CUR.synthese:''; try{ if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(t); }catch(x){} window.prompt('Compte-rendu (Ctrl/Cmd+C pour copier) :', t); };
   window.crCopyPrep=function(){ var t=CR_CUR&&CR_CUR.preparation?CR_CUR.preparation:''; try{ if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(t); }catch(x){} window.prompt('Préparation (Ctrl/Cmd+C pour copier) :', t); };
   window.crMail=function(kind){ crReadHeader(); var content=kind==='prep'?(CR_CUR.preparation||''):(CR_CUR.synthese||''); if(!content) return; var emails=(CR_CUR.participants||[]).map(function(id){ var p=((CR_REFS&&CR_REFS.pilotes)||[]).find(function(x){return x.id===id;}); return p?p.email:null; }).filter(Boolean); if(!emails.length){ window.alert('Aucun participant avec e-mail sélectionné. Coche des participants (leur e-mail se renseigne dans Admin → Pilotes, en les liant à un compte).'); return; } var subj=(kind==='prep'?'Préparation — ':'Compte-rendu — ')+(CR_CUR.titre||'réunion'); try{ if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(content); }catch(x){} var body=encodeURIComponent('Bonjour,\n\n'+(kind==='prep'?'Préparation':'Compte-rendu')+' de la réunion « '+(CR_CUR.titre||'')+' ».\n\nLe contenu complet a été copié dans le presse-papier : colle-le ici (Ctrl+V).\n'); window.location.href='mailto:'+encodeURIComponent(emails.join(','))+'?subject='+encodeURIComponent(subj)+'&body='+body; };
