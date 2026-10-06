@@ -810,14 +810,17 @@
   async function crWakeOn(){ try{ if(navigator.wakeLock && !CR_WAKE){ CR_WAKE=await navigator.wakeLock.request('screen'); CR_WAKE.addEventListener('release',function(){ CR_WAKE=null; }); } }catch(_){} }
   function crWakeOff(){ try{ if(CR_WAKE) CR_WAKE.release(); }catch(_){} CR_WAKE=null; }
   function crFlushInterim(){ if(CR_INTERIM&&CR_INTERIM.trim()){ CR_DICT+=(CR_DICT&&!/\s$/.test(CR_DICT)?' ':'')+CR_INTERIM.trim(); } CR_INTERIM=''; }
-  async function crSaveTranscript(){ if(!CR_CUR||!CR_CUR.id) return; var t=CR_DICT+(CR_INTERIM?((CR_DICT?' ':'')+CR_INTERIM):''); CR_CUR.transcription=t; try{ await SB.from('comptes_rendus').update({transcription:t, transcription_par:crUid(), transcription_le:new Date().toISOString()}).eq('id',CR_CUR.id); }catch(_){} }
+  function crBackup(t){ try{ if(t&&t.trim()) localStorage.setItem('crDictBackup', JSON.stringify({at:Date.now(), id:(CR_CUR&&CR_CUR.id)||null, titre:(CR_CUR&&CR_CUR.titre)||'', text:t})); }catch(_){} }
+  async function crSaveTranscript(){ var t=CR_DICT+(CR_INTERIM?((CR_DICT?' ':'')+CR_INTERIM):''); if(CR_CUR) CR_CUR.transcription=t; crBackup(t); if(!CR_CUR||!CR_CUR.id) return; try{ await SB.from('comptes_rendus').update({transcription:t, transcription_par:crUid(), transcription_le:new Date().toISOString()}).eq('id',CR_CUR.id); }catch(_){} }
   function crStopAll(msg,warn){ CR_RECORDING=false; if(CR_REC){ try{ CR_REC.onend=null; CR_REC.stop(); }catch(x){} } crFlushInterim(); var ta=document.getElementById('crTranscript'); if(ta) ta.value=CR_DICT; if(CR_CUR) CR_CUR.transcription=CR_DICT; crSaveTranscript(); if(CR_SAVE_T){ clearInterval(CR_SAVE_T); CR_SAVE_T=null; } crWakeOff(); crMicLabel(LBL_START); crMicStatus(msg||'',warn); }
   window.crDictate=function(){
     var SR=window.SpeechRecognition||window.webkitSpeechRecognition; if(!SR){ alert('Dictée non disponible sur ce navigateur : utilisez Chrome ou Edge sur ordinateur.'); return; }
     if(CR_RECORDING){ crStopAll('Dictée arrêtée, texte enregistré.'); return; }
+    var ta00=document.getElementById('crTranscript'); if(ta00 && !ta00.value.trim() && !(CR_CUR&&CR_CUR.id)){ try{ var bk=JSON.parse(localStorage.getItem('crDictBackup')||'null'); if(bk&&!bk.id&&bk.text&&(Date.now()-bk.at)<7*86400000&&confirm('Une dictée non enregistrée du '+new Date(bk.at).toLocaleString('fr-FR')+(bk.titre?(' (« '+bk.titre+' »)'):'')+' a été retrouvée sur ce poste. La reprendre ?')){ ta00.value=bk.text; } }catch(_){} }
     var ta0=document.getElementById('crTranscript'); CR_DICT=ta0?ta0.value.replace(/\s+$/,''):''; CR_INTERIM=''; CR_FAILS=[]; CR_SR=SR;
     CR_RECORDING=true; crMicLabel(LBL_STOP); crMicStatus('● Enregistrement');
     if(CR_CUR&&CR_CUR.id) crAcquireLock();
+    else if(CR_CUR){ try{ crReadHeader(); }catch(_){} CR_CUR.transcription=CR_DICT; crSaveSilent().then(function(){ crAcquireLock(); crBackup(CR_DICT); try{ crLoadList(); }catch(_){} }).catch(function(e){ crMicStatus('Réunion non enregistrée en base : '+((e&&e.message)||e)+'. Copie locale active.',true); }); }
     crWakeOn();
     if(!CR_SAVE_T) CR_SAVE_T=setInterval(function(){ if(!CR_RECORDING) return; crSaveTranscript(); if(Date.now()-CR_ALIVE>30000 && CR_REC){ crFlushInterim(); try{ CR_REC.onend=null; CR_REC.abort(); }catch(_){} crRestart(300); } },20000);
     crStartRec(SR);
@@ -832,7 +835,7 @@
     rec.onaudiostart=function(){ CR_ALIVE=Date.now(); crMicStatus('● Enregistrement'); };
     rec.onresult=function(ev){ CR_ALIVE=Date.now(); var interim='';
       for(var i=ev.resultIndex;i<ev.results.length;i++){ var r=ev.results[i]; if(r.isFinal){ var seg=(r[0].transcript||'').trim(); if(seg){ CR_DICT+=(CR_DICT&&!/\s$/.test(CR_DICT)?' ':'')+seg; } } else interim+=r[0].transcript; }
-      CR_INTERIM=interim; var ta=document.getElementById('crTranscript'); if(ta) ta.value=CR_DICT+(interim?(CR_DICT?' ':'')+interim:''); CR_FAILS=[]; };
+      CR_INTERIM=interim; crBackup(CR_DICT+(interim?(' '+interim):'')); var ta=document.getElementById('crTranscript'); if(ta) ta.value=CR_DICT+(interim?(CR_DICT?' ':'')+interim:''); CR_FAILS=[]; };
     rec.onerror=function(ev){ var er=ev&&ev.error;
       if(er==='not-allowed'||er==='service-not-allowed'){ crStopAll(CR_IOS?'Sur iPhone/iPad, la dictée s\'arrête à chaque pause : appuyez à nouveau sur Dicter.':'Micro refusé : autorisez le micro pour ce site.',true); return; }
       if(er==='audio-capture'){ crStopAll('Aucun micro disponible (déjà utilisé par une autre application ?).',true); return; } };
