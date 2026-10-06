@@ -120,6 +120,19 @@ async function callAnthropic(key, payload) {
   } catch (e) { clearTimeout(tid); return { ok: false, status: 502, msg: e.name === 'AbortError' ? 'Délai dépassé — réessaie.' : ('Erreur réseau : ' + e.message) }; }
 }
 
+const FR_W = ['le','la','les','des','est','et','que','pour','dans','une','nous','pas','sur','avec','qui','ce','du','au','sont','vous','mais','il','elle','donc','alors','aussi','très','cette','faut','fait'];
+const EN_W = ['the','and','is','are','to','of','that','we','you','it','for','with','this','be','have','not','will','what','so','but','they','was','can','do','our','about','would','just','there','going'];
+function detectLang(t) {
+  const s = ' ' + String(t || '').toLowerCase().replace(/[^a-zàâäéèêëîïôöùûüçœ' ]+/g, ' ').replace(/'/g, ' ') + ' ';
+  let f = 0, e = 0; FR_W.forEach(w => { f += s.split(' ' + w + ' ').length - 1; }); EN_W.forEach(w => { e += s.split(' ' + w + ' ').length - 1; });
+  if (f + e < 6) return null; if (e > f * 1.3) return 'en'; if (f > e * 1.3) return 'fr'; return null;
+}
+function langDirective(l) {
+  return l === 'en'
+    ? "\n\nLANGUAGE: the meeting is held in English. Write ALL generated text (preparation, minutes, action labels) in English, in a professional style. Keep JSON keys, theme codes and pilot names exactly as provided: never translate them."
+    : "\n\nLANGUE : rédige tout le texte produit en français, dans un style professionnel. Conserve les clés JSON, les codes de thématique et les noms des pilotes exactement tels que fournis.";
+}
+
 exports.handler = async (event) => {
   const headers = {
     'Access-Control-Allow-Origin': process.env.APP_ORIGIN || '*',
@@ -139,6 +152,7 @@ exports.handler = async (event) => {
   const model = process.env.CR_IA_MODEL || 'claude-haiku-4-5-20251001';
   const today = (body && /^\d{4}-\d{2}-\d{2}$/.test(body.today)) ? body.today : new Date().toISOString().slice(0, 10);
   const interlocuteur = (typeof body.interlocuteur === 'string') ? body.interlocuteur : '';
+  const langue = (body.langue === 'en' || body.langue === 'fr') ? body.langue : (detectLang(String(body.transcription || '') + ' ' + String(body.contexte || '')) || 'fr');
 
   if (mode === 'prep') {
     const contexte = (typeof body.contexte === 'string') ? body.contexte.trim() : '';
@@ -146,10 +160,10 @@ exports.handler = async (event) => {
     const actions = Array.isArray(body.actions) ? body.actions : [];
     const userMsg = 'Contexte / ordre du jour / objectif :\n' + contexte
       + '\n\nActions en cours (JSON) :\n' + JSON.stringify(actions, null, 2);
-    const r = await callAnthropic(key, { model, max_tokens: 1800, system: prepPrompt(interlocuteur), messages: [{ role: 'user', content: userMsg }] });
+    const r = await callAnthropic(key, { model, max_tokens: 1800, system: prepPrompt(interlocuteur) + langDirective(langue), messages: [{ role: 'user', content: userMsg }] });
     if (!r.ok) return { statusCode: r.status, headers, body: JSON.stringify({ error: r.msg }) };
     if (!r.txt) return { statusCode: 502, headers, body: JSON.stringify({ error: 'Réponse vide du modèle' }) };
-    return { statusCode: 200, headers, body: JSON.stringify({ preparation: r.txt }) };
+    return { statusCode: 200, headers, body: JSON.stringify({ preparation: r.txt, langue }) };
   }
 
   if (mode === 'synthese') {
@@ -160,7 +174,7 @@ exports.handler = async (event) => {
     const contexte = (typeof body.contexte === 'string') ? body.contexte : '';
     const userMsg = (contexte ? ('Contexte de la réunion :\n' + contexte + '\n\n') : '')
       + 'Transcription des échanges :\n' + transcription;
-    const r = await callAnthropic(key, { model, max_tokens: 3500, system: synthPrompt(interlocuteur, thematiques, pilotes, today), messages: [{ role: 'user', content: userMsg }] });
+    const r = await callAnthropic(key, { model, max_tokens: 3500, system: synthPrompt(interlocuteur, thematiques, pilotes, today) + langDirective(langue), messages: [{ role: 'user', content: userMsg }] });
     if (!r.ok) return { statusCode: r.status, headers, body: JSON.stringify({ error: r.msg }) };
     if (!r.txt) return { statusCode: 502, headers, body: JSON.stringify({ error: 'Réponse vide du modèle' }) };
     let out; try { out = parseJSON(r.txt); } catch (e) { return { statusCode: 502, headers, body: JSON.stringify({ error: 'Synthèse illisible — ' + (e.message || 'JSON invalide') }) }; }
@@ -178,7 +192,7 @@ exports.handler = async (event) => {
         echeance: ech, priorite: prio,
       };
     }).filter(a => a.libelle);
-    return { statusCode: 200, headers, body: JSON.stringify({ compte_rendu: cr, actions_decidees: clean }) };
+    return { statusCode: 200, headers, body: JSON.stringify({ compte_rendu: cr, actions_decidees: clean, langue }) };
   }
 
   return { statusCode: 400, headers, body: JSON.stringify({ error: 'Mode inconnu (prep | synthese)' }) };
