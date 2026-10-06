@@ -4345,7 +4345,7 @@ async function loadCandidats(){
   try {
     var q = await SB.from('parcours_candidats').select('*').neq('statut','archive').order('created_at', { ascending:false });
     if(q.error) throw q.error;
-    var cands = q.data || [];
+    var cands = (q.data || []).filter(function(c){ return !/maintenance/i.test(c.poste||''); }); /* candidats Maintenance : gérés dans /maintenance/recruteur/ */
     var ids = cands.map(function(c){ return c.id; });
     var resParCand = {};
     if(ids.length){
@@ -7931,7 +7931,7 @@ function kwLifecycleSyncBtn(){
   };
 })();
 </script>
-<script src="/shared/cr-actions.js?v=5"></script>
+<script src="/shared/cr-actions.js?v=6"></script>
 <script>
 /* ==== ROADMAP TECHNIQUE (CTO) — bloc additif ==== */
 (function(){
@@ -8543,6 +8543,28 @@ function kwLifecycleSyncBtn(){
   window.humetriaNewAction=async function(id){ var b=_b(id); if(!b) return; var lib=prompt('Nouvelle action reliée à « '+(b.titre||'Humetria')+' » :'); if(!lib) return; var row={ libelle:lib, projet:'Humetria', source:'Humetria', tags:['Humetria', b.titre||''] }; if(typeof paMyPiloteId==='function'){ try{ var pid=paMyPiloteId(); if(pid) row.pilote_id=pid; }catch(e){} } var q=await SB.from('actions').insert(row); if(q&&q.error){ alert('Erreur création action : '+q.error.message); return; } alert('Action créée et reliée à Humetria › '+(b.titre||'')); };
 })();
 
+</script>
+<script>
+/* COCKPIT KW - BLOC : accès Espace recruteur Maintenance (onglet Parcours candidats). Additif : enrobe renderTab() sans le modifier. */
+(function(){
+  if (typeof renderTab !== 'function') return;
+  var _rtMaint = renderTab;
+  renderTab = function(){
+    _rtMaint.apply(this, arguments);
+    try{
+      if (typeof CURRENT_TAB === 'undefined' || CURRENT_TAB !== 'parcours') return;
+      var zone = document.getElementById('parcoursZone');
+      if (!zone || document.getElementById('maintAccess')) return;
+      var p = document.createElement('div');
+      p.id = 'maintAccess'; p.className = 'panel';
+      p.style.cssText = 'padding:14px 16px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;border-left:4px solid #EFB810;';
+      p.innerHTML = '<div><b>Parcours Responsable Maintenance</b>'
+        + '<div style="color:var(--muted);font-size:13px;margin-top:2px;">Espace dédié : création des candidats, liens, rapports, décisions. Ces candidats n\u2019apparaissent pas dans le tableau ci-dessous, réservé au parcours Consultant.</div></div>'
+        + '<a class="add-btn" href="/maintenance/recruteur/" target="_blank" rel="noopener" style="text-decoration:none;">Ouvrir l\u2019espace recruteur</a>';
+      zone.parentNode.insertBefore(p, zone);
+    }catch(e){}
+  };
+})();
 </script>
 </body>
 </html>
