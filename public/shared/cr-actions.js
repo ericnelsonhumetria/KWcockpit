@@ -745,7 +745,7 @@
       +'</div>'
       // Réalisation & synthèse
       +'<div class="panel" style="padding:12px 16px;margin-top:12px;"><div class="sec-eyebrow" style="margin:0 0 6px;">2 · Réalisation & synthèse</div>'
-      +'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px;">'+mic+'<span class="edit-hint">'+(SR?'Transcrit l\'entrée audio par défaut de Windows.':'Dictée indisponible sur ce navigateur — colle la transcription ci-dessous.')+'</span></div>'
+      +'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px;">'+mic+crLangSelectHtml()+'<span class="edit-hint">'+(SR?'Transcrit l\'entrée audio par défaut de Windows.':'Dictée indisponible sur ce navigateur — colle la transcription ci-dessous.')+'</span></div>'
       +(SR?'<div style="background:#f3ede1;border:1px solid rgba(86,10,15,.15);border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:12px;color:#560A0F;"><b>Capter toutes les voix (visio) :</b> Web Speech transcrit l\'entrée micro <b>par défaut de Windows</b> (l\'app ne peut pas la choisir). Deux options : <b>1)</b> mets Teams sur <b>haut-parleurs</b> — le micro capte alors la salle + les voix distantes. <b>2)</b> mets une entrée <b>« mix/loopback »</b> (Stereo Mix, VB-Audio, VoiceMeeter) comme <b>micro par défaut</b> de Windows. <button class="add-btn sm" onclick="crListInputs()" type="button" style="background:#fff;color:#560A0F;margin-left:4px;">🎧 Vérifier mes entrées audio</button></div>':'')
       +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;align-items:center;"><span class="edit-hint">Marquer qui parle :</span><button class="add-btn sm" onclick="crAddMe()" type="button" style="background:#fff;color:#560A0F;">🙋 Moi</button><button class="add-btn sm" onclick="crAddSpeaker()" type="button" style="background:#fff;color:#560A0F;">🗣 + Interlocuteur</button></div>'
       +'<textarea id="crTranscript" rows="6" placeholder="Transcription des échanges (dictée ou saisie). Utilise les boutons ci-dessus pour marquer chaque intervenant." style="'+sel()+'resize:vertical;">'+e(d.transcription||'')+'</textarea>'
@@ -764,7 +764,7 @@
     try {
       var q=await SB.from('actions').select('numero,libelle,statut,echeance,priorite,pilote_id,source').is('archived_at',null).order('numero',{ascending:false}).limit(80);
       var acts=((q&&q.data)||[]).map(function(a){ return { numero:a.numero, libelle:a.libelle, statut:a.statut, echeance:a.echeance, priorite:a.priorite, pilote:piloteNom(a.pilote_id), source:a.source }; });
-      var res=await fetch('/api/cr-ia',{method:'POST',headers:auth(),signal:ctrl.signal,body:JSON.stringify({ mode:'prep', contexte:CR_CUR.contexte, interlocuteur:piloteNom(CR_CUR.interlocuteur_id), today:today(), actions:acts })});
+      var res=await fetch('/api/cr-ia',{method:'POST',headers:auth(),signal:ctrl.signal,body:JSON.stringify({ mode:'prep', langue:crLangForAI(CR_CUR.contexte), contexte:CR_CUR.contexte, interlocuteur:piloteNom(CR_CUR.interlocuteur_id), today:today(), actions:acts })});
       var j=null; try{ j=await res.json(); }catch(x){}
       if(!res.ok) throw new Error((j&&j.error)?j.error:('le service a répondu '+res.status));
       CR_CUR.preparation=(j&&j.preparation)?j.preparation:'';
@@ -782,7 +782,7 @@
     CR_BUSY=true; CR_MSG=''; crRepaint();
     try {
       var ctrlS=new AbortController(); var toS=setTimeout(function(){ ctrlS.abort(); }, 45000);
-      var res=await fetch('/api/cr-ia',{method:'POST',headers:auth(),signal:ctrlS.signal,body:JSON.stringify({ mode:'synthese', transcription:CR_CUR.transcription, contexte:CR_CUR.contexte, interlocuteur:piloteNom(CR_CUR.interlocuteur_id), today:today(),
+      var res=await fetch('/api/cr-ia',{method:'POST',headers:auth(),signal:ctrlS.signal,body:JSON.stringify({ mode:'synthese', langue:crLangForAI(CR_CUR.transcription), transcription:CR_CUR.transcription, contexte:CR_CUR.contexte, interlocuteur:piloteNom(CR_CUR.interlocuteur_id), today:today(),
         pilotes:(CR_REFS.pilotes||[]).map(function(p){return {nom:p.nom};}), thematiques:(CR_REFS.thematiques||[]).map(function(t){return {code:t.code,libelle:t.libelle};}) })});
       var j=null; try{ j=await res.json(); }catch(x){}
       if(!res.ok) throw new Error((j&&j.error)?j.error:('HTTP '+res.status));
@@ -819,12 +819,31 @@
   function crBackup(t){ try{ if(t&&t.trim()) localStorage.setItem('crDictBackup', JSON.stringify({at:Date.now(), id:(CR_CUR&&CR_CUR.id)||null, titre:(CR_CUR&&CR_CUR.titre)||'', text:t})); }catch(_){} }
   async function crSaveTranscript(){ var t=CR_DICT+(CR_INTERIM?((CR_DICT?' ':'')+CR_INTERIM):''); if(CR_CUR) CR_CUR.transcription=t; crBackup(t); if(!CR_CUR||!CR_CUR.id) return; try{ await SB.from('comptes_rendus').update({transcription:t, transcription_par:crUid(), transcription_le:new Date().toISOString()}).eq('id',CR_CUR.id); }catch(_){} }
   function crStopAll(msg,warn){ CR_RECORDING=false; if(CR_REC){ try{ CR_REC.onend=null; CR_REC.stop(); }catch(x){} } crFlushInterim(); var ta=document.getElementById('crTranscript'); if(ta) ta.value=CR_DICT; if(CR_CUR) CR_CUR.transcription=CR_DICT; crSaveTranscript(); if(CR_SAVE_T){ clearInterval(CR_SAVE_T); CR_SAVE_T=null; } crWakeOff(); crMicLabel(LBL_START); crMicStatus(msg||'',warn); }
+  var CR_AUTO_LANG='fr', CR_LQ=[], CR_LSWITCH=0, CR_LSWITCHES=0;
+  var CR_FR_W=['le','la','les','des','est','et','que','pour','dans','une','nous','pas','sur','avec','qui','ce','du','au','sont','vous','mais','il','elle','donc','alors','aussi','très','cette','faut','fait'];
+  var CR_EN_W=['the','and','is','are','to','of','that','we','you','it','for','with','this','be','have','not','will','what','so','but','they','was','can','do','our','about','would','just','there','going'];
+  function crDetectLang(t){ var s=' '+String(t||'').toLowerCase().replace(/[^a-zàâäéèêëîïôöùûüçœ' ]+/g,' ').replace(/'/g,' ')+' '; var f=0,e=0; CR_FR_W.forEach(function(w){ f+=s.split(' '+w+' ').length-1; }); CR_EN_W.forEach(function(w){ e+=s.split(' '+w+' ').length-1; }); if(f+e<6) return null; if(e>f*1.3) return 'en'; if(f>e*1.3) return 'fr'; return null; }
+  function crLangPref(){ try{ var v=localStorage.getItem('crLangPref'); return (v==='fr'||v==='en')?v:'auto'; }catch(_){ return 'auto'; } }
+  function crInitLang(){ var p=crLangPref(); if(p!=='auto') return p; var d=crDetectLang([(CR_CUR&&CR_CUR.titre)||'',(CR_CUR&&CR_CUR.contexte)||'',CR_DICT||''].join(' ')); if(d) return d; try{ var l=localStorage.getItem('crLastLang'); if(l==='fr'||l==='en') return l; }catch(_){} return /^en/i.test(navigator.language||'')?'en':'fr'; }
+  function crRecLangCode(){ return CR_AUTO_LANG==='en'?'en-US':'fr-FR'; }
+  function crLangLabel(){ return (CR_AUTO_LANG==='en'?'EN':'FR')+(crLangPref()==='auto'?' (auto)':''); }
+  function crLangForAI(t){ var p=crLangPref(); if(p!=='auto') return p; return crDetectLang(t)||CR_AUTO_LANG||'fr'; }
+  function crLangSelectHtml(){ var p=crLangPref(); function o(v,l){ return '<option value="'+v+'"'+(p===v?' selected':'')+'>'+l+'</option>'; } return '<label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);">Langue<select id="crLang" onchange="crSetLang(this.value)" style="height:32px;padding:0 6px;border:1px solid rgba(86,10,15,.25);border-radius:6px;font-size:12.5px;">'+o('auto','Auto (FR/EN)')+o('fr','Français')+o('en','English')+'</select></label>'; }
+  window.crSetLang=function(v){ try{ localStorage.setItem('crLangPref',(v==='fr'||v==='en')?v:'auto'); }catch(_){} if(v==='fr'||v==='en') CR_AUTO_LANG=v; else CR_AUTO_LANG=crInitLang(); CR_LQ=[];
+    if(CR_RECORDING){ crMicStatus('● Enregistrement · '+crLangLabel()); crFlushInterim(); try{ if(CR_REC){ CR_REC.onend=null; CR_REC.abort(); } }catch(_){} crRestart(200); } };
+  function crLangObserve(seg,conf){ if(crLangPref()!=='auto') return; CR_LQ.push({c:(typeof conf==='number'?conf:0),t:seg}); if(CR_LQ.length>6) CR_LQ.shift();
+    var now=Date.now(); if(now-CR_LSWITCH<20000||CR_LSWITCHES>=4||CR_LQ.length<3) return;
+    var cs=CR_LQ.filter(function(x){return x.c>0;}).map(function(x){return x.c;}); var avg=cs.length>=3?cs.reduce(function(a,b){return a+b;},0)/cs.length:null;
+    var det=crDetectLang(CR_LQ.map(function(x){return x.t;}).join(' ')); var other=CR_AUTO_LANG==='fr'?'en':'fr';
+    if(det===CR_AUTO_LANG){ try{ localStorage.setItem('crLastLang',CR_AUTO_LANG); }catch(_){} return; }
+    if(det===other||(avg!==null&&avg<0.45)){ CR_AUTO_LANG=other; CR_LSWITCH=now; CR_LSWITCHES++; CR_LQ=[]; try{ localStorage.setItem('crLastLang',other); }catch(_){}
+      crMicStatus('● Langue détectée : '+(other==='en'?'anglais':'français')+', bascule…'); crFlushInterim(); try{ if(CR_REC){ CR_REC.onend=null; CR_REC.abort(); } }catch(_){} crRestart(200); } }
   window.crDictate=function(){
     var SR=window.SpeechRecognition||window.webkitSpeechRecognition; if(!SR){ alert('Dictée non disponible sur ce navigateur : utilisez Chrome ou Edge sur ordinateur.'); return; }
     if(CR_RECORDING){ crStopAll('Dictée arrêtée, texte enregistré.'); return; }
     var ta00=document.getElementById('crTranscript'); if(ta00 && !ta00.value.trim() && !(CR_CUR&&CR_CUR.id)){ try{ var bk=JSON.parse(localStorage.getItem('crDictBackup')||'null'); if(bk&&!bk.id&&bk.text&&(Date.now()-bk.at)<7*86400000&&confirm('Une dictée non enregistrée du '+new Date(bk.at).toLocaleString('fr-FR')+(bk.titre?(' (« '+bk.titre+' »)'):'')+' a été retrouvée sur ce poste. La reprendre ?')){ ta00.value=bk.text; } }catch(_){} }
-    var ta0=document.getElementById('crTranscript'); CR_DICT=ta0?ta0.value.replace(/\s+$/,''):''; CR_INTERIM=''; CR_FAILS=[]; CR_SR=SR;
-    CR_RECORDING=true; crMicLabel(LBL_STOP); crMicStatus('● Enregistrement');
+    var ta0=document.getElementById('crTranscript'); CR_DICT=ta0?ta0.value.replace(/\s+$/,''):''; CR_INTERIM=''; CR_FAILS=[]; CR_SR=SR; CR_LQ=[]; CR_LSWITCHES=0; CR_LSWITCH=0; CR_AUTO_LANG=crInitLang();
+    CR_RECORDING=true; crMicLabel(LBL_STOP); crMicStatus('● Enregistrement · '+crLangLabel());
     if(CR_CUR&&CR_CUR.id) crAcquireLock();
     else if(CR_CUR){ try{ crReadHeader(); }catch(_){} CR_CUR.transcription=CR_DICT; crSaveSilent().then(function(){ crAcquireLock(); crBackup(CR_DICT); try{ crLoadList(); }catch(_){} }).catch(function(e){ crMicStatus('Réunion non enregistrée en base : '+((e&&e.message)||e)+'. Copie locale active.',true); }); }
     crWakeOn();
@@ -836,11 +855,11 @@
     if(CR_FAILS.length>2) crMicStatus('● Reprise automatique…');
     setTimeout(function(){ if(CR_RECORDING) crStartRec(CR_SR); }, delay||250); }
   function crStartRec(SR){
-    var rec=new SR(); CR_REC=rec; rec.lang='fr-FR'; rec.interimResults=true; rec.continuous=true;
+    var rec=new SR(); CR_REC=rec; rec.lang=crRecLangCode(); rec.interimResults=true; rec.continuous=true;
     rec.onstart=function(){ CR_ALIVE=Date.now(); };
-    rec.onaudiostart=function(){ CR_ALIVE=Date.now(); crMicStatus('● Enregistrement'); };
+    rec.onaudiostart=function(){ CR_ALIVE=Date.now(); crMicStatus('● Enregistrement · '+crLangLabel()); };
     rec.onresult=function(ev){ CR_ALIVE=Date.now(); var interim='';
-      for(var i=ev.resultIndex;i<ev.results.length;i++){ var r=ev.results[i]; if(r.isFinal){ var seg=(r[0].transcript||'').trim(); if(seg){ CR_DICT+=(CR_DICT&&!/\s$/.test(CR_DICT)?' ':'')+seg; } } else interim+=r[0].transcript; }
+      for(var i=ev.resultIndex;i<ev.results.length;i++){ var r=ev.results[i]; if(r.isFinal){ var seg=(r[0].transcript||'').trim(); if(seg){ CR_DICT+=(CR_DICT&&!/\s$/.test(CR_DICT)?' ':'')+seg; crLangObserve(seg, r[0].confidence); } } else interim+=r[0].transcript; }
       CR_INTERIM=interim; crBackup(CR_DICT+(interim?(' '+interim):'')); var ta=document.getElementById('crTranscript'); if(ta) ta.value=CR_DICT+(interim?(CR_DICT?' ':'')+interim:''); CR_FAILS=[]; };
     rec.onerror=function(ev){ var er=ev&&ev.error;
       if(er==='not-allowed'||er==='service-not-allowed'){ crStopAll(CR_IOS?'Sur iPhone/iPad, la dictée s\'arrête à chaque pause : appuyez à nouveau sur Dicter.':'Micro refusé : autorisez le micro pour ce site.',true); return; }
