@@ -22,12 +22,101 @@
                 paul:['comptes'], juliette:['evenements'], communication:['evenements'], sabrine:['talents'] };
     window.CEREBRO_ALLOWED = (subsParam!==null) ? (subsParam ? subsParam.split(',') : []) : (map[role] || ['comptes','evenements']);
   })();
-  window.storage = {
-    get: async function(k){ try{ var v=localStorage.getItem(k); return (v===null)?null:{key:k,value:v}; }catch(e){ return null; } },
-    set: async function(k,v){ try{ localStorage.setItem(k,v); return {key:k,value:v}; }catch(e){ return null; } },
-    delete: async function(k){ try{ localStorage.removeItem(k); return {key:k,deleted:true}; }catch(e){ return null; } },
-    list: async function(prefix){ try{ var ks=[]; for(var i=0;i<localStorage.length;i++){ var kk=localStorage.key(i); if(!prefix||kk.indexOf(prefix)===0) ks.push(kk); } return {keys:ks}; }catch(e){ return {keys:[]}; } }
-  };
+  // ── Stockage CEREBRO : Supabase (remplace localStorage) ─────────────────────
+  // Même interface que window.storage (get/set/delete/list) : le code React ne change pas.
+  // Données d'équipe (Business, Events) → cerebro_team_store, partagées selon le rôle.
+  // Données People (relations LinkedIn, vivier…) → cerebro_user_store, privées à chacun.
+  // Une copie locale est gardée en secours ; si Supabase échoue, un bandeau le signale.
+  (function(){
+    var PRIVATE = ['humetria:radar:talents','humetria:radar:playbook','humetria:radar:network','humetria:radar:netkw','humetria:radar:contacts'];
+    var isPrivate = function(k){ return PRIVATE.indexOf(k) >= 0; };
+    var sb = function(){ return window.CEREBRO_SB; };
+    function lsGet(k){ try{ var v = localStorage.getItem(k); return v === null ? null : { key:k, value:v }; }catch(e){ return null; } }
+    function lsSet(k, v){ try{ localStorage.setItem(k, v); }catch(e){} }
+    function banner(msg){
+      try{
+        var id = 'cerebro-sync-banner', el = document.getElementById(id);
+        if(!el){ el = document.createElement('div'); el.id = id;
+          el.style.cssText = 'position:fixed;left:12px;right:12px;bottom:12px;z-index:9999;padding:10px 14px;border-radius:8px;'
+            + 'background:#3a1d1f;border:1px solid #8A2B2F;color:#F2ECE3;font:13px Inter,system-ui,sans-serif;';
+          document.body.appendChild(el); }
+        el.textContent = '⚠ Synchronisation Supabase : ' + msg + ' — tes modifications sont gardées sur ce poste uniquement.';
+      }catch(e){}
+    }
+    var uidCache = null;
+    async function uid(){
+      if(uidCache) return uidCache;
+      var s = await sb().auth.getSession();
+      uidCache = s && s.data && s.data.session ? s.data.session.user.id : null;
+      return uidCache;
+    }
+    function table(k){ return isPrivate(k) ? 'cerebro_user_store' : 'cerebro_team_store'; }
+    var timers = {}, latest = {}, chain = {};
+    async function push(k, v){
+      try{
+        var u = await uid(); if(!u) throw new Error('session absente');
+        var row = { key:k, value: JSON.parse(v) };
+        if(isPrivate(k)) row.user_id = u;
+        var r = await sb().from(table(k)).upsert(row, { onConflict: isPrivate(k) ? 'user_id,key' : 'key' });
+        if(r.error) throw r.error;
+        var el = document.getElementById('cerebro-sync-banner'); if(el) el.remove();
+        return { key:k, value:v };
+      }catch(e){ console.warn('[cerebro] écriture', k, e); banner((e && e.message) || 'écriture refusée'); return null; }
+    }
+    window.storage = {
+      get: async function(k){
+        var local = lsGet(k);
+        try{
+          var u = await uid(); if(!u) return local;
+          var q = sb().from(table(k)).select('value').eq('key', k);
+          if(isPrivate(k)) q = q.eq('user_id', u);
+          var r = await q.maybeSingle();
+          if(r.error) throw r.error;
+          if(r.data){
+            var remote = JSON.stringify(r.data.value);
+            // 1re ouverture après migration : la copie locale divergente est mise de côté, jamais écrasée sans trace
+            if(local && local.value !== remote && !localStorage.getItem(k + ':avant-supabase')) lsSet(k + ':avant-supabase', local.value);
+            lsSet(k, remote);
+            return { key:k, value:remote };
+          }
+          // Rien en base : migration de la copie locale (si elle existe)
+          if(local){ await window.storage.set(k, local.value); }
+          return local;
+        }catch(e){ console.warn('[cerebro] lecture', k, e); banner((e && e.message) || 'lecture impossible'); return local; }
+      },
+      // Écritures regroupées par clé (300 ms) et envoyées dans l'ordre : la saisie au clavier
+      // ne déclenche pas un envoi par frappe, et une valeur ancienne n'écrase jamais une plus récente.
+      set: function(k, v){
+        lsSet(k, v);
+        latest[k] = v;
+        clearTimeout(timers[k]);
+        return new Promise(function(resolve){
+          timers[k] = setTimeout(function(){
+            chain[k] = (chain[k] || Promise.resolve()).then(function(){ return push(k, latest[k]); }).then(resolve, resolve);
+          }, 300);
+        });
+      },
+      delete: async function(k){
+        try{ localStorage.removeItem(k); }catch(e){}
+        try{
+          var u = await uid(); var q = sb().from(table(k)).delete().eq('key', k);
+          if(isPrivate(k)) q = q.eq('user_id', u);
+          var r = await q; if(r.error) throw r.error;
+          return { key:k, deleted:true };
+        }catch(e){ banner((e && e.message) || 'suppression refusée'); return null; }
+      },
+      list: async function(prefix){
+        try{
+          var u = await uid();
+          var a = await sb().from('cerebro_team_store').select('key');
+          var b = await sb().from('cerebro_user_store').select('key').eq('user_id', u);
+          var ks = [].concat(a.data || [], b.data || []).map(function(x){ return x.key; })
+            .filter(function(kk){ return !prefix || kk.indexOf(prefix) === 0; });
+          return { keys: ks };
+        }catch(e){ return { keys: [] }; }
+      }
+    };
+  })();
   Babel.registerPreset('kwreact', { presets: [ [Babel.availablePresets['react'], { runtime: 'classic' }] ] });
 </script>
 </head>
