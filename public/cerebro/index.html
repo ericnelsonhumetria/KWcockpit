@@ -148,6 +148,26 @@ const DEFAULT_KNOWN = [
   "SOCOTEC", "LVMH", "Carrefour", "Siemens", "Teisseire", "Carlsberg",
 ];
 
+// ── Bibliothèque de signaux faibles (poids = contribution max au score signal, éditable) ──
+const SIGNAL_FAMILIES = [
+  { key: "rh", label: "RH & encadrement" },
+  { key: "direction", label: "Direction" },
+  { key: "strategie", label: "Stratégie & structure" },
+  { key: "operations", label: "Opérations & risques" },
+];
+const DEFAULT_SIGLIB = [
+  { id: "recrut_managers", family: "rh", name: "Recrutement en volume de managers de proximité", weight: 30, hint: "plusieurs offres simultanées chef d'équipe / superviseur / responsable d'atelier / chef de quart, sur un ou plusieurs sites" },
+  { id: "turnover_encadrement", family: "rh", name: "Turnover d'encadrement", weight: 22, hint: "mêmes postes d'encadrement republiés, départs de directeurs de site, avis salariés dégradés sur le management" },
+  { id: "nomination", family: "direction", name: "Nouveau dirigeant ops / RH", weight: 26, hint: "nomination < 12 mois : DG, directeur industriel / des opérations / excellence op., DRH groupe" },
+  { id: "fonction_eo", family: "direction", name: "Création d'une fonction excellence op. / transformation", weight: 20, hint: "création d'un poste ou d'une direction excellence opérationnelle, lean, transformation, performance industrielle" },
+  { id: "m_and_a", family: "strategie", name: "Acquisition / intégration de sites", weight: 24, hint: "rachat, fusion, intégration post-acquisition, entrée d'un fonds (LBO)" },
+  { id: "site_ouverture", family: "strategie", name: "Ouverture / extension de site", weight: 20, hint: "nouvelle usine, extension, investissement capacitaire, lauréat France 2030" },
+  { id: "reorg", family: "strategie", name: "Réorganisation / plan de transformation", weight: 22, hint: "plan de compétitivité, PSE, réorganisation, programme de transformation annoncé" },
+  { id: "marges", family: "strategie", name: "Pression sur les marges", weight: 12, hint: "avertissement sur résultats, baisse de marge, plan d'économies" },
+  { id: "incident", family: "operations", name: "Incidents sécurité / qualité / social", weight: 18, hint: "accident grave, rappel produit, mise en demeure ICPE, grève ou conflit social sur site" },
+  { id: "programme_ci", family: "operations", name: "Lancement programme lean / amélioration continue", weight: 20, hint: "offres responsable amélioration continue / lean, déploiement d'un système de management de la performance, prise de parole dirigeant" },
+];
+
 const STORE_KEY = "humetria:radar:accounts";
 const ICP_KEY = "humetria:radar:icp";
 const KNOWN_KEY = "humetria:radar:known";
@@ -158,6 +178,9 @@ const PLAYBOOK_KEY = "humetria:radar:playbook";
 const NETWORK_KEY = "humetria:radar:network";
 const NETKW_KEY = "humetria:radar:netkw";
 const CONTACTS_KEY = "humetria:radar:contacts";
+const SIGNALS_KEY = "humetria:radar:signals";
+const SIGLIB_KEY = "humetria:radar:siglib";
+const FEEDBACK_KEY = "humetria:radar:feedback";
 
 const VERDICT = {
   GO: { label: "GO", color: "#3FB68B", tag: "Poursuivre" },
@@ -171,6 +194,8 @@ const eventVerdict = s => (s >= 70 ? EV.P : s >= 45 ? EV.O : EV.X);
 
 const TV = { R: { label: "RENCONTRER", color: "#3FB68B" }, C: { label: "À CREUSER", color: "#E0A63C" }, X: { label: "ÉCARTER", color: "#C15B57" } };
 const talentVerdict = s => (s >= 70 ? TV.R : s >= 45 ? TV.C : TV.X);
+const SV = { H: { label: "FRAPPER", color: "#3FB68B" }, N: { label: "SURVEILLER", color: "#E0A63C" }, X: { label: "FAIBLE", color: "#C15B57" } };
+const signalVerdict = s => (s >= 65 ? SV.H : s >= 40 ? SV.N : SV.X);
 
 const DEFAULT_NET_KW = ["consultant", "excellence op", "excellence opérationnelle", "lean", "amélioration continue", "continuous improvement", "transformation", "performance industrielle", "gemba", "kaizen", "WCM", "TPM", "directeur industriel", "directeur d'usine", "responsable production", "black belt", "green belt", "opérations"].join("\n");
 const NET_FIELDS = [
@@ -346,14 +371,32 @@ const CSS = `
 .hr-spin { display:inline-block; width:14px; height:14px; border:2px solid rgba(26,16,16,0.35); border-top-color:#1a1010; border-radius:50%; animation:hr-rot .7s linear infinite; vertical-align:-2px; margin-right:7px; }
 .hr-spin.cy { border:2px solid rgba(239,184,16,0.25); border-top-color:var(--cyan); }
 @keyframes hr-rot { to { transform:rotate(360deg); } }
+.hr-cb-actions { flex-wrap:wrap; }
+.hr-mini.ghost { background:transparent; color:var(--mute); border:1px solid var(--line); }
+.hr-mini.ghost.on { color:var(--green); border-color:var(--green); }
+/* Signaux faibles */
+.hr-sig { font-size:12.5px; line-height:1.5; margin:6px 0 0; padding-left:10px; border-left:2px solid var(--line); }
+.hr-sig.src { border-left-color:var(--green); }
+.hr-sig.nosrc { border-left-color:var(--amber); }
+.hr-sig-type { font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.05em; text-transform:uppercase; color:var(--cyan); }
+.hr-sig-date { font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--mute); margin-left:6px; }
+.hr-sig a { color:var(--cyan); font-size:11px; margin-left:6px; }
+.hr-offer { font-family:'IBM Plex Mono',monospace; font-size:9.5px; color:var(--cyan); border:1px solid var(--line); border-radius:4px; padding:1px 6px; white-space:nowrap; }
+.hr-sublines { display:flex; gap:14px; font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--mute); margin-top:3px; flex-wrap:wrap; }
+.hr-lib-row { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+.hr-lib-name { flex:1; font-size:12.5px; line-height:1.35; }
+.hr-lib-stat { font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--mute); width:78px; text-align:right; }
+.hr-lib-fam { font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.08em; text-transform:uppercase; color:var(--cyan); margin:12px 0 6px; }
+
 @media (prefers-reduced-motion: reduce) { .hr-needle { transition:none; } .hr-spin { animation:none; } }
 `;
 
 let searchDegraded = false;
-async function callClaude(system, userContent, useSearch = true) {
+// meta (optionnel) : { requireSearch, maxUses, degraded } — propre à chaque appel.
+async function callClaude(system, userContent, useSearch = true, maxTokens = 1000, meta = null) {
   async function attempt(withSearch) {
-    const body = { model: "claude-sonnet-4-6", max_tokens: 1000, system, messages: [{ role: "user", content: userContent }] };
-    if (withSearch) body.tools = [{ type: "web_search_20250305", name: "web_search" }];
+    const body = { model: "claude-sonnet-4-6", max_tokens: maxTokens, system, messages: [{ role: "user", content: userContent }] };
+    if (withSearch) { const tool = { type: "web_search_20250305", name: "web_search" }; if (meta && meta.maxUses) { tool.max_uses = meta.maxUses; tool.user_location = { type: "approximate", country: "FR" }; } body.tools = [tool]; }
     const headers = { "Content-Type": "application/json" };
     try {
       const s = CEREBRO_SB && (await CEREBRO_SB.auth.getSession());
@@ -371,20 +414,25 @@ async function callClaude(system, userContent, useSearch = true) {
     if (data.error) throw new Error(data.error.message || "erreur API");
     const text = (data.content || []).filter(b => b.type === "text").map(b => b.text).join("\n").trim();
     if (!text) throw new Error("réponse vide du modèle");
+    // Garde-fou : un agent qui DOIT chercher sur le web mais n'a fait aucune recherche est un échec, pas un résultat.
+    if (withSearch && meta && meta.requireSearch) {
+      const n = (data.usage && data.usage.server_tool_use && data.usage.server_tool_use.web_search_requests) || (data.content || []).filter(b => b.type === "server_tool_use").length;
+      if (!n) throw new Error("NO_SEARCH");
+    }
     return text;
   }
   async function withRetry(withSearch, tries) {
     let lastErr;
     for (let i = 0; i < tries; i++) {
       try { return await attempt(withSearch); }
-      catch (e) { lastErr = e; await new Promise(r => setTimeout(r, 400 * (i + 1))); }
+      catch (e) { lastErr = e; if (e && e.message === "NO_SEARCH") throw e; await new Promise(r => setTimeout(r, 400 * (i + 1))); }
     }
     throw lastErr;
   }
   searchDegraded = false;
   if (!useSearch) return withRetry(false, 3);            // 3 essais (gère un 500 passager)
   try { return await withRetry(true, 2); }               // 2 essais avec recherche
-  catch (e) { searchDegraded = true; return withRetry(false, 2); } // repli sans recherche
+  catch (e) { if (meta && meta.requireSearch) throw e; searchDegraded = true; if (meta) meta.degraded = true; return withRetry(false, 2); } // repli sans recherche
 }
 
 function parseObject(text) {
@@ -434,6 +482,72 @@ function parseObjects(text) {
 }
 const clamp = n => Math.max(0, Math.min(100, Math.round(Number(n) || 0)));
 
+// ── Scoring signaux : déterministe, transparent, recalculé à chaque changement de poids ──
+const normCo = s => String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+  .replace(/\b(groupe|group|sa|sas|se|ag|gmbh|holding)\b/g, "").replace(/[^a-z0-9]/g, "");
+const libIndex = lib => Object.fromEntries(lib.map(s => [s.id, s]));
+// Fraîcheur : ≤ 3 mois 100 %, ≤ 6 mois 70 %, ≤ 12 mois 40 %, au-delà 15 % ; date inconnue 30 %.
+function recency(dateStr) {
+  const t = Date.parse(dateStr || "");
+  if (!dateStr || isNaN(t)) return 0.3;
+  const d = (Date.now() - t) / 86400000;
+  if (d < -31) return 0.3; // date future = suspecte
+  return d <= 92 ? 1 : d <= 183 ? 0.7 : d <= 366 ? 0.4 : 0.15;
+}
+// Un type de signal ne compte qu'une fois (sa meilleure occurrence) ; signal non sourcé = demi-poids.
+function signalScoreOf(signals, libMap) {
+  const best = {};
+  for (const s of signals || []) {
+    const w = Number(libMap[s.type]?.weight) || 0;
+    const c = w * recency(s.date) * (s.url ? 1 : 0.5);
+    best[s.type] = Math.max(best[s.type] || 0, c);
+  }
+  return clamp(Object.values(best).reduce((a, b) => a + b, 0));
+}
+// Priorité = 60 % timing (signaux) + 40 % fit structurel ; fit inconnu = 50.
+const priorityOf = (p, libMap) => Math.round(0.6 * signalScoreOf(p.signals, libMap) + 0.4 * (p.fit == null ? 50 : p.fit));
+function consolidateSignals(raw, lib) {
+  const libMap = libIndex(lib);
+  const by = new Map();
+  for (const s of raw) {
+    if (!s || !s.company || !libMap[s.type]) continue;
+    const k = normCo(s.company);
+    if (!k) continue;
+    if (!by.has(k)) by.set(k, { company: String(s.company).trim(), signals: [] });
+    const e = by.get(k);
+    const fact = String(s.fact || "").trim();
+    if (e.signals.some(x => x.type === s.type && x.fact.slice(0, 40) === fact.slice(0, 40))) continue;
+    e.signals.push({ type: s.type, fact, date: String(s.date || ""), site: String(s.site || ""), url: /^https?:\/\//.test(s.url || "") ? s.url : "" });
+  }
+  return [...by.values()].map(e => ({ ...e, signalScore: signalScoreOf(e.signals, libMap) }));
+}
+// Un compte issu de l'exploration ICP (sans signal capté) entre dans la même liste :
+// timing = 0 tant qu'aucun agent n'a capté de signal → priorité plafonnée à 40 (« surveiller »).
+function candToProspect(c) {
+  return {
+    company: c.company, signals: [], fit: c.score == null ? null : clamp(c.score), multisite: null,
+    sites: "", sector: c.sector || "", region: c.region || "", need: c.why || "", offer: "",
+    entry_persona: c.entry_persona || "", watch: Array.isArray(c.watch) ? c.watch : [], origin: "icp", ts: Date.now(),
+  };
+}
+function mergeProspects(incoming, existing) {
+  const map = new Map(existing.map(p => [normCo(p.company), p]));
+  for (const p of incoming) {
+    const k = normCo(p.company);
+    const old = map.get(k);
+    if (!old) { map.set(k, p); continue; }
+    const seen = new Set(p.signals.map(s => s.type + "|" + s.fact.slice(0, 40)));
+    map.set(k, {
+      ...old, ...Object.fromEntries(Object.entries(p).filter(([, v]) => v !== "" && v != null && !(Array.isArray(v) && !v.length))),
+      signals: [...p.signals, ...(old.signals || []).filter(s => !seen.has(s.type + "|" + s.fact.slice(0, 40)))],
+      origin: p.signals.length || (old.signals || []).length ? "signaux" : (p.origin || old.origin),
+      feedback: old.feedback || p.feedback,
+    });
+  }
+  return [...map.values()];
+}
+
+
 function RadarComptes() {
   const [company, setCompany] = useState("");
   const [notes, setNotes] = useState("");
@@ -481,6 +595,15 @@ function RadarComptes() {
   const [scanning, setScanning] = useState(false);
   const [cerebroErr, setCerebroErr] = useState("");
   const [focus, setFocus] = useState("");
+  // Radar signaux faibles
+  const [sigProspects, setSigProspects] = useState([]);
+  const [siglib, setSiglib] = useState(DEFAULT_SIGLIB);
+  const [feedback, setFeedback] = useState([]);
+  const [sigScanning, setSigScanning] = useState(false);
+  const [sigStage, setSigStage] = useState("");
+  const [sigErr, setSigErr] = useState("");
+  const [sigInfo, setSigInfo] = useState("");
+  const [showLib, setShowLib] = useState(false);
 
   const [icp, setIcp] = useState(DEFAULT_ICP);
   const [showIcp, setShowIcp] = useState(false);
@@ -497,13 +620,22 @@ function RadarComptes() {
       await load(STORE_KEY, setAccounts);
       await load(ICP_KEY, setIcp);
       await load(KNOWN_KEY, setKnown);
-      await load(CAND_KEY, setCandidates);
+      let legacyCands = [], storedSignals = [];
+      await load(CAND_KEY, v => { legacyCands = Array.isArray(v) ? v : []; });
       await load(EVENTS_KEY, setEvents);
       await load(TALENTS_KEY, setTalents);
       await load(PLAYBOOK_KEY, setPlaybook);
       await load(NETWORK_KEY, setNetwork);
       await load(NETKW_KEY, setNetKeywords);
       await load(CONTACTS_KEY, setContacts);
+      await load(SIGNALS_KEY, v => { storedSignals = Array.isArray(v) ? v : []; });
+      await load(SIGLIB_KEY, setSiglib);
+      await load(FEEDBACK_KEY, setFeedback);
+      // Migration : les anciens comptes Cerebro (exploration ICP) rejoignent la liste unique.
+      if (legacyCands.length) {
+        const merged = mergeProspects(storedSignals, legacyCands.map(candToProspect));
+        setSigProspects(merged); save(SIGNALS_KEY, merged); save(CAND_KEY, []);
+      } else setSigProspects(storedSignals);
       setReady(true);
     })();
   }, []);
@@ -519,6 +651,9 @@ function RadarComptes() {
   const persistContacts = v => { setContacts(v); save(CONTACTS_KEY, v); };
   const persistIcp = v => { setIcp(v); save(ICP_KEY, v); };
   const persistKnown = v => { setKnown(v); save(KNOWN_KEY, v); };
+  const persistSigProspects = v => { setSigProspects(v); save(SIGNALS_KEY, v); };
+  const persistSiglib = v => { setSiglib(v); save(SIGLIB_KEY, v); };
+  const persistFeedback = v => { setFeedback(v); save(FEEDBACK_KEY, v); };
 
   const icpTotal = icp.reduce((s, c) => s + (Number(c.weight) || 0), 0);
   const gridText = () => icp.map(c => `- ${c.name} (poids ${c.weight}) : ${c.note}`).join("\n");
@@ -566,6 +701,135 @@ UTILISE LA RECHERCHE WEB pour partir de groupes réels et repérer des SIGNAUX R
 Réponds UNIQUEMENT avec un tableau JSON valide (trié par score décroissant), sans aucun texte ni Markdown autour. Champs courts obligatoires :
 [{"company":"nom","sector":"court","region":"région/pays","score":<0-100>,"why":"≤10 mots","entry_persona":"titre","watch":["1-2 signaux faibles à vérifier"]}]`;
   }
+
+  // ── Agent CAPTEUR (un par famille, lancés en parallèle) ──
+  function sensorPrompt(family, excludeList) {
+    const types = siglib.filter(s => s.family === family.key && Number(s.weight) > 0);
+    const today = new Date().toISOString().slice(0, 10);
+    return `Tu es un agent CAPTEUR de signaux faibles pour Kaizen Way (cabinet de transformation industrielle, Go Gemba®) et Humetria (mesure des comportements managériaux, ICM® r=0.83). Famille surveillée : ${family.label}.
+
+MISSION : via la recherche web, trouver des ÉVÉNEMENTS RÉCENTS (moins de 12 mois ; nous sommes le ${today}) chez des entreprises industrielles MULTI-SITES (au moins 3 sites de production ou d'exploitation avec de l'encadrement terrain), françaises ou à fort ancrage en France / pays francophones, qui laissent prévoir un BESOIN D'ACCOMPAGNEMENT MANAGÉRIAL de leurs équipes terrain.
+
+TYPES DE SIGNAUX À CHASSER (utilise l'id EXACT dans "type") :
+${types.map(t => `- ${t.id} — ${t.name} : ${t.hint}`).join("\n")}
+
+MÉTHODE : multiplie les requêtes (presse économique et régionale, communiqués, offres d'emploi, nominations). Pars des événements, pas d'une liste de groupes connus. Varie secteurs et régions.
+
+RÈGLES ABSOLUES :
+- Chaque signal = UN fait précis, daté, rattaché à UNE entreprise réelle.
+- "url" = une URL réellement présente dans tes résultats de recherche, sinon "". N'invente JAMAIS d'URL, de date, de fait ni d'entreprise.
+- "date" au format AAAA-MM-JJ ou AAAA-MM ; "" si inconnue.
+- Mieux vaut 3 signaux sûrs que 8 douteux. Écarte les mono-sites et les sociétés de services sans plancher industriel.
+${excludeList.length ? "- À EXCLURE : " + excludeList.join(", ") + "." : ""}
+
+Réponds UNIQUEMENT avec un tableau JSON valide (8 éléments max), sans texte ni Markdown autour :
+[{"company":"nom","type":"id exact","fact":"≤20 mots, factuel","date":"AAAA-MM-JJ","site":"site ou région concerné, ou ''","url":"https://… ou ''"}]`;
+  }
+
+  // ── Agent CONSOLIDATEUR (multi-sites, fit, hypothèse de besoin, offre) ──
+  function consolidatorPrompt() {
+    return `Tu es l'agent CONSOLIDATEUR de Cerebro (Kaizen Way × Humetria). Tu reçois des entreprises accompagnées de signaux faibles captés par d'autres agents. Pour CHACUNE, vérifie via la recherche web sa structure multi-sites, estime son FIT et formule l'hypothèse de besoin managérial.
+
+FIT (0-100) selon la grille ICP :
+${gridText()}
+
+- multisite = true si au moins 3 sites de production / d'exploitation avec encadrement terrain ; false si mono-site, holding sans plancher industriel ou services purs ; null si incertain.
+- need = le besoin d'accompagnement managérial que CES signaux suggèrent, ≤ 20 mots, formulé comme une HYPOTHÈSE reliée aux signaux (ex. « intégrer les chefs d'équipe recrutés sur 3 sites sans culture managériale commune »).
+- offer = "KW" si le besoin est d'abord d'accompagner / former les managers (séminaires, Go Gemba®, coaching) ; "Humetria" s'il est d'abord de mesurer et piloter les comportements managériaux à l'échelle multi-sites (ICM®) ; "KW+Humetria" si les deux.
+- N'invente rien : "n/d" si inconnu. Reprends le nom d'entreprise EXACTEMENT comme fourni.
+
+Réponds UNIQUEMENT avec un tableau JSON valide, un objet par entreprise reçue, sans texte ni Markdown autour :
+[{"company":"nom exact fourni","multisite":true,"sites":"~N ou n/d","sector":"court","region":"court","fit":<0-100>,"need":"hypothèse ≤20 mots","offer":"KW | Humetria | KW+Humetria","entry_persona":"titre du point d'entrée"}]`;
+  }
+
+  async function runSignals() {
+    if (sigScanning) return;
+    setSigScanning(true); setSigErr(""); setSigInfo("");
+    const meta = { degraded: false };
+    try {
+      const exclude = [...new Set([...known, ...accounts.map(a => a.company), ...feedback.filter(f => f.verdict === "noise").map(f => f.company)])];
+      const excl = new Set(exclude.map(normCo));
+      const userMsg = focus.trim() ? `Focus : ${focus.trim()}` : "Balaye large : groupes industriels multi-sites en France et pays francophones.";
+      const fams = SIGNAL_FAMILIES.filter(f => siglib.some(s => s.family === f.key && Number(s.weight) > 0));
+      if (!fams.length) throw new Error("tous les poids de la bibliothèque sont à 0");
+      let done = 0;
+      setSigStage(`Capteurs : 0/${fams.length}…`);
+      const results = await Promise.allSettled(fams.map(f =>
+        callClaude(sensorPrompt(f, exclude), userMsg, true, 1800, { requireSearch: true, maxUses: 5 }).then(t => {
+          done++; setSigStage(`Capteurs : ${done}/${fams.length}…`);
+          return parseObjects(t);
+        })
+      ));
+      const failed = results.filter(r => r.status === "rejected").length;
+      const raw = results.filter(r => r.status === "fulfilled").flatMap(r => r.value)
+        .filter(s => s && s.company && !excl.has(normCo(s.company)));
+      const noSearch = results.filter(r => r.status === "rejected" && r.reason && r.reason.message === "NO_SEARCH").length;
+      if (noSearch === fams.length) throw new Error("recherche web désactivée côté serveur (variable Netlify CEREBRO_WEB_SEARCH). La veille ne fonctionne pas sans recherche : rien n'a été inventé. En attendant, utilise « Explorer par l'ICP ».");
+      if (!raw.length) throw new Error(failed ? `${failed} capteur(s) en échec (recherche web absente ou délai dépassé), aucun signal exploitable` : "aucun signal récent trouvé — élargis le focus");
+
+      const libMap = libIndex(siglib);
+      const merged = consolidateSignals(raw, siglib).sort((a, b) => b.signalScore - a.signalScore).slice(0, 12);
+      setSigStage(`Consolidation de ${merged.length} entreprises…`);
+      const ctx = merged.map(m => `- ${m.company} : ${m.signals.map(s => `${libMap[s.type].name} (${s.date || "date ?"}) — ${s.fact}`).join(" | ")}`).join("\n");
+      let fitMap = new Map();
+      try {
+        const fits = parseObjects(await callClaude(consolidatorPrompt(), ctx, true, 2400, meta));
+        fitMap = new Map(fits.filter(f => f && f.company).map(f => [normCo(f.company), f]));
+      } catch (e) { setSigErr("Consolidation partielle — fit et multi-sites non vérifiés (" + (e?.message || "erreur") + ")."); }
+
+      let dropped = 0;
+      const fresh = merged.map(m => {
+        const f = fitMap.get(normCo(m.company)) || {};
+        return {
+          company: m.company, signals: m.signals,
+          fit: f.fit == null || f.fit === "" ? null : clamp(f.fit),
+          multisite: f.multisite === true ? true : f.multisite === false ? false : null,
+          sites: f.sites || "", sector: f.sector || "", region: f.region || "",
+          need: f.need || "", offer: f.offer || "", entry_persona: f.entry_persona || "", origin: "signaux", ts: Date.now(),
+        };
+      }).filter(p => { if (p.multisite === false) { dropped++; return false; } return true; });
+      // fusion avec la liste existante : on garde l'historique des signaux et le feedback d'une même entreprise
+      persistSigProspects(mergeProspects(fresh, sigProspects));
+      const parts = [`${raw.length} signaux captés → ${fresh.length} prospects`];
+      if (dropped) parts.push(`${dropped} écarté(s) car mono-site / hors cible`);
+      if (failed) parts.push(`${failed} capteur(s) en échec`);
+      setSigInfo(parts.join(" · ") + ".");
+      if (meta.degraded) setSigErr("⚠ Recherche web indisponible pour au moins un agent — les signaux concernés ne sont pas temps réel. Réessaie plus tard.");
+    } catch (e) { setSigErr("Veille impossible — " + (e?.message || "erreur inconnue")); }
+    finally { setSigScanning(false); setSigStage(""); }
+  }
+
+  async function qualifySignal(p) {
+    if (qualifyingName) return;
+    setQualifyingName(p.company); setSigErr("");
+    try {
+      const libMap = libIndex(siglib);
+      const ctx = (p.signals.length
+        ? "Signaux faibles captés par les agents (à reconfirmer) :\n" + p.signals.map(s => `- ${libMap[s.type]?.name || s.type} (${s.date || "date ?"}) : ${s.fact}${s.url ? " [" + s.url + "]" : ""}`).join("\n")
+        : "Aucun signal capté par les agents (compte issu de l'exploration ICP)." + ((p.watch || []).length ? "\nIndices à vérifier : " + p.watch.join(" ; ") : "")) +
+        (p.need ? `\n${p.signals.length ? "Hypothèse de besoin managérial" : "Pourquoi ce compte"} : ${p.need}` : "");
+      const entry = await runQualify(p.company, ctx);
+      setResult(entry); mergeIntoShortlist(entry); setOutTarget("default");
+      persistSigProspects(sigProspects.filter(x => x.company !== p.company));
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (e) { setSigErr("Qualification de " + p.company + " impossible — " + (e?.message || "erreur")); }
+    finally { setQualifyingName(""); }
+  }
+
+  // Feedback = matière de calibrage : tu juges, l'outil compte ; les poids restent ta décision.
+  function markSignal(p, verdict) {
+    const k = normCo(p.company);
+    persistFeedback([{ company: p.company, types: [...new Set(p.signals.map(s => s.type))], verdict, ts: Date.now() }, ...feedback.filter(f => normCo(f.company) !== k)]);
+    if (verdict === "noise") persistSigProspects(sigProspects.filter(x => normCo(x.company) !== k));
+    else persistSigProspects(sigProspects.map(x => normCo(x.company) === k ? { ...x, feedback: "good" } : x));
+  }
+  function dismissSignal(name) { persistSigProspects(sigProspects.filter(x => x.company !== name)); }
+  function updateSigWeight(id, val) { persistSiglib(siglib.map(s => s.id === id ? { ...s, weight: val.replace(/[^0-9]/g, "") } : s)); }
+  const fbStats = (() => {
+    const st = {};
+    for (const f of feedback) for (const t of f.types || []) { st[t] = st[t] || { good: 0, total: 0 }; st[t].total++; if (f.verdict === "good") st[t].good++; }
+    return st;
+  })();
 
   function mapSystemPrompt() {
     return `Tu es l'analyste d'accès grands comptes de Humetria (SaaS excellence managériale industrielle, ICM® r=0.83, cabinet Kaizen Way).
@@ -665,40 +929,26 @@ Réponds UNIQUEMENT avec un tableau JSON valide, sans texte ni Markdown autour :
     finally { setLoading(false); }
   }
 
-  async function qualifyCandidate(name) {
-    if (qualifyingName) return;
-    setQualifyingName(name); setCerebroErr("");
-    try {
-      const entry = await runQualify(name, "");
-      setResult(entry); mergeIntoShortlist(entry); setOutTarget("default");
-      persistCandidates(candidates.filter(c => c.company !== name));
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    } catch (e) { setCerebroErr("Qualification de " + name + " impossible — " + (e?.message || "erreur")); }
-    finally { setQualifyingName(""); }
-  }
-
+  // Mode secondaire « exploration ICP » : utile pour défricher un secteur quand la veille ne remonte rien.
+  // Les comptes rejoignent la même liste, sans signal capté (timing 0).
   async function runCerebro() {
-    if (scanning) return;
-    setScanning(true); setCerebroErr("");
+    if (scanning || sigScanning) return;
+    setScanning(true); setSigErr(""); setSigInfo("");
     try {
-      const exclude = [...new Set([...known, ...accounts.map(a => a.company), ...candidates.map(c => c.company)])];
+      const exclude = [...new Set([...known, ...accounts.map(a => a.company), ...feedback.filter(f => f.verdict === "noise").map(f => f.company)])];
       const userMsg = focus.trim() ? `Focus : ${focus.trim()}` : "Balaye large sur les groupes industriels FR/francophones fittant l'ICP.";
       const text = await callClaude(cerebroSystemPrompt(exclude), userMsg, true);
       const arr = parseObjects(text);
-      const seen = new Set(exclude.map(x => x.toLowerCase()));
+      const seen = new Set(exclude.map(normCo));
       const ranked = arr
-        .filter(c => c && c.company && !seen.has(String(c.company).toLowerCase()))
-        .map(c => { const score = clamp(c.score); return { ...c, score, verdict: verdictFor(score) }; })
+        .filter(c => c && c.company && !seen.has(normCo(c.company)))
+        .map(c => ({ ...c, score: clamp(c.score) }))
         .sort((a, b) => b.score - a.score).slice(0, 10);
-      // Accumulation : on FUSIONNE avec les détections déjà présentes (dédoublonnage par nom),
-      // au lieu d'écraser. Chaque recherche complète la liste.
-      const cbMap = new Map(candidates.map(c => [String(c.company).toLowerCase(), c]));
-      let cbAdded = 0;
-      for (const c of ranked) { const k = String(c.company).toLowerCase(); if (!cbMap.has(k)) { cbMap.set(k, c); cbAdded++; } }
-      persistCandidates([...cbMap.values()].sort((a, b) => b.score - a.score));
-      if (cbAdded === 0) setCerebroErr(candidates.length ? "Aucun nouveau compte — les détections précédentes sont conservées ; élargis le focus ou change de secteur/région." : "Aucune cible retenue — élargis le focus ou allège le portefeuille exclu.");
-      else if (searchDegraded) setCerebroErr("⚠ Actualité web indisponible à l'instant — résultats basés sur la connaissance (pas de signaux temps réel). Réessaie plus tard.");
-    } catch (e) { setCerebroErr("Détection impossible — " + (e?.message || "erreur inconnue")); }
+      if (ranked.length === 0) { setSigErr("Aucune cible retenue — élargis le focus ou allège le portefeuille exclu."); return; }
+      persistSigProspects(mergeProspects(ranked.map(candToProspect), sigProspects));
+      setSigInfo(`${ranked.length} comptes ajoutés par l'exploration ICP — sans signal capté, ils restent en « surveiller » tant qu'une veille n'a rien trouvé.`);
+      if (searchDegraded) setSigErr("⚠ Actualité web indisponible à l'instant — résultats basés sur la connaissance. Réessaie plus tard.");
+    } catch (e) { setSigErr("Exploration impossible — " + (e?.message || "erreur inconnue")); }
     finally { setScanning(false); }
   }
 
@@ -975,7 +1225,10 @@ Signaux : ${(result.signals || []).join(" ; ") || "—"}`;
 
   function applyImport(data) {
     if (Array.isArray(data.accounts)) persistAccounts(data.accounts);
-    if (Array.isArray(data.candidates)) persistCandidates(data.candidates);
+    // anciennes sauvegardes : les candidats Cerebro rejoignent la liste unique
+    if (Array.isArray(data.signals) || Array.isArray(data.candidates)) persistSigProspects(mergeProspects((data.candidates || []).map(candToProspect), Array.isArray(data.signals) ? data.signals : []));
+    if (Array.isArray(data.siglib)) persistSiglib(data.siglib);
+    if (Array.isArray(data.feedback)) persistFeedback(data.feedback);
     if (Array.isArray(data.events)) persistEvents(data.events);
     if (Array.isArray(data.talents)) persistTalents(data.talents);
     if (data.playbook && typeof data.playbook === "object") persistPlaybook(data.playbook);
@@ -989,7 +1242,7 @@ Signaux : ${(result.signals || []).join(" ; ") || "—"}`;
 
   function exportData() {
     try {
-      const payload = { app: "cerebro", version: 7, exportedAt: new Date().toISOString(), accounts, candidates, events, talents, playbook, network, netKeywords, contacts, icp, known };
+      const payload = { app: "cerebro", version: 7, exportedAt: new Date().toISOString(), accounts, candidates, events, talents, playbook, network, netKeywords, contacts, icp, known, signals: sigProspects, siglib, feedback };
       const json = JSON.stringify(payload, null, 2);
       setExportText(json); // toujours affiché et copiable, même si le téléchargement est bloqué
       try {
@@ -1030,7 +1283,7 @@ Signaux : ${(result.signals || []).join(" ; ") || "—"}`;
 
   function clearAll() {
     if (typeof window !== "undefined" && window.confirm && !window.confirm("Effacer tous les comptes, candidats et réglages ? Pense à exporter d'abord.")) return;
-    persistAccounts([]); persistCandidates([]); setResult(null);
+    persistAccounts([]); persistCandidates([]); persistSigProspects([]); setResult(null);
     setDataMsg("Données effacées."); setTimeout(() => setDataMsg(""), 2500);
   }
   function dismissCandidate(name) { persistCandidates(candidates.filter(c => c.company !== name)); }
@@ -1038,6 +1291,10 @@ Signaux : ${(result.signals || []).join(" ; ") || "—"}`;
   function updateIcp(i, field, val) { persistIcp(icp.map((c, idx) => idx === i ? { ...c, [field]: field === "weight" ? val.replace(/[^0-9]/g, "") : val } : c)); }
 
   const needleLeft = result ? `calc(${result.score}% - 1.5px)` : "0";
+  const sigLibMap = libIndex(siglib);
+  const rankedSignals = [...sigProspects]
+    .map(p => ({ ...p, sScore: signalScoreOf(p.signals, sigLibMap), prio: priorityOf(p, sigLibMap) }))
+    .sort((a, b) => b.prio - a.prio);
 
   return (
     <div className="hr-root">
@@ -1060,53 +1317,104 @@ Signaux : ${(result.signals || []).join(" ; ") || "—"}`;
 
         {tab === "comptes" && (<>
 
-        {/* CEREBRO */}
+        {/* ── CEREBRO BUSINESS : un seul moteur ──
+             1) Détecter = veille signaux (4 agents capteurs + consolidateur) → recommandé
+             2) Explorer par l'ICP = mode secondaire, sans signal (pour défricher un secteur) */}
         <div className="hr-card cerebro">
           <p className="hr-cerebro-title">◎ CEREBRO BUSINESS</p>
-          <p className="hr-cerebro-sub">Détecte les 10 comptes au plus fort score ICP, classés. Score = cadrage rapide.</p>
-          <input className="hr-input" placeholder="Focus optionnel (secteur, région — ex : laitier AURA)" value={focus} onChange={e => setFocus(e.target.value)} disabled={scanning} />
-          <button className="hr-btn" onClick={runCerebro} disabled={scanning}>
-            {scanning ? <><span className="hr-spin" />Détection en cours…</> : "Détecter 10 comptes ▸"}
-          </button>
-          <span style={{ marginLeft: 14 }}>
+          <p className="hr-cerebro-sub">Repère les groupes multi-sites qui vont avoir besoin d'accompagner leurs managers. {SIGNAL_FAMILIES.length} agents capteurs en parallèle (RH, direction, stratégie, opérations) partent des événements récents, puis un agent consolidateur vérifie le multi-sites et formule le besoin. Priorité = 60 % timing + 40 % fit ICP.</p>
+          <input className="hr-input" placeholder="Focus optionnel (secteur, région — ex : laitier AURA)" value={focus} onChange={e => setFocus(e.target.value)} disabled={sigScanning || scanning} />
+          <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+            <button className="hr-btn" onClick={runSignals} disabled={sigScanning || scanning}>
+              {sigScanning ? <><span className="hr-spin" />{sigStage || "Veille en cours…"}</> : "Détecter par les signaux ▸"}
+            </button>
+            <button className="hr-btn ghost" onClick={runCerebro} disabled={sigScanning || scanning} title="Liste de comptes au meilleur fit ICP, sans signal capté — pour défricher un secteur">
+              {scanning ? <><span className="hr-spin cy" />Exploration…</> : "Explorer par l'ICP"}
+            </button>
+          </div>
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 12 }}>
+            <button className="hr-link" onClick={() => setShowLib(v => !v)}>{showLib ? "masquer la bibliothèque" : "bibliothèque de signaux ▸"}</button>
             <button className="hr-link" onClick={() => setShowKnown(v => !v)}>{showKnown ? "masquer le portefeuille" : "portefeuille exclu ▸"}</button>
-          </span>
+          </div>
           {showKnown && (
             <div style={{ marginTop: 12 }}>
               <p className="hr-label">Comptes exclus de la détection (un par ligne)</p>
               <textarea className="hr-textarea" style={{ minHeight: 90 }} value={known.join("\n")} onChange={e => persistKnown(e.target.value.split("\n").map(s => s.trim()).filter(Boolean))} />
             </div>
           )}
-          {cerebroErr && <p className="hr-err">{cerebroErr}</p>}
+          {showLib && (
+            <div style={{ marginTop: 6 }}>
+              {SIGNAL_FAMILIES.map(f => (
+                <div key={f.key}>
+                  <p className="hr-lib-fam">{f.label}</p>
+                  {siglib.filter(s => s.family === f.key).map(s => {
+                    const st = fbStats[s.id];
+                    return (
+                      <div key={s.id} className="hr-lib-row">
+                        <span className="hr-lib-name" title={s.hint}>{s.name}</span>
+                        <span className="hr-lib-stat" title="Prospects jugés pertinents / jugés au total, parmi ceux qui portaient ce signal">{st ? `${st.good}/${st.total} ✓` : "—"}</span>
+                        <input className="hr-icp-w" value={s.weight} inputMode="numeric" onChange={e => updateSigWeight(s.id, e.target.value)} />
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
+                <span className="hr-icp-total">Poids = points max apportés au score timing · 0 = désactivé</span>
+                <button className="hr-link" onClick={() => persistSiglib(DEFAULT_SIGLIB)}>réinitialiser</button>
+              </div>
+              <p className="hr-caption" style={{ margin: "8px 0 0" }}>La colonne ✓ compte tes jugements « pertinent / bruit ». Monte le poids d'un signal qui convertit, baisse celui qui fait du bruit — c'est toi qui décides, l'outil ne modifie rien seul.</p>
+            </div>
+          )}
+          {sigInfo && <p className="hr-caption" style={{ color: "var(--cyan)", margin: "12px 0 0" }}>{sigInfo}</p>}
+          {sigErr && <p className="hr-err">{sigErr}</p>}
         </div>
 
-        {/* Cerebro results */}
-        {candidates.length > 0 && (
+        {rankedSignals.length > 0 && (
           <div style={{ marginBottom: 4 }}>
-            <p className="hr-section-title" style={{ padding: "0 4px" }}>Cerebro · {candidates.length} comptes détectés</p>
-            {candidates.map((c, i) => (
-              <div key={c.company + i} className="hr-cb">
-                <div className="hr-cb-head">
-                  <span className="hr-cb-rank">{String(i + 1).padStart(2, "0")}</span>
-                  <span className="hr-cb-score" style={{ color: VERDICT[c.verdict].color }}>{c.score}</span>
-                  <div className="hr-cb-mid">
-                    <div className="hr-cb-name">{c.company}</div>
-                    <div className="hr-cb-meta">{[c.sector, c.region].filter(Boolean).join(" · ")}</div>
+            <p className="hr-section-title" style={{ padding: "0 4px" }}>Cerebro · {rankedSignals.length} comptes</p>
+            {rankedSignals.map((p, i) => {
+              const v = signalVerdict(p.prio);
+              return (
+                <div key={p.company + i} className="hr-cb">
+                  <div className="hr-cb-head">
+                    <span className="hr-cb-rank">{String(i + 1).padStart(2, "0")}</span>
+                    <span className="hr-cb-score" style={{ color: v.color }}>{p.prio}</span>
+                    <div className="hr-cb-mid">
+                      <div className="hr-cb-name">{p.company}{p.feedback === "good" ? " ✓" : ""}</div>
+                      <div className="hr-cb-meta">{[p.sector, p.sites ? p.sites + " sites" : "", p.region].filter(Boolean).join(" · ")}</div>
+                    </div>
+                    {p.offer && <span className="hr-offer">{p.offer}</span>}
+                    <span className="hr-badge" style={{ color: v.color, background: v.color + "22" }}>{v.label}</span>
+                    <button className="hr-del" onClick={() => dismissSignal(p.company)} title="Retirer (sans juger)">×</button>
                   </div>
-                  <span className="hr-badge" style={{ color: VERDICT[c.verdict].color, background: VERDICT[c.verdict].color + "22" }}>{VERDICT[c.verdict].label}</span>
-                  <button className="hr-del" onClick={() => dismissCandidate(c.company)} title="Écarter">×</button>
+                  <div className="hr-sublines">
+                    <span>timing {p.sScore}</span>
+                    <span>fit {p.fit == null ? "n/d" : p.fit}</span>
+                    {p.multisite == null && <span style={{ color: "var(--amber)" }}>multi-sites à confirmer</span>}
+                    {p.signals.length === 0 && <span style={{ color: "var(--amber)" }}>exploration ICP · aucun signal capté</span>}
+                  </div>
+                  {p.need && <p className="hr-cb-why">{p.need}</p>}
+                  {p.entry_persona && <p className="hr-cb-persona">Point d'entrée : {p.entry_persona}</p>}
+                  {p.signals.length === 0 && (p.watch || []).length > 0 && <p className="hr-cb-persona" style={{ color: "var(--amber)" }}>Indices à vérifier : {p.watch.join(" · ")}</p>}
+                  {p.signals.map((s, j) => (
+                    <div key={j} className={"hr-sig " + (s.url ? "src" : "nosrc")}>
+                      <span className="hr-sig-type">{sigLibMap[s.type]?.name || s.type}</span>
+                      <span className="hr-sig-date">{s.date || "date ?"}{s.site ? " · " + s.site : ""}</span>
+                      <div>{s.fact}{s.url ? <a href={s.url} target="_blank" rel="noreferrer">source ↗</a> : <span style={{ color: "var(--amber)", fontSize: 11, marginLeft: 6 }}>non sourcé — demi-poids</span>}</div>
+                    </div>
+                  ))}
+                  <div className="hr-cb-actions">
+                    <button className="hr-mini" onClick={() => qualifySignal(p)} disabled={!!qualifyingName}>
+                      {qualifyingName === p.company ? <><span className="hr-spin" />…</> : "Qualifier en détail ▸"}
+                    </button>
+                    <button className={"hr-mini ghost" + (p.feedback === "good" ? " on" : "")} onClick={() => markSignal(p, "good")}>✓ pertinent</button>
+                    <button className="hr-mini ghost" onClick={() => markSignal(p, "noise")}>✗ bruit</button>
+                  </div>
                 </div>
-                {c.why && <p className="hr-cb-why">{c.why}</p>}
-                {c.entry_persona && <p className="hr-cb-persona">Point d'entrée : {c.entry_persona}</p>}
-                {Array.isArray(c.watch) && c.watch.length > 0 && <p className="hr-cb-persona" style={{ color: "var(--amber)" }}>À vérifier : {c.watch.join(" · ")}</p>}
-                <div className="hr-cb-actions">
-                  <button className="hr-mini" onClick={() => qualifyCandidate(c.company)} disabled={!!qualifyingName}>
-                    {qualifyingName === c.company ? <><span className="hr-spin" />…</> : "Qualifier en détail ▸"}
-                  </button>
-                </div>
-              </div>
-            ))}
-            <p className="hr-caption">Scores Cerebro = estimation de cadrage. « Qualifier en détail » lance l'analyse approfondie (avec recherche web) et range le compte dans la shortlist.</p>
+              );
+            })}
+            <p className="hr-caption">Timing = Σ poids des types de signaux × fraîcheur (≤ 3 mois 100 %, ≤ 6 mois 70 %, ≤ 12 mois 40 %) — un signal sans source compte pour moitié. Un compte sans signal capté (exploration ICP) a un timing de 0 : il plafonne à « surveiller » jusqu'à ce qu'une veille le confirme. Reconfirme chaque fait sur sa source avant de t'en servir dans une approche. « Qualifier en détail » transmet les signaux à l'analyse ; « bruit » exclut le compte des prochaines veilles.</p>
           </div>
         )}
 
