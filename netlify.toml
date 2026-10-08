@@ -92,3 +92,6 @@
   from = "/api/action-relance"
   to = "/.netlify/functions/action-relance"
   status = 200
+  
+[functions."cerebro-watch"]
+  schedule = "45 4 * * 1"
