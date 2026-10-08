@@ -22,8 +22,9 @@
 //   nouvelles  : CEREBRO_WATCH_SECRET   (obligatoire : secret partagé avec cerebro-watch.js)
 //                FRANCE_TRAVAIL_CLIENT_ID, FRANCE_TRAVAIL_CLIENT_SECRET   (optionnelles : sans elles,
 //                l'étape France Travail est sautée et signalée dans le journal)
-//                BREVO_API_KEY, CEREBRO_ALERT_TO (emails séparés par des virgules),
-//                CEREBRO_ALERT_FROM (expéditeur vérifié dans Brevo)   (optionnelles : sans elles, pas d'email)
+//                CEREBRO_ALERT_TO (emails séparés par des virgules) — seule nouvelle variable pour l'alerte :
+//                la clé Brevo (BREVO_API_KEY) et l'expéditeur (MAIL_FROM) déjà utilisés par /api/action-relance
+//                sont réutilisés ; CEREBRO_ALERT_FROM permet de surcharger l'expéditeur si besoin.
 
 const { createClient } = require('@supabase/supabase-js');
 
@@ -35,7 +36,10 @@ const MODEL         = process.env.CEREBRO_MODEL || 'claude-sonnet-5';
 const WEB_SEARCH_ON = (process.env.CEREBRO_WEB_SEARCH || '').toLowerCase() === 'on';
 const WATCH_SECRET  = process.env.CEREBRO_WATCH_SECRET || '';
 const FT_ID = process.env.FRANCE_TRAVAIL_CLIENT_ID, FT_SECRET = process.env.FRANCE_TRAVAIL_CLIENT_SECRET;
-const BREVO_KEY = process.env.BREVO_API_KEY, ALERT_TO = process.env.CEREBRO_ALERT_TO || '', ALERT_FROM = process.env.CEREBRO_ALERT_FROM || '';
+// Brevo : réutilise la configuration déjà en place pour /api/action-relance (clé API + MAIL_FROM).
+const BREVO_KEY = process.env.BREVO_API_KEY || process.env.BREVO_KEY || process.env.SENDINBLUE_API_KEY;
+const ALERT_TO = process.env.CEREBRO_ALERT_TO || '';
+const ALERT_FROM = process.env.CEREBRO_ALERT_FROM || process.env.MAIL_FROM || '';
 
 const K = { siglib: 'humetria:radar:siglib', icp: 'humetria:radar:icp', known: 'humetria:radar:known', accounts: 'humetria:radar:accounts',
             feedback: 'humetria:radar:feedback', signals: 'humetria:radar:signals', inbox: 'humetria:radar:inbox', log: 'humetria:radar:watchlog' };
