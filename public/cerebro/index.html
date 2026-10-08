@@ -530,7 +530,9 @@ function signalScoreOf(signals, libMap) {
     const c = w * recency(s.date) * (s.url ? 1 : 0.5);
     best[s.type] = Math.max(best[s.type] || 0, c);
   }
-  return clamp(Object.values(best).reduce((a, b) => a + b, 0));
+  // Courbe à rendement décroissant : 1 signal fort (30) ≈ 58, 2 signaux forts ≈ 80, 3 et plus ≈ 90+.
+  const sum = Object.values(best).reduce((a, b) => a + b, 0);
+  return clamp(100 * (1 - Math.exp(-sum / 35)));
 }
 // Priorité = 60 % timing (signaux) + 40 % fit structurel ; fit inconnu = 50.
 const priorityOf = (p, libMap) => Math.round(0.6 * signalScoreOf(p.signals, libMap) + 0.4 * (p.fit == null ? 50 : p.fit));
@@ -551,6 +553,17 @@ function consolidateSignals(raw, lib) {
 }
 // Un compte issu de l'exploration ICP (sans signal capté) entre dans la même liste :
 // timing = 0 tant qu'aucun agent n'a capté de signal → priorité plafonnée à 40 (« surveiller »).
+// Signaux complémentaires rapportés par la consolidation (même entreprise), validés comme ceux des capteurs.
+function mergeExtraSignals(signals, extra, libMap) {
+  const out = [...(signals || [])];
+  for (const s of Array.isArray(extra) ? extra : []) {
+    if (!s || !libMap[s.type]) continue;
+    const fact = String(s.fact || "").trim(); if (!fact) continue;
+    if (out.some(x => x.type === s.type && x.fact.slice(0, 40) === fact.slice(0, 40))) continue;
+    out.push({ type: s.type, fact, date: String(s.date || ""), site: String(s.site || ""), url: /^https?:\/\//.test(s.url || "") ? s.url : "", via: "consolidation" });
+  }
+  return out;
+}
 function candToProspect(c) {
   return {
     company: c.company, signals: [], fit: c.score == null ? null : clamp(c.score), multisite: null,
@@ -764,10 +777,13 @@ ${gridText()}
 - multisite = true si au moins 3 sites de production / d'exploitation avec encadrement terrain ; false si mono-site, holding sans plancher industriel ou services purs ; null si incertain.
 - need = le besoin d'accompagnement managérial que CES signaux suggèrent, ≤ 20 mots, formulé comme une HYPOTHÈSE reliée aux signaux (ex. « intégrer les chefs d'équipe recrutés sur 3 sites sans culture managériale commune »).
 - offer = "KW" si le besoin est d'abord d'accompagner / former les managers (séminaires, Go Gemba®, coaching) ; "Humetria" s'il est d'abord de mesurer et piloter les comportements managériaux à l'échelle multi-sites (ICM®) ; "KW+Humetria" si les deux.
+- extra_signals = les AUTRES signaux faibles (moins de 12 mois) que tes recherches sur CETTE entreprise font apparaître, parmi ces types (id EXACT dans "type") :
+${siglib.filter(s => Number(s.weight) > 0).map(t => `  ${t.id} — ${t.name}`).join("\n")}
+  Mêmes règles que pour les capteurs : un fait précis, daté (AAAA-MM-JJ ou AAAA-MM), "url" réellement présente dans tes résultats sinon "". Ne répète pas les signaux fournis. [] si rien de fiable.
 - N'invente rien : "n/d" si inconnu. Reprends le nom d'entreprise EXACTEMENT comme fourni.
 
 Réponds UNIQUEMENT avec un tableau JSON valide, un objet par entreprise reçue, sans texte ni Markdown autour :
-[{"company":"nom exact fourni","multisite":true,"sites":"~N ou n/d","sector":"court","region":"court","fit":<0-100>,"need":"hypothèse ≤20 mots","offer":"KW | Humetria | KW+Humetria","entry_persona":"titre du point d'entrée"}]`;
+[{"company":"nom exact fourni","multisite":true,"sites":"~N ou n/d","sector":"court","region":"court","fit":<0-100>,"need":"hypothèse ≤20 mots","offer":"KW | Humetria | KW+Humetria","entry_persona":"titre du point d'entrée","extra_signals":[{"type":"id exact","fact":"≤20 mots","date":"AAAA-MM-JJ","url":"https://… ou ''"}]}]`;
   }
 
   async function runSignals() {
@@ -819,7 +835,7 @@ Réponds UNIQUEMENT avec un tableau JSON valide, un objet par entreprise reçue,
       const fresh = merged.map(m => {
         const f = fitMap.get(normCo(m.company)) || {};
         return {
-          company: m.company, signals: m.signals,
+          company: m.company, signals: mergeExtraSignals(m.signals, f.extra_signals, libMap),
           fit: f.fit == null || f.fit === "" ? null : clamp(f.fit),
           multisite: f.multisite === true ? true : f.multisite === false ? false : null,
           sites: f.sites || "", sector: f.sector || "", region: f.region || "",
@@ -828,7 +844,8 @@ Réponds UNIQUEMENT avec un tableau JSON valide, un objet par entreprise reçue,
       }).filter(p => { if (p.multisite === false) { dropped++; return false; } return true; });
       // fusion avec la liste existante : on garde l'historique des signaux et le feedback d'une même entreprise
       persistSigProspects(mergeProspects(fresh, sigProspects));
-      const parts = [`${raw.length} signaux captés → ${fresh.length} prospects`];
+      const extraCount = fresh.reduce((n, p) => n + p.signals.filter(s => s.via === "consolidation").length, 0);
+      const parts = [`${raw.length} signaux captés → ${fresh.length} prospects` + (extraCount ? ` · +${extraCount} signaux complémentaires trouvés à la consolidation` : "")];
       if (dropped) parts.push(`${dropped} écarté(s) car mono-site / hors cible`);
       const causeOf = r => String((r.reason && r.reason.message) || "inconnue").replace(/^NO_SEARCH$/, "aucune recherche web effectuée").slice(0, 140);
       if (failed) parts.push(`${failed} capteur(s) en échec (${results.filter(r => r.status === "rejected").map(causeOf).join(" ; ")})`);
@@ -1399,7 +1416,7 @@ Signaux : ${(result.signals || []).join(" ; ") || "—"}`;
                 </div>
               ))}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
-                <span className="hr-icp-total">Poids = points max apportés au score timing · 0 = désactivé</span>
+                <span className="hr-icp-total">Poids = points bruts avant la courbe (30 seul ≈ timing 58) · 0 = désactivé</span>
                 <button className="hr-link" onClick={() => persistSiglib(DEFAULT_SIGLIB)}>réinitialiser</button>
               </div>
               <p className="hr-caption" style={{ margin: "8px 0 0" }}>La colonne ✓ compte tes jugements « pertinent / bruit ». Monte le poids d'un signal qui convertit, baisse celui qui fait du bruit — c'est toi qui décides, l'outil ne modifie rien seul.</p>
@@ -1453,7 +1470,7 @@ Signaux : ${(result.signals || []).join(" ; ") || "—"}`;
                 </div>
               );
             })}
-            <p className="hr-caption">Timing = Σ poids des types de signaux × fraîcheur (≤ 3 mois 100 %, ≤ 6 mois 70 %, ≤ 12 mois 40 %) — un signal sans source compte pour moitié. Un compte sans signal capté (exploration ICP) est « à sonder » : bon fit possible, mais aucun indice de timing tant qu'une veille ne l'a pas confirmé. Reconfirme chaque fait sur sa source avant de t'en servir dans une approche. « Qualifier en détail » transmet les signaux à l'analyse ; « bruit » exclut le compte des prochaines veilles.</p>
+            <p className="hr-caption">Timing = courbe à rendement décroissant sur Σ (poids × fraîcheur × source) : 1 signal fort ≈ 58, 2 signaux forts ≈ 80, 3 et plus ≈ 90. Fraîcheur ≤ 3 mois 100 %, ≤ 6 mois 70 %, ≤ 12 mois 40 % ; un signal sans source compte pour moitié. Un compte sans signal capté (exploration ICP) est « à sonder » : bon fit possible, mais aucun indice de timing tant qu'une veille ne l'a pas confirmé. Reconfirme chaque fait sur sa source avant de t'en servir dans une approche. « Qualifier en détail » transmet les signaux à l'analyse ; « bruit » exclut le compte des prochaines veilles.</p>
           </div>
         )}
 
