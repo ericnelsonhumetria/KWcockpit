@@ -194,7 +194,7 @@ const eventVerdict = s => (s >= 70 ? EV.P : s >= 45 ? EV.O : EV.X);
 
 const TV = { R: { label: "RENCONTRER", color: "#3FB68B" }, C: { label: "À CREUSER", color: "#E0A63C" }, X: { label: "ÉCARTER", color: "#C15B57" } };
 const talentVerdict = s => (s >= 70 ? TV.R : s >= 45 ? TV.C : TV.X);
-const SV = { H: { label: "FRAPPER", color: "#3FB68B" }, N: { label: "SURVEILLER", color: "#E0A63C" }, X: { label: "FAIBLE", color: "#C15B57" } };
+const SV = { H: { label: "FRAPPER", color: "#3FB68B" }, N: { label: "SURVEILLER", color: "#E0A63C" }, X: { label: "FAIBLE", color: "#C15B57" }, U: { label: "À SONDER", color: "#9c8f88" } };
 const signalVerdict = s => (s >= 65 ? SV.H : s >= 40 ? SV.N : SV.X);
 
 const DEFAULT_NET_KW = ["consultant", "excellence op", "excellence opérationnelle", "lean", "amélioration continue", "continuous improvement", "transformation", "performance industrielle", "gemba", "kaizen", "WCM", "TPM", "directeur industriel", "directeur d'usine", "responsable production", "black belt", "green belt", "opérations"].join("\n");
@@ -392,6 +392,34 @@ const CSS = `
 `;
 
 let searchDegraded = false;
+// ── Appels longs (recherche web) : fonction Netlify d'ARRIÈRE-PLAN + table Supabase cerebro_jobs ──
+// La fonction synchrone est coupée par Netlify vers 30 s ; une recherche web prend souvent plus.
+// Ici : on crée un travail, on déclenche la fonction d'arrière-plan (jusqu'à 15 min), puis on relit le résultat.
+const JOB_POLL_MS = 2500, JOB_MAX_MS = 8 * 60 * 1000;
+async function runJob(body) {
+  if (!CEREBRO_SB) throw new Error("Supabase indisponible");
+  const s = await CEREBRO_SB.auth.getSession();
+  const sess = s && s.data && s.data.session;
+  if (!sess) throw new Error("session Cockpit requise");
+  const ins = await CEREBRO_SB.from("cerebro_jobs").insert({ request: body }).select("id").single();
+  if (ins.error) throw new Error("création du travail impossible : " + ins.error.message);
+  const id = ins.data.id;
+  const r = await fetch("/.netlify/functions/cerebro-claude-background", {
+    method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + sess.access_token },
+    body: JSON.stringify({ job_id: id }),
+  });
+  if (r.status !== 202 && !r.ok) throw new Error("lancement du travail impossible (HTTP " + r.status + ")");
+  const t0 = Date.now();
+  while (Date.now() - t0 < JOB_MAX_MS) {
+    await new Promise(res => setTimeout(res, JOB_POLL_MS));
+    const q = await CEREBRO_SB.from("cerebro_jobs").select("status,result,error").eq("id", id).maybeSingle();
+    if (q.error || !q.data) continue;
+    if (q.data.status === "done") return q.data.result || {};
+    if (q.data.status === "error") throw new Error(q.data.error || "travail en erreur");
+  }
+  const e = new Error("délai dépassé (8 min) — la fonction d'arrière-plan n'a pas répondu"); e.noRetry = true; throw e;
+}
+
 // meta (optionnel) : { requireSearch, maxUses, degraded } — propre à chaque appel.
 async function callClaude(system, userContent, useSearch = true, maxTokens = 1000, meta = null) {
   async function attempt(withSearch) {
@@ -403,14 +431,14 @@ async function callClaude(system, userContent, useSearch = true, maxTokens = 100
       const tok = s && s.data && s.data.session && s.data.session.access_token;
       if (tok) headers["Authorization"] = "Bearer " + tok;
     } catch (e) {}
-    const response = await fetch("/.netlify/functions/cerebro-claude", {
+    const response = withSearch ? null : await fetch("/.netlify/functions/cerebro-claude", {
       method: "POST", headers: headers, body: JSON.stringify(body),
     });
-    if (!response.ok) {
+    if (response && !response.ok) {
       let detail = ""; try { detail = (await response.text()).slice(0, 220); } catch (e) {}
       throw new Error(`API ${response.status} ${detail}`);
     }
-    const data = await response.json();
+    const data = response ? await response.json() : await runJob(body);
     if (data.error) throw new Error(data.error.message || "erreur API");
     const text = (data.content || []).filter(b => b.type === "text").map(b => b.text).join("\n").trim();
     if (!text) throw new Error("réponse vide du modèle");
@@ -425,7 +453,7 @@ async function callClaude(system, userContent, useSearch = true, maxTokens = 100
     let lastErr;
     for (let i = 0; i < tries; i++) {
       try { return await attempt(withSearch); }
-      catch (e) { lastErr = e; if (e && e.message === "NO_SEARCH") throw e; await new Promise(r => setTimeout(r, 400 * (i + 1))); }
+      catch (e) { lastErr = e; if (e && (e.message === "NO_SEARCH" || e.noRetry)) throw e; await new Promise(r => setTimeout(r, 400 * (i + 1))); }
     }
     throw lastErr;
   }
@@ -765,7 +793,7 @@ Réponds UNIQUEMENT avec un tableau JSON valide, un objet par entreprise reçue,
         .filter(s => s && s.company && !excl.has(normCo(s.company)));
       const noSearch = results.filter(r => r.status === "rejected" && r.reason && r.reason.message === "NO_SEARCH").length;
       if (noSearch === fams.length) throw new Error("recherche web désactivée côté serveur (variable Netlify CEREBRO_WEB_SEARCH). La veille ne fonctionne pas sans recherche : rien n'a été inventé. En attendant, utilise « Explorer par l'ICP ».");
-      if (!raw.length) throw new Error(failed ? `${failed} capteur(s) en échec (recherche web absente ou délai dépassé), aucun signal exploitable` : "aucun signal récent trouvé — élargis le focus");
+      if (!raw.length) throw new Error(failed ? `${failed} capteur(s) en échec, aucun signal exploitable — cause : ${String((results.find(r => r.status === "rejected") || {}).reason?.message || "inconnue").slice(0, 180)}` : "aucun signal récent trouvé — élargis le focus");
 
       const libMap = libIndex(siglib);
       const merged = consolidateSignals(raw, siglib).sort((a, b) => b.signalScore - a.signalScore).slice(0, 12);
@@ -1374,7 +1402,7 @@ Signaux : ${(result.signals || []).join(" ; ") || "—"}`;
           <div style={{ marginBottom: 4 }}>
             <p className="hr-section-title" style={{ padding: "0 4px" }}>Cerebro · {rankedSignals.length} comptes</p>
             {rankedSignals.map((p, i) => {
-              const v = signalVerdict(p.prio);
+              const v = p.signals.length ? signalVerdict(p.prio) : SV.U;
               return (
                 <div key={p.company + i} className="hr-cb">
                   <div className="hr-cb-head">
@@ -1414,7 +1442,7 @@ Signaux : ${(result.signals || []).join(" ; ") || "—"}`;
                 </div>
               );
             })}
-            <p className="hr-caption">Timing = Σ poids des types de signaux × fraîcheur (≤ 3 mois 100 %, ≤ 6 mois 70 %, ≤ 12 mois 40 %) — un signal sans source compte pour moitié. Un compte sans signal capté (exploration ICP) a un timing de 0 : il plafonne à « surveiller » jusqu'à ce qu'une veille le confirme. Reconfirme chaque fait sur sa source avant de t'en servir dans une approche. « Qualifier en détail » transmet les signaux à l'analyse ; « bruit » exclut le compte des prochaines veilles.</p>
+            <p className="hr-caption">Timing = Σ poids des types de signaux × fraîcheur (≤ 3 mois 100 %, ≤ 6 mois 70 %, ≤ 12 mois 40 %) — un signal sans source compte pour moitié. Un compte sans signal capté (exploration ICP) est « à sonder » : bon fit possible, mais aucun indice de timing tant qu'une veille ne l'a pas confirmé. Reconfirme chaque fait sur sa source avant de t'en servir dans une approche. « Qualifier en détail » transmet les signaux à l'analyse ; « bruit » exclut le compte des prochaines veilles.</p>
           </div>
         )}
 
