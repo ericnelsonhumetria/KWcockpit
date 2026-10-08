@@ -783,7 +783,7 @@ Réponds UNIQUEMENT avec un tableau JSON valide, un objet par entreprise reçue,
       let done = 0;
       setSigStage(`Capteurs : 0/${fams.length}…`);
       const results = await Promise.allSettled(fams.map(f =>
-        callClaude(sensorPrompt(f, exclude), userMsg, true, 1800, { requireSearch: true, maxUses: 5 }).then(t => {
+        callClaude(sensorPrompt(f, exclude), userMsg, true, 12000, { requireSearch: true, maxUses: 5 }).then(t => {
           done++; setSigStage(`Capteurs : ${done}/${fams.length}…`);
           return parseObjects(t);
         })
@@ -798,12 +798,22 @@ Réponds UNIQUEMENT avec un tableau JSON valide, un objet par entreprise reçue,
       const libMap = libIndex(siglib);
       const merged = consolidateSignals(raw, siglib).sort((a, b) => b.signalScore - a.signalScore).slice(0, 12);
       setSigStage(`Consolidation de ${merged.length} entreprises…`);
-      const ctx = merged.map(m => `- ${m.company} : ${m.signals.map(s => `${libMap[s.type].name} (${s.date || "date ?"}) — ${s.fact}`).join(" | ")}`).join("\n");
-      let fitMap = new Map();
-      try {
-        const fits = parseObjects(await callClaude(consolidatorPrompt(), ctx, true, 2400, meta));
-        fitMap = new Map(fits.filter(f => f && f.company).map(f => [normCo(f.company), f]));
-      } catch (e) { setSigErr("Consolidation partielle — fit et multi-sites non vérifiés (" + (e?.message || "erreur") + ")."); }
+      const ctxLine = m => `- ${m.company} : ${m.signals.map(s => `${libMap[s.type].name} (${s.date || "date ?"}) — ${s.fact}`).join(" | ")}`;
+      // Consolidation par lots de 4 entreprises en parallèle : une réponse courte par lot (moins de risque
+      // de coupure), et un lot en échec n'affecte que ses 4 entreprises (fit « n/d », rien d'inventé).
+      const batches = []; for (let i = 0; i < merged.length; i += 4) batches.push(merged.slice(i, i + 4));
+      let consDone = 0;
+      const consRes = await Promise.allSettled(batches.map(b =>
+        callClaude(consolidatorPrompt(), b.map(ctxLine).join("\n"), true, 12000, { requireSearch: true, maxUses: 6 }).then(t => {
+          consDone++; setSigStage(`Consolidation : ${consDone}/${batches.length} lots…`);
+          return parseObjects(t);
+        })
+      ));
+      const fitMap = new Map(); const consErr = [];
+      consRes.forEach(r => {
+        if (r.status === "fulfilled") r.value.filter(f => f && f.company).forEach(f => fitMap.set(normCo(f.company), f));
+        else consErr.push(String((r.reason && r.reason.message) || "erreur"));
+      });
 
       let dropped = 0;
       const fresh = merged.map(m => {
@@ -820,9 +830,10 @@ Réponds UNIQUEMENT avec un tableau JSON valide, un objet par entreprise reçue,
       persistSigProspects(mergeProspects(fresh, sigProspects));
       const parts = [`${raw.length} signaux captés → ${fresh.length} prospects`];
       if (dropped) parts.push(`${dropped} écarté(s) car mono-site / hors cible`);
-      if (failed) parts.push(`${failed} capteur(s) en échec`);
+      const causeOf = r => String((r.reason && r.reason.message) || "inconnue").replace(/^NO_SEARCH$/, "aucune recherche web effectuée").slice(0, 140);
+      if (failed) parts.push(`${failed} capteur(s) en échec (${results.filter(r => r.status === "rejected").map(causeOf).join(" ; ")})`);
+      if (consErr.length) parts.push(`${consErr.length}/${batches.length} lot(s) de consolidation en échec — fit et multi-sites non vérifiés pour ces comptes (${consErr[0].slice(0, 140)})`);
       setSigInfo(parts.join(" · ") + ".");
-      if (meta.degraded) setSigErr("⚠ Recherche web indisponible pour au moins un agent — les signaux concernés ne sont pas temps réel. Réessaie plus tard.");
     } catch (e) { setSigErr("Veille impossible — " + (e?.message || "erreur inconnue")); }
     finally { setSigScanning(false); setSigStage(""); }
   }
