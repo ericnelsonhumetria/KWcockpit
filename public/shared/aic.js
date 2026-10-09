@@ -77,7 +77,7 @@
       + '<td><input id="tk_' + id + '" type="color" value="' + esc(t ? t.couleur : '#560A0F') + '" aria-label="Couleur" style="width:44px;height:34px;padding:2px;border:1px solid rgba(86,10,15,.25);border-radius:6px;"></td>'
       + '<td>' + nivBoxes('tn_' + id + '_', t ? t.niveaux : NIVEAUX) + '</td>'
       + '<td>' + (t ? ('<label style="font-size:12px;"><input type="checkbox" id="ta_' + id + '"' + (t.actif ? ' checked' : '') + ' style="width:auto;margin:0 4px 0 0;">actif</label>') : '') + '</td>'
-      + '<td style="white-space:nowrap;"><button type="button" class="add-btn sm" onclick="aicThemSave(\'' + id + '\')">' + (t ? 'Enregistrer' : '+ Ajouter') + '</button> <span id="tm_' + id + '" role="status" style="font-size:12px;"></span></td>'
+      + '<td style="white-space:nowrap;"><button type="button" class="add-btn sm" onclick="aicThemSave(\'' + id + '\')">' + (t ? 'Enregistrer' : '+ Ajouter') + '</button>' + (t ? ' <button type="button" class="add-btn sm ghost" onclick="aicPaveOpen(\'' + id + '\')" title="Choisir le contenu du pavé SQCDP de cette thématique">🎛 Pavé</button>' : '') + ' <span id="tm_' + id + '" role="status" style="font-size:12px;"></span></td>'
       + '</tr>';
   }
 
@@ -112,7 +112,8 @@
         + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><span style="width:12px;height:12px;border-radius:3px;background:' + esc(th.couleur) + ';display:inline-block;"></span><b>' + esc(th.code) + ' · ' + esc(th.libelle) + '</b><span class="sub-cell">' + list.length + ' indicateur(s)</span>' + (th.actif ? '' : '<span class="pill p-grey">désactivée</span>') + '<button type="button" class="add-btn sm" style="margin-left:auto;" onclick="aicIndSaveAll(\'' + th.id + '\')">✓ Valider les modifications</button><span id="ia_all_' + th.id + '" role="status" style="font-size:12px;"></span></div>'
         + '<table style="width:100%;">' + ih + '<tbody>' + list.map(function(x, i){ return indRow(x, th, i, list.length); }).join('') + indRow(null, th, 0, 0) + '</tbody></table></div>';
     }).join('');
-    d.innerHTML = head() + tTable + (them.length ? '<div class="field-label" style="margin-top:18px;">Indicateurs par thématique</div>' + blocks : '');
+    d.innerHTML = head() + tTable + '<div id="aicPave"></div>' + (them.length ? '<div class="field-label" style="margin-top:18px;">Indicateurs par thématique</div>' + blocks : '');
+    if (AIC.paveId) aicPaveRender(AIC.paveId);
   }
 
   /* ---------- Thématiques ---------- */
@@ -205,6 +206,60 @@
     try { for (var k = 0; k < L.length; k++){ var r = touched(await db().from('aic_indicateurs').update({ ordre:(k + 1) * 10 }).eq('id', L[k].id).select('id'), 'aic_indicateurs'); } await aicLoad(); }
     catch(e){ alert('Réordonnancement refusé : ' + ((e && e.message) || e)); }
   };
+
+  /* ---------- Pavé SQCDP : contenu affiché par thématique (défini ici, appliqué à tous les espaces) ---------- */
+  function paveNorm(c){
+    c = (c && typeof c === 'object') ? c : {}; var p = c.pave || {}, k = c.courbe || {};
+    return { pave:{ statut:p.statut !== false, indic:p.indic !== false, tend:p.tend !== false, courbe:p.courbe !== false, bande:p.bande !== false },
+             ind:c.ind_principal || '', courbe:{ metric:k.metric || 'auto', jours:[7, 30, 90].indexOf(k.jours) >= 0 ? k.jours : 30, cible:k.cible !== false, moyenne:!!k.moyenne } };
+  }
+  function pvFace(st, size){ var col = st === 'vert' ? '#2e7d46' : st === 'orange' ? '#e08a00' : st === 'rouge' ? '#c0392b' : '#bdb5ad', m = st === 'vert' ? 'M30 62 Q50 84 70 62' : st === 'orange' ? 'M32 68 L68 68' : 'M30 76 Q50 54 70 76'; return '<svg viewBox="0 0 100 100" width="' + size + '" height="' + size + '" aria-hidden="true"><circle cx="50" cy="50" r="46" fill="' + col + '"/><circle cx="34" cy="40" r="6" fill="#fff"/><circle cx="66" cy="40" r="6" fill="#fff"/><path d="' + m + '" stroke="#fff" stroke-width="7" stroke-linecap="round" fill="none"/></svg>'; }
+  function pvArrow(size){ return '<svg viewBox="0 0 100 100" width="' + size + '" height="' + size + '" aria-hidden="true"><g transform="rotate(45 50 50)"><path d="M16 50 H80 M54 24 L82 50 L54 76" stroke="#2e7d46" stroke-width="12" fill="none" stroke-linecap="round" stroke-linejoin="round"/></g></svg>'; }
+  function pvSpark(col){ var v = [5, 4.2, 4.6, 3.4, 3.8, 2.6, 2.9, 1.8, 2.1, 1.3], pts = v.map(function(y, i){ return (4 + 152 * i / 9).toFixed(1) + ',' + (4 + 28 * (1 - (y - 1) / 4)).toFixed(1); }); return '<svg viewBox="0 0 160 36" width="160" height="36" aria-hidden="true"><polyline fill="none" stroke="' + col + '" stroke-width="2.5" stroke-linejoin="round" points="' + pts.join(' ') + '"/><circle cx="' + pts[9].split(',')[0] + '" cy="' + pts[9].split(',')[1] + '" r="3.5" fill="' + col + '"/></svg>'; }
+  window.aicPaveOpen = function(id){ AIC.paveId = id; aicPaveRender(id); var z = document.getElementById('aicPave'); if (z && z.scrollIntoView) z.scrollIntoView({ behavior:'smooth', block:'nearest' }); };
+  window.aicPaveClose = function(){ AIC.paveId = null; var z = document.getElementById('aicPave'); if (z) z.innerHTML = ''; };
+  function aicPaveRender(id){
+    var z = document.getElementById('aicPave'); if (!z) return;
+    var t = AIC.them.filter(function(x){ return x.id === id; })[0]; if (!t){ AIC.paveId = null; z.innerHTML = ''; return; }
+    var c = paveNorm(t.config), inds = AIC.ind.filter(function(x){ return x.thematique_id === id && x.actif; });
+    function opt(v, l, sel){ return '<option value="' + esc(v) + '"' + (sel ? ' selected' : '') + '>' + esc(l) + '</option>'; }
+    function cb(i, l, on){ return '<label style="display:inline-flex;gap:6px;align-items:center;font-size:13px;margin:4px 16px 4px 0;"><input type="checkbox" id="' + i + '"' + (on ? ' checked' : '') + ' onchange="aicPavePreview()" style="width:auto;margin:0;">' + l + '</label>'; }
+    var SEL = INP + 'min-width:230px;';
+    z.innerHTML = '<div class="panel" style="padding:12px 16px 16px;margin-top:12px;border-left:5px solid ' + esc(t.couleur) + ';">'
+      + '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;"><b>🎛 Pavé SQCDP · ' + esc(t.code) + ' · ' + esc(t.libelle) + '</b><button type="button" class="add-btn sm ghost" style="margin-left:auto;" onclick="aicPaveClose()">Fermer</button></div>'
+      + '<div class="sec-note" style="margin:4px 0 8px;">Choisissez ce que le pavé de cette thématique affiche dans le tableau SQCDP de tous les espaces. Chaque utilisateur peut ajuster la courbe pour lui seul ; « ↺ Réglage Admin » rétablit ce défaut.</div>'
+      + '<div style="display:flex;gap:28px;flex-wrap:wrap;"><div style="flex:1;min-width:300px;">'
+      + '<div class="field-label">Blocs affichés dans le pavé</div>' + cb('pv_statut', 'Statut du jour (smiley + couleur)', c.pave.statut) + cb('pv_indic', 'Indicateur principal (valeur + cible)', c.pave.indic) + cb('pv_tend', 'Tendance (flèche)', c.pave.tend) + cb('pv_courbe', 'Mini-courbe', c.pave.courbe) + cb('pv_bande', 'Bande du mois', c.pave.bande)
+      + '<div class="field-label" style="margin-top:10px;">Indicateur principal</div><select id="pv_ind" onchange="aicPavePreview()" aria-label="Indicateur principal" style="' + SEL + '">' + opt('', 'Premier de la liste (automatique)', !c.ind) + inds.map(function(x){ return opt(x.id, x.libelle + (x.unite ? ' (' + x.unite + ')' : ''), c.ind === x.id); }).join('') + '</select>'
+      + '<div class="field-label" style="margin-top:10px;">Contenu de la courbe</div><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;"><select id="pv_cm" onchange="aicPavePreview()" aria-label="Contenu de la courbe" style="' + SEL + '">' + opt('auto', 'Indicateur principal', c.courbe.metric === 'auto') + opt('statut', 'Statut SQCDP (vert / orange / rouge)', c.courbe.metric === 'statut') + inds.map(function(x){ return opt(x.id, x.libelle, c.courbe.metric === x.id); }).join('') + '</select>'
+      + '<select id="pv_jours" onchange="aicPavePreview()" aria-label="Période" style="' + INP + '">' + [7, 30, 90].map(function(n){ return opt(String(n), n + ' jours', c.courbe.jours === n); }).join('') + '</select></div>'
+      + '<div style="margin-top:4px;">' + cb('pv_cible', 'Afficher la cible', c.courbe.cible) + cb('pv_avg', 'Moyenne sur 7 jours', c.courbe.moyenne) + '</div>'
+      + '</div><div style="min-width:230px;"><div class="field-label">Aperçu du pavé</div><div id="pv_prev"></div></div></div>'
+      + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px;"><button type="button" class="add-btn" onclick="aicPaveSave(\'' + id + '\')">✓ Valider le pavé</button><button type="button" class="add-btn sm ghost" onclick="aicPaveReset(\'' + id + '\')">Rétablir le défaut</button><span id="pv_msg" role="status" style="font-size:12px;"></span></div></div>';
+    aicPavePreview();
+  }
+  window.aicPavePreview = function(){
+    var box = document.getElementById('pv_prev'), t = AIC.them.filter(function(x){ return x.id === AIC.paveId; })[0]; if (!box || !t) return;
+    var inds = AIC.ind.filter(function(x){ return x.thematique_id === t.id && x.actif; }), pick = val('pv_ind'), pr = inds.filter(function(x){ return x.id === pick; })[0] || inds[0] || null, col = esc(t.couleur || '#560A0F'), cm = val('pv_cm'), body = '';
+    var cmLabel = cm === 'statut' ? 'Statut SQCDP' : (inds.filter(function(x){ return x.id === cm; })[0] || pr || { libelle:'Statut SQCDP' }).libelle;
+    if (chk('pv_statut')) body += '<div style="display:flex;gap:10px;align-items:center;padding:10px 12px;">' + pvFace('orange', 40) + '<div style="font-size:12px;line-height:1.3;"><b style="font-size:14px;">Orange</b><br><span style="opacity:.7;">Aujourd\u2019hui</span></div></div>';
+    if (chk('pv_indic')) body += '<div style="padding:8px 12px;border-top:1px solid rgba(86,10,15,.07);"><div style="font-size:24px;font-weight:800;line-height:1.1;">1,2<small style="font-size:12px;opacity:.7;margin-left:3px;">' + esc(pr ? pr.unite : '') + '</small></div><div style="font-size:12px;opacity:.7;">' + (pr ? esc(pr.libelle) + (pr.cible != null ? ' · cible ' + (pr.sens === 'bas' ? '≤ ' : '≥ ') + String(pr.cible).replace('.', ',') : '') : 'Aucun indicateur défini') + '</div></div>';
+    if (chk('pv_tend')) body += '<div style="display:flex;gap:10px;align-items:center;padding:8px 12px;border-top:1px solid rgba(86,10,15,.07);">' + pvArrow(30) + '<div style="font-size:12px;line-height:1.3;"><b style="font-size:13px;">En baisse (−8 %)</b><br><span style="opacity:.7;">favorable</span></div></div>';
+    if (chk('pv_courbe')) body += '<div style="padding:6px 12px;border-top:1px solid rgba(86,10,15,.07);" title="' + esc(cmLabel) + '">' + pvSpark(col) + '<div style="font-size:11px;opacity:.65;">' + esc(cmLabel) + ' · ' + val('pv_jours') + ' j' + (chk('pv_cible') && cm !== 'statut' ? ' · cible' : '') + (chk('pv_avg') && cm !== 'statut' ? ' · moy. 7 j' : '') + '</div></div>';
+    if (chk('pv_bande')) body += '<div style="display:flex;flex-wrap:wrap;gap:2px;padding:6px 12px 10px;">' + '1111211131111211111113111211112'.split('').map(function(g){ return '<i style="display:block;width:8px;height:8px;border-radius:2px;background:' + (g === '1' ? '#2e7d46' : g === '2' ? '#e08a00' : '#c0392b') + ';"></i>'; }).join('') + '</div>';
+    if (!body) body = '<div style="padding:14px 12px;font-size:12px;color:var(--signal);">Aucun bloc : cochez au moins un bloc.</div>';
+    box.innerHTML = '<div style="width:220px;background:#fff;border:2px solid rgba(86,10,15,.12);border-radius:12px;overflow:hidden;"><div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:' + col + ';color:#fff;"><span style="font-size:30px;font-weight:800;line-height:1;">' + esc(t.code) + '</span><span style="font-size:13px;font-weight:600;">' + esc(t.libelle) + '</span></div>' + body + '</div><div class="sub-cell" style="margin-top:6px;">Valeurs d\u2019exemple.</div>';
+  };
+  function paveCfgFromForm(){
+    return { pave:{ statut:chk('pv_statut'), indic:chk('pv_indic'), tend:chk('pv_tend'), courbe:chk('pv_courbe'), bande:chk('pv_bande') }, ind_principal:val('pv_ind') || null,
+             courbe:{ metric:val('pv_cm') || 'auto', jours:parseInt(val('pv_jours'), 10) || 30, cible:chk('pv_cible'), moyenne:chk('pv_avg') } };
+  }
+  async function pavePersist(id, cfg, okMsg){
+    try { touched(await db().from('aic_thematiques').update({ config:cfg, updated_at:new Date().toISOString() }).eq('id', id).select('id'), 'aic_thematiques'); await aicLoad(); flash('pv_msg', true, okMsg); }
+    catch(e){ var m = (e && e.message) || String(e); flash('pv_msg', false, /column|schema cache/i.test(m) ? 'Exécutez d\u2019abord aic_brique3c_pave.sql.' : 'Refusé : ' + m); }
+  }
+  window.aicPaveSave = function(id){ var c = paveCfgFromForm(); if (!(c.pave.statut || c.pave.indic || c.pave.tend || c.pave.courbe || c.pave.bande)){ flash('pv_msg', false, 'Cochez au moins un bloc.'); return; } return pavePersist(id, c, '✓ Pavé enregistré pour tous les espaces'); };
+  window.aicPaveReset = function(id){ return pavePersist(id, {}, '✓ Défaut rétabli'); };
 
   /* ---------- Accès pour les briques suivantes ---------- */
   window.aicReferentiel = function(niveau){
