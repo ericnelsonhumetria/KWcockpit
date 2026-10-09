@@ -172,10 +172,16 @@
   function memPanel(e){
     var list = membresDe(e.id, true);
     var opts = X.users.map(function(u){ return '<option value="' + esc(u.email) + '">' + esc(u.role || '') + '</option>'; }).join('');
+    function how(m){
+      if (e.niveau !== 3 || !m.actif || m.doit_preparer === false) return '';
+      if (m.acces === 'animation') return '<div class="sub-cell" style="padding:0 0 4px 12px;">Animateur : prépare avec le bouton « Préparer l\u2019AIC ».</div>';
+      if (m.acces === 'contribution') return '<div class="sub-cell" style="padding:0 0 4px 12px;">Consultant : prépare en renseignant son SQCDP (un seul pour l\u2019ensemble des managers qu\u2019il coache).</div>';
+      return '';
+    }
     return '<div style="margin:6px 0 10px ' + ((e.niveau - 1) * 22 + 14) + 'px;padding:10px 12px;background:rgba(86,10,15,.04);border-radius:8px;">'
       + (list.length ? list.map(function(m){
           return '<div style="display:flex;align-items:center;gap:8px;font-size:13px;padding:3px 0;' + (m.actif ? '' : 'opacity:.5;') + '"><span>' + esc(m.email) + '</span><span class="sub-cell">' + esc(m.acces) + (m.actif ? '' : ' · retiré') + '</span>' + (m.actif ? '<label class="sub-cell" style="display:inline-flex;gap:4px;align-items:center;" title="Doit préparer l\u2019AIC : compte dans le bilan de préparation"><input type="checkbox" ' + (m.doit_preparer !== false ? 'checked ' : '') + 'onchange="aicxMemberPrep(\'' + m.id + '\',this.checked)" style="width:auto;margin:0;">prépare l\u2019AIC</label>' : '')
-            + '<button type="button" class="add-btn sm ghost" style="margin-left:auto;" onclick="aicxMemberToggle(\'' + m.id + '\',' + (m.actif ? 'false' : 'true') + ')">' + (m.actif ? 'Retirer' : 'Réactiver') + '</button></div>';
+            + '<button type="button" class="add-btn sm ghost" style="margin-left:auto;" onclick="aicxMemberToggle(\'' + m.id + '\',' + (m.actif ? 'false' : 'true') + ')">' + (m.actif ? 'Retirer' : 'Réactiver') + '</button></div>' + how(m);
         }).join('') : '<div class="sub-cell">Aucun membre.</div>')
       + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;align-items:center;">'
       + '<input id="mb_' + e.id + '" list="mbl_' + e.id + '" placeholder="e-mail du compte Cockpit" aria-label="E-mail" style="' + INP + 'width:240px;"><datalist id="mbl_' + e.id + '">' + opts + '</datalist>'
@@ -461,6 +467,11 @@
       + '.aicx-prow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:5px 0;border-bottom:1px solid rgba(86,10,15,.07);}.aicx-pin{flex:1;min-width:200px;height:32px;border:1px solid rgba(86,10,15,.25);border-radius:6px;padding:0 8px;font:inherit;font-size:13px;}.aicx-ras{font-size:12px;display:inline-flex;gap:4px;align-items:center;white-space:nowrap;}.aicx-ok{color:#2e7d46;font-weight:800;width:14px;}'
       + '.aicx-srow{display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid rgba(86,10,15,.07);}'
       + '.aicx-ov{position:fixed;inset:0;z-index:100000;background:rgba(20,10,10,.55);display:flex;align-items:center;justify-content:center;padding:16px;}.aicx-ov-c{background:#fff;border-radius:14px;max-width:760px;width:100%;max-height:90vh;overflow:auto;padding:18px 20px;box-shadow:0 20px 60px rgba(0,0,0,.4);}'
+      + '.aicx-pks{display:inline-flex;gap:6px;}.aicx-pk{position:relative;cursor:pointer;}.aicx-pk input{position:absolute;opacity:0;width:100%;height:100%;margin:0;cursor:pointer;}'
+      + '.aicx-pk span{display:inline-block;padding:5px 10px;border-radius:8px;border:2px solid #d9d2cb;font-size:12px;font-weight:700;color:#5b4b47;background:#fff;}'
+      + '.aicx-pk input:checked + span{background:var(--pc);border-color:var(--pc);color:#fff;}.aicx-pk input:focus-visible + span{outline:3px solid #560A0F;outline-offset:2px;}'
+      + '.aicx-wait{display:inline-block;width:24px;height:24px;line-height:22px;text-align:center;border:2px dashed #c9bfb8;border-radius:50%;color:#b3a69e;font-size:12px;}.aicx-na{color:#c9bfb8;font-size:20px;}'
+      + '.aicx-syrow{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;padding:10px 0;border-bottom:1px solid rgba(86,10,15,.08);}'
       + '.aicx-go{background:#2e7d46!important;}.aicx-sbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 14px;margin:6px 0 10px;background:#fff;border:2px solid #c0392b;border-radius:12px;position:sticky;top:0;z-index:5;}'
       + '.aicx-live{color:#c0392b;font-weight:800;font-size:12px;letter-spacing:.08em;animation:aicxp 1.6s infinite;}.aicx-prep{color:#b26a00;}@keyframes aicxp{50%{opacity:.35}}'
       + '@media (prefers-reduced-motion:reduce){.aicx-live{animation:none}}';
@@ -737,7 +748,7 @@
       + '<div class="aicx-bar"><div class="aicx-title" style="margin:0;">' + esc(e.libelle) + (e.archived_at ? ' <span class="pill p-grey">archivé</span>' : '') + '</div>'
       + (canAnimate(e) ? '<span style="margin-left:auto;display:inline-flex;gap:8px;align-items:center;flex-wrap:wrap;"><span id="aicx_lfb" role="status" style="font-size:12px;"></span><button type="button" class="add-btn ghost" style="font-size:15px;padding:10px 18px;" onclick="aicxPrepare()">🧠 Préparer l\u2019AIC</button><button type="button" class="add-btn aicx-go" style="font-size:15px;padding:10px 18px;" onclick="aicxLaunch()">▶ Lancer l\u2019AIC</button></span>' : '') + '</div>'
       + '<div class="sub-cell">Membres : ' + (membresDe(e.id).map(function(x){ return esc(x.email); }).join(', ') || 'aucun') + '</div>')
-      + (inSess ? '' : b4Top(e, thems, IX, ids))
+      + (inSess ? synthHtml(e, thems) : b4Top(e, thems, IX, ids))
       + '<div class="aicx-month"><button type="button" class="add-btn sm ghost" onclick="aicxMonth(-1)" aria-label="Mois précédent">‹</button><b>' + MOIS[b.mo - 1] + ' ' + b.y + '</b><button type="button" class="add-btn sm ghost" onclick="aicxMonth(1)" aria-label="Mois suivant"' + (SP.month >= curMonth() ? ' disabled' : '') + '>›</button>'
       + (SP.month !== curMonth() ? '<button type="button" class="add-btn sm" onclick="aicxThisMonth()">Aujourd\u2019hui</button>' : '') + '<button type="button" class="add-btn sm ghost" onclick="aicxRefresh()" title="Recharger depuis la base" style="margin-left:auto;">↻ Actualiser</button></div>'
       + '<div class="aicx-leg"><span>' + dot('vert', 16) + ' Vert · objectif tenu</span><span>' + dot('orange', 16) + ' Orange · écart, à surveiller</span><span>' + dot('rouge', 16) + ' Rouge · non tenu, action requise</span><span>' + dot(null, 16) + ' Non renseigné</span>' + (!leaf ? '<span>· Vue consolidée : la <b>pire</b> situation des sites</span>' : '') + '</div>';
@@ -755,7 +766,7 @@
         var rd = refDay(IX, sel.id, ids) || chartEnd();
         h += '<div class="field-label" style="margin-top:18px;">' + esc(sel.code) + ' · ' + esc(sel.libelle) + '</div>' + zonesHtml(IX, IXV, sel, e, ids)
           + '<div class="aicx-two"><div><div class="field-label">Relevés de ' + MOIS[b.mo - 1] + '</div>' + calendarHtml(IX, sel, e, ids, leaf) + (leaf ? editorHtml(IX, IXV, sel, e) : '<div class="sub-cell" style="margin-top:10px;">Consolidation en lecture seule. Ouvrez un site pour saisir ou corriger un relevé.</div>') + '</div>'
-          + '<div><div class="field-label">Indicateurs de suivi</div>' + indicatorsHtml(IXV, sel, e, ids, rd) + '<div class="field-label" style="margin-top:14px;">Derniers commentaires</div>' + timelineHtml(sel, ids) + '</div></div>';
+          + '<div><div class="field-label">Indicateurs de suivi</div>' + indicatorsHtml(IXV, sel, e, ids, rd) + consultantsFieldHtml(sel, e) + '<div class="field-label" style="margin-top:14px;">Derniers commentaires</div>' + timelineHtml(sel, ids) + '</div></div>';
       }
     }
 
@@ -789,10 +800,12 @@
       if (ids.length > 1) leaves(e).forEach(function(sx){ var g = IX[sx.id + '|' + t.id + '|' + ref]; if (g && RANK[g.statut] && g.statut !== 'vert') L.push('    · ' + sx.libelle.replace(/^AIC 3 · /, '') + ' : ' + SC[g.statut].l + (g.commentaire ? ' — ' + g.commentaire : '')); });
     });
     if (!B4.missing){
-      var prepL = [], rasL = {};
-      B4.preps.forEach(function(r){ var t = byId(SP.ref && SP.ref.them || [], r.thematique_id) || (SP.ref && SP.ref.them || []).filter(function(x){ return x.id === r.thematique_id; })[0]; if (!t) return;
-        if (r.contenu && String(r.contenu).trim()) prepL.push('- ' + t.code + ' · ' + nomDe(r.email) + ' : ' + String(r.contenu).trim()); else (rasL[nomDe(r.email)] = rasL[nomDe(r.email)] || []).push(t.code); });
-      if (prepL.length || Object.keys(rasL).length){ L.push('', 'POINTS PRÉPARÉS PAR L\u2019ÉQUIPE'); prepL.slice(0, 25).forEach(function(x){ L.push(x); }); Object.keys(rasL).forEach(function(k){ L.push('- RAS (' + rasL[k].join(' ') + ') : ' + k); }); }
+      if (e.niveau === 3 && B4.preps.length){
+        var th3 = themsFor(e); L.push('', 'SQCDP DES CONSULTANTS (préparation, par champ)');
+        th3.forEach(function(t){ attendus(e, th3).forEach(function(m){ var r = prepOf(m.email, t.id); if (!r) return; L.push('- ' + t.code + ' · ' + nomDe(m.email) + ' : ' + SC[r.statut].l.toUpperCase() + (r.commentaire ? ' — ' + r.commentaire : '')); }); });
+        var miss = attendus(e, th3).map(function(m){ var mine = th3.filter(function(t){ return !prepOf(m.email, t.id); }); return mine.length ? nomDe(m.email) + ' (' + mine.map(function(t){ return t.code; }).join(' ') + ')' : ''; }).filter(Boolean);
+        if (miss.length) L.push('Pas encore renseigné : ' + miss.join(', '));
+      }
       var subj = B4.sujets.concat(B4.recv); if (subj.length){ L.push('', 'SUJETS À TRAITER PAR CHAMP SQCDP'); subj.slice(0, 25).forEach(function(x){ var t = (SP.ref && SP.ref.them || []).filter(function(y){ return y.id === x.thematique_id; })[0], o = byId(X.espaces, x.espace_id); L.push('- ' + (t ? t.code : '?') + ' · ' + x.titre + (x.detail ? ' — ' + x.detail : '') + (o && o.id !== e.id ? ' (origine : ' + o.libelle.replace(/^AIC (\d) · /, 'AIC $1 · ') + ')' : '')); }); }
     }
     var sm = icmSummary(); if (sm) L.push('', 'ICM® (Humetria) : ' + fmt(sm.cur) + ' %' + (sm.prev != null ? ' (' + (sm.cur - sm.prev >= 0 ? '+' : '') + fmt(sm.cur - sm.prev) + ' pt vs mesure précédente)' : '') + (ids.length > 1 ? ' · moyenne pondérée de ' + sm.S.length + ' site(s)' : ''));
@@ -830,9 +843,15 @@
   window.aicxPrepare = async function(){
     var e = byId(X.espaces, X.open); if (!e) return; flash('aicx_lfb', true, 'Préparation de la séance…');
     try {
-      var s = await aicxEnsureSeance(e); await aicxStartSession(s.id, 'cr', false, 'prepa');
-      if (!s.prepared && typeof window.crPrep === 'function'){ flash('aicx_sfb', true, '🧠 Préparation IA en cours…'); await window.crPrep(); flash('aicx_sfb', true, '✓ Préparation prête : relisez-la, puis « Lancer l\u2019AIC »'); }
-      else if (s.prepared) flash('aicx_sfb', true, 'Préparation déjà générée aujourd\u2019hui : relancez-la depuis le compte-rendu si besoin.');
+      var s = await aicxEnsureSeance(e);
+      try { var pr0 = await rpc('aic_seance_prepare', { p_cr:String(s.id) }); setOffset(pr0.server_now); B4.seanceBy[String(s.id)] = pr0.seance; B4.sc = B4.sc.filter(function(x){ return x.cr_id !== String(s.id); }); B4.sc.unshift(pr0.seance); }
+      catch(e0){ var m0 = (e0 && e0.message) || String(e0); if (!missing(m0)) throw e0; }
+      await aicxStartSession(s.id, 'cr', false, 'prepa');
+      var tasks = [], synth = (e.niveau === 3 && B4.preps.length) ? 'oui' : '';
+      if (!s.prepared && typeof window.crPrep === 'function'){ flash('aicx_sfb', true, '🧠 Préparation IA en cours…'); tasks.push(window.crPrep()); }
+      if (synth) tasks.push(window.aicxSynth(true));                        /* la synthèse du SQCDP de l'animateur se prépare en parallèle */
+      await Promise.all(tasks.map(function(t){ return Promise.resolve(t).catch(function(){}); }));
+      flash('aicx_sfb', true, s.prepared && !synth ? 'Préparation déjà générée aujourd\u2019hui : relancez-la depuis le compte-rendu si besoin.' : '✓ Préparation prête' + (B4.syn ? ' · synthèse de votre SQCDP à valider dans ① Tableau' : '') + ' : relisez, puis « Lancer l\u2019AIC »');
     } catch(err){ flash('aicx_lfb', false, 'Refusé : ' + ((err && err.message) || err)); }
   };
   window.aicxLaunch = async function(){
@@ -918,7 +937,7 @@
   var STAT_PREP = { exhaustive:['✓', 'Exhaustive', '#2e7d46'], tardive:['⏱', 'Complète mais tardive', '#e08a00'], partielle:['◐', 'Partielle', '#e08a00'], absente:['✕', 'Non préparée', '#c0392b'] };
 
   function canSupervise(e){ return canSeeIcm(e); }                       /* animateur de l'espace ou d'un espace au-dessus, ou CEO */
-  function canPrepare(e){ return !!e && !e.archived_at && memberAcces(e, ['contribution', 'animation']); }
+  function canPrepare(e){ var m = (e && !e.archived_at && e.niveau === 3) ? monMembre(e) : null; return !!m && m.acces === 'contribution' && m.doit_preparer !== false && !(m.champs && m.champs.length === 0); }   /* consultant : il renseigne son SQCDP ; l'animateur prépare avec « Préparer l'AIC » */
   function canContribute(e){ return !!e && !e.archived_at && (X.ceo || memberAcces(e, ['contribution', 'animation'])); }
   function nomDe(email){ var p = (X.pilotes || []).filter(function(x){ return x.email && String(x.email).toLowerCase() === String(email).toLowerCase(); })[0]; return p && p.nom ? p.nom : String(email || '').split('@')[0]; }
   function dureeDe(e){ return (e && e.duree_min) ? e.duree_min : DUREE_DEFAUT; }
@@ -959,6 +978,7 @@
 
   /* ---------- Chargement des données de la brique 4 pour l'espace ouvert ---------- */
   async function aicxLoadB4(e){
+    if (B4.synEsp !== e.id){ B4.syn = null; B4.synEsp = e.id; }                     /* une synthèse ne suit jamais d'un espace à l'autre */
     B4.sc = []; B4.live = null; B4.preps = []; B4.sujets = []; B4.flux = []; B4.recv = []; B4.bilans = []; B4.seanceBy = {}; B4.bilanBy = {}; B4.missing = false; B4.err = '';
     var today = todayIso();
     if (!X.pilotes){ try { var p = await db().from('action_pilotes').select('id,nom,email'); X.pilotes = (p && p.data) || []; } catch(_){ X.pilotes = []; } }
@@ -968,7 +988,8 @@
       var now = await db().rpc('aic_now'); if (now && !now.error && now.data) setOffset(now.data);
       B4.live = B4.sc.filter(function(x){ return x.jour === today && x.debut_at && !x.fin_at; })[0] || null;
     } catch(err){ var m = (err && err.message) || String(err); if (missing(m)) { B4.missing = true; return; } B4.err = m; return; }
-    try { var pr = await db().from('aic_preparations').select('*').eq('espace_id', e.id).eq('pour_le', today); if (!pr.error) B4.preps = pr.data || []; } catch(_){}
+    try { var pr = await db().from('aic_prepa_sqcdp').select('*').eq('espace_id', e.id).eq('pour_le', today); if (!pr.error) B4.preps = pr.data || []; } catch(_){}
+    if (canAnimate(e) && e.niveau === 3 && !B4.syn){ try { var sy = await db().from('aic_syntheses').select('*').eq('espace_id', e.id).eq('jour', today).order('genere_le', { ascending:false }).limit(1); var row = sy && sy.data && sy.data[0]; if (row && !row.valide_le && row.proposition) B4.syn = { id:row.id, ia:row.ia, modele:row.modele, champs:row.proposition.champs || [], global:row.proposition.global || '', manquants:row.proposition.manquants || [], validated:false }; } catch(_){} }
     try {
       var su = await db().from('aic_sujets').select('*').eq('espace_id', e.id).is('archived_at', null).order('created_at', { ascending:false }); if (su.error) throw su.error; B4.sujets = su.data || [];
       var ids = B4.sujets.map(function(x){ return x.id; });
@@ -979,56 +1000,141 @@
     if (canSupervise(e)){ try { var bl = await db().from('aic_bilans').select('*').eq('espace_id', e.id).order('genere_le', { ascending:false }).limit(12); if (!bl.error){ B4.bilans = bl.data || []; B4.bilans.forEach(function(b){ B4.bilanBy[b.seance_id] = b; }); } } catch(_){} }
   }
 
-  /* ---------- Ma préparation de l'AIC (chaque membre qui doit préparer) ---------- */
   function themChip(t){ return '<span class="aicx-chip" style="background:' + esc(t.couleur || '#560A0F') + ';color:#fff;font-weight:700;">' + esc(t.code) + '</span>'; }
+  /* ---------- Préparer l'AIC = renseigner le SQCDP de son périmètre d'intervention ---------- */
+  function monMembre(e){ return e ? (X.membres.filter(function(m){ return m.espace_id === e.id && m.actif && m.email === me(); })[0] || null) : null; }
+  function attendus(e, thems){ return thems.length ? membresDe(e.id).filter(function(m){ return m.acces === 'contribution' && m.doit_preparer !== false; }) : []; }   /* consultants attendus : tous renseignent les mêmes champs */
+  function animateurDe(e){ return membresDe(e.id).filter(function(m){ return m.acces === 'animation' && m.doit_preparer !== false; })[0] || null; }
+  function seanceDuJour(){ return (B4.sc || []).filter(function(x){ return x.jour === todayIso(); })[0] || null; }
+  function heure(ts){ return ts ? new Date(ts).toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit' }) : ''; }
+  /* Mode ANIMATEUR : sa préparation = le bouton « Préparer l'AIC » (et non des champs à remplir). */
+  function animPrepHtml(e){
+    if (e.niveau !== 3 || !canAnimate(e)) return ''; var sc = seanceDuJour(), pa = sc && sc.prepare_at, apres = pa && sc.debut_at && pa > sc.debut_at;
+    var cons = attendus(e, themsFor(e)), prets = cons.filter(function(m){ return themsFor(e).every(function(t){ return prepOf(m.email, t.id); }); }).length;
+    return '<div class="aicx-card" style="margin:12px 0;border-left:5px solid ' + (pa && !apres ? SC.vert.c : SC.orange.c) + ';"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;"><b>🧭 Ma préparation d\u2019animateur</b>'
+      + '<span class="aicx-chip" style="background:' + (pa ? (apres ? '#fff1d6' : '#e3f1e6') : '#fbe3df') + ';">' + (pa ? (apres ? '⏱ faite à ' + esc(heure(pa)) + ', après le lancement' : '✓ « Préparer l\u2019AIC » fait à ' + esc(heure(pa))) : '○ « Préparer l\u2019AIC » pas encore fait') + '</span>'
+      + '<span class="sub-cell">' + prets + '/' + cons.length + ' consultant(s) prêt(s)</span></div>'
+      + '<div class="sub-cell" style="margin-top:4px;">Vous ne remplissez pas de champs : cliquez sur <b>« 🧠 Préparer l\u2019AIC »</b> pour générer l\u2019ordre du jour, la préparation IA du compte-rendu et la synthèse du SQCDP de vos consultants. Le bilan vérifie que vous l\u2019avez fait <b>avant le lancement</b>.</div></div>';
+  }
+  function prepOf(email, thId){ return B4.preps.filter(function(r){ return r.email === email && r.thematique_id === thId; })[0] || null; }
   function prepCardHtml(e, thems, IX, ids){
-    if (!canPrepare(e) || !thems.length) return '';
-    var mine = {}; B4.preps.forEach(function(r){ if (r.email === me()) mine[r.thematique_id] = r; });
-    var cov = thems.filter(function(t){ return mine[t.id]; }).length, full = cov === thems.length, today = todayIso();
-    var rows = thems.map(function(t){
-      var r = mine[t.id], a = agg(IX, t.id, today, ids);
-      return '<div class="aicx-prow"><span style="display:inline-flex;align-items:center;gap:6px;min-width:150px;">' + themChip(t) + '<span style="font-size:13px;">' + esc(t.libelle) + '</span>' + dot(a.st, 16) + '</span>'
-        + '<input id="pp_t_' + t.id + '" value="' + esc(r && r.contenu ? r.contenu : '') + '" placeholder="Mon point sur ' + esc(t.libelle) + ' (ou cochez RAS)" aria-label="Mon point : ' + esc(t.libelle) + '" class="aicx-pin">'
-        + '<label class="aicx-ras"><input type="checkbox" id="pp_r_' + t.id + '"' + (r && r.ras ? ' checked' : '') + ' style="width:auto;margin:0;"> RAS</label><span class="aicx-ok" aria-hidden="true">' + (r ? '✓' : '') + '</span></div>';
+    if (!canPrepare(e)) return ''; var mine = thems; if (!mine.length) return '';
+    var done = mine.filter(function(t){ return prepOf(me(), t.id); }).length, full = done === mine.length, today = todayIso();
+    var rows = mine.map(function(t){
+      var r = prepOf(me(), t.id), cur = r ? r.statut : '', a = agg(IX, t.id, today, ids);
+      var picks = ['vert', 'orange', 'rouge'].map(function(k){ return '<label class="aicx-pk" style="--pc:' + SC[k].c + '"><input type="radio" name="pp_s_' + t.id + '" value="' + k + '"' + (cur === k ? ' checked' : '') + '><span>' + SC[k].g + ' ' + SC[k].l + '</span></label>'; }).join('');
+      return '<div class="aicx-prow"><span style="display:inline-flex;align-items:center;gap:6px;min-width:170px;">' + themChip(t) + '<span style="font-size:13px;">' + esc(t.libelle) + '</span><span title="SQCDP du site aujourd\u2019hui">' + dot(a.st, 14) + '</span></span>'
+        + '<span class="aicx-pks" role="radiogroup" aria-label="Mon statut : ' + esc(t.libelle) + '">' + picks + '</span>'
+        + '<input id="pp_c_' + t.id + '" value="' + esc(r && r.commentaire ? r.commentaire : '') + '" placeholder="Commentaire (obligatoire si orange ou rouge)" aria-label="Commentaire : ' + esc(t.libelle) + '" class="aicx-pin"><span class="aicx-ok" aria-hidden="true">' + (r ? '✓' : '') + '</span></div>';
     }).join('');
     return '<div class="aicx-card" style="margin:12px 0;border-left:5px solid ' + (full ? SC.vert.c : SC.orange.c) + ';"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;"><b>🧩 Ma préparation de l\u2019AIC · ' + esc(longDate(today)) + '</b>'
-      + '<span class="aicx-chip" style="background:' + (full ? '#e3f1e6' : '#fff1d6') + ';">' + cov + '/' + thems.length + ' thématiques' + (full ? ' · exhaustive ✓' : '') + '</span></div>'
-      + '<div class="sub-cell" style="margin:4px 0 8px;">Pour chaque thématique : votre point à porter en AIC, ou « RAS ». La préparation est exhaustive quand toutes les thématiques sont couvertes <b>avant le lancement</b> de l\u2019AIC ; le bilan l\u2019enregistre.</div>'
+      + '<span class="aicx-chip" style="background:' + (full ? '#e3f1e6' : '#fff1d6') + ';">' + done + '/' + mine.length + ' champ(s)' + (full ? ' · exhaustive ✓' : '') + '</span></div>'
+      + '<div class="sub-cell" style="margin:4px 0 8px;">Préparer l\u2019AIC, c\u2019est renseigner <b>un seul SQCDP pour l\u2019ensemble des managers que vous coachez</b> : un statut et un commentaire par champ. Ils alimentent la synthèse de l\u2019animateur. La préparation est exhaustive quand tous vos champs sont renseignés <b>avant le lancement</b> de l\u2019AIC.</div>'
       + rows + '<div style="display:flex;gap:8px;align-items:center;margin-top:8px;"><button type="button" class="add-btn sm" onclick="aicxPrepSave()">✓ Enregistrer ma préparation</button><span id="aicx_pfb" role="status" style="font-size:12px;"></span></div></div>';
   }
+  function radioVal(name){ var els = document.getElementsByName(name); for (var i = 0; i < els.length; i++) if (els[i].checked) return els[i].value; return ''; }
   window.aicxPrepSave = async function(){
-    var e = byId(X.espaces, X.open); if (!e) return; var rows = [], th = themsFor(e);
-    th.forEach(function(t){ var ras = chk('pp_r_' + t.id), txt = val('pp_t_' + t.id); if (ras || txt) rows.push({ espace_id:e.id, thematique_id:t.id, pour_le:todayIso(), email:me(), ras:!!ras && !txt ? true : !!ras, contenu:txt || null }); });
-    if (!rows.length){ flash('aicx_pfb', false, 'Renseignez au moins un point ou cochez RAS.'); return; }
+    var e = byId(X.espaces, X.open); if (!e) return; var mine = themsFor(e), rows = [], bad = [];
+    mine.forEach(function(t){ var st = radioVal('pp_s_' + t.id), cm = val('pp_c_' + t.id); if (!st) return; if (st !== 'vert' && !cm){ bad.push(t.code); return; } rows.push({ espace_id:e.id, thematique_id:t.id, pour_le:todayIso(), email:me(), statut:st, commentaire:cm || null }); });
+    if (bad.length){ flash('aicx_pfb', false, 'Commentaire obligatoire pour un statut orange ou rouge : ' + bad.join(', ') + '.'); return; }
+    if (!rows.length){ flash('aicx_pfb', false, 'Choisissez au moins un statut (vert, orange ou rouge).'); return; }
     try {
-      touched(await db().from('aic_preparations').upsert(rows, { onConflict:'espace_id,email,thematique_id,pour_le' }).select('id'), 'aic_preparations');
-      var pr = await db().from('aic_preparations').select('*').eq('espace_id', e.id).eq('pour_le', todayIso()); if (!pr.error) B4.preps = pr.data || [];
-      aicxDashboard(); var all = th.every(function(t){ return B4.preps.some(function(r){ return r.email === me() && r.thematique_id === t.id; }); });
-      flash('aicx_pfb', true, all ? '✓ Préparation exhaustive enregistrée' : '✓ Enregistré · il reste des thématiques à couvrir');
-    } catch(err){ var m = (err && err.message) || String(err); flash('aicx_pfb', false, /relation|schema cache/i.test(m) ? 'Exécutez d\u2019abord aic_brique4.sql.' : 'Refusé : ' + m); }
+      touched(await db().from('aic_prepa_sqcdp').upsert(rows, { onConflict:'espace_id,email,thematique_id,pour_le' }).select('id'), 'aic_prepa_sqcdp');
+      var pr = await db().from('aic_prepa_sqcdp').select('*').eq('espace_id', e.id).eq('pour_le', todayIso()); if (!pr.error) B4.preps = pr.data || [];
+      aicxDashboard(); var all = mine.every(function(t){ return prepOf(me(), t.id); });
+      flash('aicx_pfb', true, all ? '✓ Préparation exhaustive enregistrée' : '✓ Enregistré · il reste des champs de votre périmètre à renseigner');
+    } catch(err){ var mm = (err && err.message) || String(err); flash('aicx_pfb', false, /relation|schema cache/i.test(mm) ? 'Exécutez d\u2019abord aic_brique5.sql.' : 'Refusé : ' + mm); }
   };
-  /* Pour l'animateur et au-dessus : où en est la préparation de l'équipe avant de lancer ? */
+  /* L'animateur (et au-dessus) voit le SQCDP de chaque consultant : un champ par consultant, sur son périmètre. */
   function teamPrepHtml(e, thems){
-    if (!canSupervise(e) || !thems.length) return '';
-    var exp = membresDe(e.id).filter(function(m){ return m.doit_preparer !== false; }); if (!exp.length) return '';
-    var by = {}; B4.preps.forEach(function(r){ (by[r.email] = by[r.email] || {})[r.thematique_id] = r; });
-    var rows = exp.map(function(m){ var n = thems.filter(function(t){ return by[m.email] && by[m.email][t.id]; }).length, st = n === thems.length ? 'exhaustive' : (n ? 'partielle' : 'absente');
-      return '<div class="aicx-prow"><span style="min-width:170px;"><b style="font-size:13px;">' + esc(nomDe(m.email)) + '</b> <span class="sub-cell">' + esc(m.acces) + '</span></span><span class="aicx-chip" style="background:' + (st === 'exhaustive' ? '#e3f1e6' : st === 'partielle' ? '#fff1d6' : '#fbe3df') + ';">' + STAT_PREP[st][0] + ' ' + STAT_PREP[st][1] + ' · ' + n + '/' + thems.length + '</span></div>'; }).join('');
-    var okN = exp.filter(function(m){ return thems.every(function(t){ return by[m.email] && by[m.email][t.id]; }); }).length;
-    return '<div class="aicx-card" style="margin:12px 0;"><h4>Préparation de l\u2019équipe · aujourd\u2019hui</h4><div class="sub-cell" style="margin-bottom:6px;"><b>' + okN + '/' + exp.length + '</b> préparation(s) exhaustive(s) à cet instant. Le bilan est figé à la fin de l\u2019AIC.</div>' + rows + '</div>';
+    if (e.niveau !== 3 || !canSupervise(e) || !thems.length) return '';
+    var exp = attendus(e, thems), anim = animateurDe(e); if (!exp.length && !anim) return '';
+    var head = '<tr><th style="text-align:left;">Participant</th>' + thems.map(function(t){ return '<th title="' + esc(t.libelle) + '">' + themChip(t) + '</th>'; }).join('') + '<th>Avancement</th></tr>', ready = 0;
+    var sc = seanceDuJour(), pa = sc && sc.prepare_at, apres = pa && sc.debut_at && pa > sc.debut_at;
+    var animRow = anim ? '<tr><td style="text-align:left;"><b style="font-size:13px;">' + esc(nomDe(anim.email)) + '</b><div class="sub-cell">Animateur · prépare avec le bouton</div></td><td colspan="' + thems.length + '" style="text-align:center;"><span class="aicx-chip" style="background:' + (pa ? (apres ? '#fff1d6' : '#e3f1e6') : '#fbe3df') + ';">' + (pa ? (apres ? '⏱ « Préparer l\u2019AIC » fait à ' + esc(heure(pa)) + ' (après le lancement)' : '✓ « Préparer l\u2019AIC » fait à ' + esc(heure(pa))) : '○ « Préparer l\u2019AIC » pas encore fait') + '</span></td><td><span class="aicx-chip" style="background:' + (pa && !apres ? '#e3f1e6' : '#fbe3df') + ';">' + (pa && !apres ? '✓' : '○') + '</span></td></tr>' : '';
+    var rows = exp.map(function(m){ var k = thems.filter(function(t){ return prepOf(m.email, t.id); }).length, full = k === thems.length; if (full) ready++;
+      return '<tr><td style="text-align:left;"><b style="font-size:13px;">' + esc(nomDe(m.email)) + '</b><div class="sub-cell">Consultant</div></td>' + thems.map(function(t){
+          var r = prepOf(m.email, t.id); return '<td>' + (r ? dot(r.statut, 24, nomDe(m.email) + ' · ' + SC[r.statut].l + (r.commentaire ? ' : ' + r.commentaire : '')) : '<span class="aicx-wait" title="À renseigner">○</span>') + '</td>'; }).join('')
+        + '<td><span class="aicx-chip" style="background:' + (full ? '#e3f1e6' : (k ? '#fff1d6' : '#fbe3df')) + ';">' + (full ? '✓ ' : '') + k + '/' + thems.length + '</span></td></tr>'; }).join('');
+    return '<div class="aicx-card" style="margin:12px 0;"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;"><h4 style="margin:0;">SQCDP par consultant · aujourd\u2019hui</h4><span class="sub-cell"><b>' + ready + '/' + exp.length + '</b> consultant(s) prêt(s) (périmètre entièrement renseigné)</span>'
+      + (canAnimate(e) ? '<span style="margin-left:auto;display:inline-flex;gap:8px;align-items:center;"><span id="aicx_syn_fb" role="status" style="font-size:12px;"></span><button type="button" class="add-btn" onclick="aicxSynth()">🧠 Synthèse IA pour mon SQCDP</button></span>' : '') + '</div>'
+      + '<div style="overflow-x:auto;margin-top:6px;"><table class="aicx-mx" style="min-width:460px;"><thead>' + head + '</thead><tbody>' + animRow + rows + '</tbody></table></div></div>';
+  }
+  function consultantsFieldHtml(th, e){
+    if (!th || e.niveau !== 3 || !canSupervise(e) || B4.missing) return '';
+    var thems = themsFor(e), exp = attendus(e, thems); if (!exp.length) return '';
+    return '<div class="field-label" style="margin-top:14px;">Remontées des consultants · ' + esc(th.code) + '</div>' + exp.map(function(m){ var r = prepOf(m.email, th.id);
+      return '<div style="display:flex;gap:10px;align-items:flex-start;padding:5px 0;border-bottom:1px solid rgba(86,10,15,.07);">' + (r ? dot(r.statut, 22) : '<span class="aicx-wait">○</span>') + '<div style="font-size:13px;"><b>' + esc(nomDe(m.email)) + '</b><div>' + (r ? esc(r.commentaire || SC[r.statut].l) : '<span class="sub-cell">pas encore renseigné</span>') + '</div></div></div>'; }).join('');
   }
 
+  /* ---------- Synthèse IA : le SQCDP de l'animateur, proposé à partir de ceux des consultants, validé par l'animateur ---------- */
+  async function tokenOf(){
+    try { if (db().auth && db().auth.getSession){ var s = await db().auth.getSession(); if (s && s.data && s.data.session) return s.data.session.access_token; } } catch(_){}
+    return (typeof SB_SESSION !== 'undefined' && SB_SESSION) ? SB_SESSION.access_token : '';
+  }
+  window.aicxSynth = async function(auto){
+    var e = byId(X.espaces, X.open); if (!e) return; var fb = document.getElementById('aicx_syn_fb') ? 'aicx_syn_fb' : 'aicx_sfb';
+    if (!canAnimate(e) || e.niveau !== 3){ if (auto !== true) flash(fb, false, 'Réservé à l\u2019animateur d\u2019un AIC de site.'); return; }
+    flash(fb, true, '🧠 Synthèse en cours…');
+    try {
+      var r = await fetch('/.netlify/functions/aic-synthese-ia', { method:'POST', headers:{ 'Content-Type':'application/json', Authorization:'Bearer ' + await tokenOf() }, body:JSON.stringify({ espace_id:e.id, jour:todayIso() }) });
+      var j = null; try { j = await r.json(); } catch(_){}
+      if (r.status === 404 && !(j && j.error)) throw new Error('Fonction non déployée : ajoutez netlify/functions/aic-synthese-ia.js.');
+      if (!r.ok) throw new Error((j && j.error) ? j.error : ('HTTP ' + r.status));
+      if (j.vide){ B4.syn = null; aicxDashboard(); flash(document.getElementById('aicx_syn_fb') ? 'aicx_syn_fb' : 'aicx_sfb', true, j.message || 'Rien à synthétiser.'); return; }
+      B4.syn = { id:j.id, ia:j.ia, modele:j.modele, champs:j.champs || [], global:j.global || '', manquants:j.manquants || [], validated:false }; B4.synEsp = e.id;
+      aicxDashboard(); flash(document.getElementById('aicx_syn_fb') ? 'aicx_syn_fb' : 'aicx_sfb', true, j.ia ? '✓ Synthèse prête : relisez, ajustez, puis validez dans votre SQCDP' : '✓ Synthèse de repli prête (sans IA : règle du pire)');
+    } catch(err){ flash(document.getElementById('aicx_syn_fb') ? 'aicx_syn_fb' : 'aicx_sfb', false, 'Refusé : ' + ((err && err.message) || err)); }
+  };
+  function synthHtml(e, thems){
+    var sy = B4.syn; if (!sy || e.niveau !== 3 || !canAnimate(e)) return '';
+    var rows = (sy.champs || []).map(function(c){
+      var st = c.statut_ia || c.statut_regle || '', th = thems.filter(function(t){ return t.id === c.thematique_id; })[0] || { code:c.code, libelle:c.libelle, couleur:'#560A0F' };
+      var opts = ['', 'vert', 'orange', 'rouge'].map(function(k){ return '<option value="' + k + '"' + (k === st ? ' selected' : '') + '>' + (k ? SC[k].l : '— (ne pas renseigner)') + '</option>'; }).join('');
+      return '<div class="aicx-syrow"><div style="min-width:160px;display:flex;gap:6px;align-items:center;">' + themChip(th) + '<b style="font-size:13px;">' + esc(c.libelle) + '</b></div>'
+        + '<div style="min-width:90px;font-size:12px;"><div class="sub-cell">règle du pire</div>' + dot(c.statut_regle, 22) + '</div>'
+        + '<div style="min-width:130px;"><div class="sub-cell">mon SQCDP</div><select id="sy_s_' + esc(c.code) + '" aria-label="Statut retenu : ' + esc(c.libelle) + '" style="' + INP + 'height:30px;">' + opts + '</select></div>'
+        + '<div style="flex:1;min-width:260px;"><textarea id="sy_c_' + esc(c.code) + '" rows="3" aria-label="Commentaire : ' + esc(c.libelle) + '" style="width:100%;box-sizing:border-box;border:1px solid rgba(86,10,15,.25);border-radius:8px;padding:6px 8px;font:inherit;font-size:13px;">' + esc(c.commentaire || '') + '</textarea>'
+        + ((c.alertes || []).length ? '<div style="font-size:12px;color:#9a5b00;margin-top:3px;">⚠ ' + c.alertes.map(esc).join(' · ') + '</div>' : '')
+        + ((c.sources || []).length ? '<details style="margin-top:3px;"><summary class="sub-cell" style="cursor:pointer;">' + c.sources.length + ' source(s) consultant</summary>' + c.sources.map(function(s){ return '<div style="font-size:12px;padding:2px 0;">' + dot(s.statut, 12) + ' <b>' + esc(s.consultant) + '</b> : ' + esc(s.commentaire || s.statut) + '</div>'; }).join('') + '</details>' : '') + '</div>'
+        + '<label style="font-size:12px;display:inline-flex;gap:4px;align-items:center;white-space:nowrap;"><input type="checkbox" id="sy_k_' + esc(c.code) + '"' + (st ? ' checked' : '') + ' style="width:auto;margin:0;"> Retenir</label></div>';
+    }).join('');
+    var miss = (sy.manquants || []).length ? '<div style="font-size:12px;color:#9a5b00;margin:6px 0;">⚠ Pas tout renseigné : ' + sy.manquants.map(function(m){ return esc(m.nom) + ' (' + m.champs.map(esc).join(' ') + ')'; }).join(' · ') + '</div>' : '';
+    return '<div class="aicx-card aicx-syn" id="aicx_syn" style="margin:12px 0;border-left:5px solid #560A0F;"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;"><b>🧠 Synthèse pour mon SQCDP</b><span class="aicx-chip">' + (sy.ia ? 'IA · ' + esc(sy.modele || '') : 'Sans IA : règle du pire') + '</span>' + (sy.validated ? '<span class="aicx-chip" style="background:#e3f1e6;">✓ validée</span>' : '') + '<button type="button" class="add-btn sm ghost" style="margin-left:auto;" onclick="aicxSynthFermer()">Fermer</button></div>'
+      + (sy.global ? '<div style="margin:6px 0;font-size:13px;">' + esc(sy.global) + '</div>' : '') + miss
+      + '<div class="sub-cell" style="margin:4px 0;">Relisez et ajustez : l\u2019IA ne peut pas proposer un statut moins sévère que le pire déclaré par un consultant. Rien n\u2019est écrit dans votre SQCDP avant votre validation.</div>' + rows
+      + '<div style="display:flex;gap:8px;align-items:center;margin-top:8px;"><button type="button" class="add-btn" onclick="aicxSynthValider()">✓ Valider dans mon SQCDP</button><span id="aicx_syv_fb" role="status" style="font-size:12px;"></span></div></div>';
+  }
+  window.aicxSynthFermer = function(){ B4.syn = null; aicxDashboard(); };
+  window.aicxSynthValider = async function(){
+    var e = byId(X.espaces, X.open), sy = B4.syn; if (!e || !sy) return; var rows = [], decisions = [];
+    (sy.champs || []).forEach(function(c){ if (!chk('sy_k_' + c.code)) return; var st = val('sy_s_' + c.code), cm = val('sy_c_' + c.code); if (!RANK[st]) return; rows.push({ espace_id:e.id, thematique_id:c.thematique_id, jour:todayIso(), statut:st, commentaire:cm || null }); decisions.push({ code:c.code, statut:st, commentaire:cm || null }); });
+    if (!rows.length){ flash('aicx_syv_fb', false, 'Cochez au moins un champ avec un statut.'); return; }
+    try {
+      touched(await db().from('aic_statuts').upsert(rows, { onConflict:'espace_id,thematique_id,jour' }).select('id'), 'aic_statuts');
+      try { await rpc('aic_synthese_valider', { p_id:sy.id, p_validation:decisions }); } catch(_){}
+      sy.validated = true; await aicxLoadStatuts(); aicxDashboard(); flash('aicx_syv_fb', true, '✓ SQCDP de l\u2019animateur mis à jour (' + rows.length + ' champ(s))');
+    } catch(err){ flash('aicx_syv_fb', false, 'Refusé : ' + ((err && err.message) || err)); }
+  };
+
   /* ---------- Bilan de préparation (fin d'AIC, et consultation dans Admin) ---------- */
+  var STAT_ANIM = { exhaustive:['✓', 'Préparée avant le lancement', '#2e7d46'], tardive:['⏱', 'Préparée après le lancement', '#e08a00'], absente:['✕', 'Non préparée (bouton non utilisé)', '#c0392b'] };
   function bilanHtml(b, titre){
-    var d = b.detail || {}, ms = (d.membres || []).slice().sort(function(x, y){ var o = { absente:0, partielle:1, tardive:2, exhaustive:3 }; return o[x.statut] - o[y.statut] || x.email.localeCompare(y.email); });
+    var d = b.detail || {}, ms = (d.membres || []).slice(), o = { absente:0, partielle:1, tardive:2, exhaustive:3 };
+    var an = ms.filter(function(m){ return m.mode === 'bouton'; }), co = ms.filter(function(m){ return m.mode !== 'bouton'; }).sort(function(x, y){ return o[x.statut] - o[y.statut] || x.email.localeCompare(y.email); });
     var dur = (d.debut_at && d.fin_at) ? Math.max(1, Math.round((new Date(d.fin_at) - new Date(d.debut_at)) / 60000)) : null;
-    var rows = ms.map(function(m){ var s = STAT_PREP[m.statut] || STAT_PREP.absente;
-      return '<tr><td style="text-align:left;"><b>' + esc(nomDe(m.email)) + '</b><div class="sub-cell">' + esc(m.acces || '') + '</div></td><td><span style="color:' + s[2] + ';font-weight:700;">' + s[0] + ' ' + s[1] + '</span></td><td style="text-align:center;">' + m.couverts_avant + '/' + m.total + (m.couverts !== m.couverts_avant ? ' <span class="sub-cell">(' + m.couverts + ' avec les retards)</span>' : '') + '</td><td style="text-align:center;">' + (m.derniere_maj ? esc(new Date(m.derniere_maj).toLocaleString('fr-FR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })) : '—') + '</td></tr>'; }).join('');
+    var hm = function(ts){ return ts ? esc(new Date(ts).toLocaleString('fr-FR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })) : '—'; };
     var col = Number(b.taux) >= 80 ? SC.vert.c : (Number(b.taux) >= 50 ? SC.orange.c : SC.rouge.c);
+    if (d.applicable === false) return '<div class="aicx-ov-h"><div class="sub-cell">' + esc(titre || '') + ' · ' + esc(fdate(b.jour)) + '</div><div style="margin:8px 0;">La préparation par périmètre (SQCDP des consultants) concerne les AIC de site : à ce niveau, le SQCDP est la consolidation des sites.</div></div>';
+    var rowsA = an.map(function(m){ var s_ = STAT_ANIM[m.statut] || STAT_ANIM.absente; return '<tr><td style="text-align:left;"><b>' + esc(nomDe(m.email)) + '</b><div class="sub-cell">Animateur</div></td><td><span style="color:' + s_[2] + ';font-weight:700;">' + s_[0] + ' ' + s_[1] + '</span></td><td style="text-align:center;">' + hm(m.derniere_maj) + '</td></tr>'; }).join('');
+    var rowsC = co.map(function(m){ var s_ = STAT_PREP[m.statut] || STAT_PREP.absente;
+      return '<tr><td style="text-align:left;"><b>' + esc(nomDe(m.email)) + '</b><div class="sub-cell">Consultant</div></td><td><span style="color:' + s_[2] + ';font-weight:700;">' + s_[0] + ' ' + s_[1] + '</span></td><td style="text-align:center;">' + m.couverts_avant + '/' + m.total + (m.couverts !== m.couverts_avant ? ' <span class="sub-cell">(' + m.couverts + ' avec les retards)</span>' : '') + '</td><td style="text-align:center;">' + hm(m.derniere_maj) + '</td></tr>'; }).join('');
     return '<div class="aicx-ov-h"><div class="sub-cell">' + esc(titre || '') + ' · ' + esc(fdate(b.jour)) + (dur ? ' · AIC de ' + dur + ' min (prévue ' + (d.duree_min || '?') + ')' : '') + '</div>'
       + '<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:6px 0;"><span class="aicx-big" style="color:' + col + ';">' + b.nb_exhaustifs + '/' + b.nb_attendus + '</span><div><b>ont préparé l\u2019AIC de manière exhaustive</b><div class="sub-cell">' + fmt(b.taux) + ' % · ' + b.nb_partiels + ' partielle(s) ou tardive(s) · ' + b.nb_absents + ' non préparée(s)</div></div></div></div>'
-      + (ms.length ? '<div style="overflow-x:auto;"><table class="aicx-mx" style="min-width:420px;"><thead><tr><th style="text-align:left;">Membre</th><th>Préparation</th><th>Thématiques (avant le début)</th><th>Dernière mise à jour</th></tr></thead><tbody>' + rows + '</tbody></table></div>' : '<div class="sub-cell">Aucun membre n\u2019est configuré pour préparer cet AIC.</div>')
-      + '<div class="sub-cell" style="margin-top:8px;">Exhaustive = toutes les thématiques (' + ((d.themes || []).map(function(t){ return esc(t.code); }).join(' ')) + ') couvertes avant le début de l\u2019AIC. Bilan figé le ' + esc(new Date(b.genere_le).toLocaleString('fr-FR')) + ' · consultable dans Admin › Bilans de préparation.</div>';
+      + (an.length ? '<div class="field-label">Animateur · préparation par le bouton « Préparer l\u2019AIC »</div><div style="overflow-x:auto;"><table class="aicx-mx" style="min-width:420px;"><thead><tr><th style="text-align:left;">Animateur</th><th>Préparation</th><th>Heure du clic</th></tr></thead><tbody>' + rowsA + '</tbody></table></div>' : '')
+      + '<div class="field-label">Consultants · SQCDP renseigné pour leurs managers coachés</div>'
+      + (co.length ? '<div style="overflow-x:auto;"><table class="aicx-mx" style="min-width:460px;"><thead><tr><th style="text-align:left;">Consultant</th><th>Préparation du SQCDP</th><th>Champs (avant le début)</th><th>Dernière mise à jour</th></tr></thead><tbody>' + rowsC + '</tbody></table></div>' : '<div class="sub-cell">Aucun consultant n\u2019est configuré pour préparer cet AIC.</div>')
+      + '<div class="sub-cell" style="margin-top:8px;">Deux modes selon le rôle. Consultant : tous les champs SQCDP renseignés avant le début de l\u2019AIC. Animateur : « Préparer l\u2019AIC » cliqué avant le début. Bilan figé le ' + esc(new Date(b.genere_le).toLocaleString('fr-FR')) + ' · consultable dans Admin › Bilans de préparation.</div>';
   }
   function showOverlay(inner, buttons, label){
     var old = document.getElementById('aicx_ov'); if (old) old.remove();
@@ -1102,7 +1208,7 @@
   /* ---------- Blocs ajoutés au tableau de bord ---------- */
   function b4Top(e, thems, IX, ids){
     if (B4.missing) return X.ceo ? '<div class="panel" style="padding:10px 14px;color:var(--signal);margin-top:8px;">Chrono, préparation et sujets indisponibles : exécutez d\u2019abord aic_brique4.sql.</div>' : '';
-    return liveBannerHtml(e) + prepCardHtml(e, thems, IX, ids) + teamPrepHtml(e, thems);
+    return liveBannerHtml(e) + animPrepHtml(e) + prepCardHtml(e, thems, IX, ids) + teamPrepHtml(e, thems) + synthHtml(e, thems);
   }
   function b4Bottom(e, thems){ return sujetsHtml(e, thems) + recvHtml(e, thems); }
   function b4AfterRender(){ if (B4.live && document.getElementById('aicx_live')){ chronoStart(B4.live); if (!CH.poll) CH.poll = setInterval(window.aicxPollLive, 30000); } }
