@@ -2,9 +2,16 @@
    CONFIGURATION (Admin, CEO seul) : clients, missions, sites (AIC 3), membres.
    EXPLOITATION (onglet AIC) : liste des espaces accessibles + tableau de bord par espace, en lecture.
    Additif : enrobe render() et renderTab() sans les modifier. Aucune suppression : archivage / désactivation.
-   Le cloisonnement et le droit « CEO seul » sont garantis par la RLS (aic_brique2.sql) ; l'interface ne fait que les refléter. */
+   Le cloisonnement et le droit « CEO seul » sont garantis par la RLS (aic_brique2.sql) ; l'interface ne fait que les refléter.
+   DEUX HÔTES, UN SEUL FICHIER (comme cr-actions.js) :
+   - Cockpit KW (index.html) : onglet AIC + configuration dans Admin (inchangé).
+   - Clap! (clap/index.html, page des consultants) : la page pose window.CLAP_HOST = true avant de charger ce module ;
+     le module expose window.clapAIC { access, mount, busy, reset }. Pas d'Admin dans Clap! (configuration dans le Cockpit).
+   Même projet Supabase, mêmes tables, mêmes droits (RLS) : ce qui est fait dans l'un apparaît dans l'autre. */
 (function(){
-  if (typeof renderTab !== 'function' || typeof render !== 'function') return;
+  var COCKPIT = (typeof renderTab === 'function' && typeof render === 'function');
+  var CLAP = !COCKPIT && window.CLAP_HOST === true;
+  if (!COCKPIT && !CLAP) return;
 
   var X = { missions:[], espaces:[], membres:[], users:[], ceo:false, access:null, email:'', showArch:false,
             open:null, openMem:null, session:null, msg:'' };
@@ -46,11 +53,13 @@
   }
 
   /* ---------- Onglet AIC (ajouté après render(), sans modifier index.html) ---------- */
-  var _renderX = render;
-  render = function(role){
-    _renderX.apply(this, arguments);
-    aicxTab().catch(function(){});
-  };
+  if (COCKPIT){
+    var _renderX = render;
+    render = function(role){
+      _renderX.apply(this, arguments);
+      aicxTab().catch(function(){});
+    };
+  }
   async function aicxTab(){
     var tabs = document.getElementById('tabs'); if (!tabs || !db()) return;
     var ok = await aicxAccess();
@@ -63,13 +72,25 @@
     if (typeof CURRENT_TAB !== 'undefined' && CURRENT_TAB === 'aic') b.classList.add('active');
   }
 
-  var _rtX = renderTab;
-  renderTab = function(){
-    _rtX.apply(this, arguments);
-    if (typeof CURRENT_TAB === 'undefined') return;
-    if (CURRENT_TAB === 'aic') aicxMain();
-    else if (CURRENT_TAB === 'admin'){ aicxStructMount(); aicxAdm2Mount(); }
-  };
+  if (COCKPIT){
+    var _rtX = renderTab;
+    renderTab = function(){
+      _rtX.apply(this, arguments);
+      if (typeof CURRENT_TAB === 'undefined') return;
+      if (CURRENT_TAB === 'aic') aicxMain();
+      else if (CURRENT_TAB === 'admin'){ aicxStructMount(); aicxAdm2Mount(); }
+    };
+  }
+  /* Clap! : la page appelle ces quatre fonctions ; rien d'autre n'est requis de sa part. */
+  if (CLAP){
+    window.clapAIC = {
+      access: function(){ return aicxAccess().then(function(ok){ return !!ok; }, function(){ return false; }); },   /* CEO ou membre actif d'un espace */
+      mount: function(){ return aicxMain(); },                                                                         /* affiche l'AIC dans #view (reprend la séance en cours s'il y en a une) */
+      busy: function(){ return !!(X.session && X.session.mode === 'live'); },                                         /* AIC en cours : la page demande confirmation avant de quitter l'onglet */
+      reset: function(){ try { if (CH.timer) clearInterval(CH.timer); if (CH.poll) clearInterval(CH.poll); if (TR.t) clearInterval(TR.t); } catch(_){} CH.timer = null; CH.poll = null; TR.t = null;
+                         X.open = null; X.session = null; X.access = null; X.ceo = false; X.missions = []; X.espaces = []; X.membres = []; _accP = null; _accEmail = ''; }   /* déconnexion : rien ne reste d'un utilisateur à l'autre */
+    };
+  }
 
   /* ---------- Admin : configuration des structures AIC (CEO seul) ---------- */
   function aicxStructMount(){
@@ -144,7 +165,7 @@
   function aicxRender(){ if (!X.msg && X.session && byId(X.espaces, X.session.espaceId)){ aicxStartSession(X.session.crId, X.session.pane, true, X.session.mode, X.session.date); return; } if (X.msg){ view().innerHTML = head() + '<div class="panel" style="padding:14px 16px;color:var(--signal);">' + esc(X.msg) + '</div>'; return; } if (X.open && byId(X.espaces, X.open)) aicxDashboard(); else { X.open = null; aicxList(); } }
   function head(){
     return '<div class="sec-eyebrow">AIC</div><div class="sec-title">Espaces par mission</div>'
-      + '<div class="sec-note">Un espace par niveau et par mission, strictement cloisonnés : vous ne voyez que les espaces dont vous êtes membre (et ceux placés sous eux).' + (X.ceo ? ' Configuration : Admin › Structures AIC.' : '') + '</div>';
+      + '<div class="sec-note">Un espace par niveau et par mission, strictement cloisonnés : vous ne voyez que les espaces dont vous êtes membre (et ceux placés sous eux).' + (X.ceo ? (CLAP ? ' Configuration : dans le Cockpit KW, Admin › Structures AIC.' : ' Configuration : Admin › Structures AIC.') : '') + '</div>';
   }
 
   /* ---------- Liste : missions > cascade ---------- */
@@ -422,8 +443,8 @@
       + '.aicx-tile:hover{box-shadow:0 4px 14px rgba(0,0,0,.14);transform:translateY(-1px);}'
       + '.aicx-tile:focus-visible{outline:3px solid #560A0F;outline-offset:2px;}'
       + '.aicx-tile.sel{border-color:var(--c);box-shadow:0 0 0 3px rgba(86,10,15,.15);}'
-      + '.aicx-th{flex:none;box-sizing:border-box;height:84px;display:flex;align-items:center;gap:12px;padding:8px 12px;background:var(--c);color:#fff;}'
-      + '.aicx-let{flex:none;font-size:32px;font-weight:800;line-height:1;width:30px;text-align:center;}'
+      + '.aicx-th{flex:none;box-sizing:border-box;height:84px;display:flex;align-items:flex-start;gap:12px;padding:12px 12px 8px;background:var(--c);color:#fff;}'
+      + '.aicx-let{flex:none;font-size:32px;font-weight:800;line-height:1;width:30px;text-align:center;margin-top:-2px;}'
       + '.aicx-tt{display:flex;flex-direction:column;justify-content:flex-start;gap:3px;min-width:0;height:68px;}'
       + '.aicx-tl{font-size:15px;font-weight:700;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}'
       + '.aicx-ts{font-size:11.5px;font-weight:500;line-height:1.25;opacity:.92;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;}'
@@ -459,6 +480,7 @@
       + '.aicx-val{display:grid;grid-template-columns:1fr 110px;gap:6px 10px;align-items:center;margin:8px 0;}'
       + '.aicx-val input{height:34px;border:1px solid rgba(86,10,15,.25);border-radius:6px;padding:0 8px;font:inherit;font-size:14px;width:100%;}'
       + '.aicx-mx{border-collapse:collapse;width:100%;}.aicx-mx th,.aicx-mx td{padding:6px 8px;text-align:center;border-bottom:1px solid rgba(86,10,15,.08);}'
+      + '.aicx-mx th{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#7a6f63;}'   /* même style que le Cockpit, mais défini ici : Clap! n'en a pas */
       + '.aicx-mx td:first-child,.aicx-mx th:first-child{text-align:left;}.aicx-mx button{background:none;border:0;padding:0;cursor:pointer;}'
       + '.aicx-leg{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;margin:6px 0 2px;}.aicx-leg span{display:inline-flex;align-items:center;gap:5px;}'
       + '.aicx-chrono{display:inline-flex;align-items:baseline;gap:8px;padding:4px 14px;border-radius:10px;border:2px solid #2e7d46;color:#2e7d46;background:#fff;font-variant-numeric:tabular-nums;}'
