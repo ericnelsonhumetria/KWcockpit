@@ -14,6 +14,12 @@
   function val(id){ var el = document.getElementById(id); return el ? String(el.value || '').trim() : ''; }
   function chk(id){ var el = document.getElementById(id); return !!(el && el.checked); }
   function niveauxDe(prefix){ return NIVEAUX.filter(function(n){ return chk(prefix + n); }); }
+  /* Une modification bloquée par la RLS renvoie 0 ligne SANS erreur : on exige au moins une ligne touchée. */
+  function touched(r, table){
+    if (r && r.error) throw r.error;
+    if (!r || !r.data || !r.data.length) throw new Error('aucune ligne modifiée : droit d\u2019écriture refusé par la base (' + table + ')');
+    return r;
+  }
   function flash(id, ok, txt){ var el = document.getElementById(id); if(!el) return; el.style.color = ok ? '#1e7d34' : '#9a3412'; el.textContent = txt; if(ok) setTimeout(function(){ if(el.textContent === txt) el.textContent = ''; }, 2500); }
 
   /* ---------- Montage dans l'onglet Admin ---------- */
@@ -120,7 +126,7 @@
     try {
       var r;
       if (id === 'new'){ row.ordre = (AIC.them.length + 1) * 10; r = await db().from('aic_thematiques').insert(row); }
-      else { row.actif = chk('ta_' + id); r = await db().from('aic_thematiques').update(row).eq('id', id); }
+      else { row.actif = chk('ta_' + id); r = touched(await db().from('aic_thematiques').update(row).eq('id', id).select('id'), 'aic_thematiques'); }
       if (r.error) throw r.error;
       await aicLoad(); flash('tm_' + id, true, '✓ Enregistré');
     } catch(e){ flash(mid, false, 'Refusé : ' + ((e && e.message) || e)); }
@@ -129,7 +135,7 @@
     var L = AIC.them.slice(), i = L.findIndex(function(t){ return t.id === id; }), j = i + dir;
     if (i < 0 || j < 0 || j >= L.length) return;
     var tmp = L[i]; L[i] = L[j]; L[j] = tmp;
-    try { for (var k = 0; k < L.length; k++){ var r = await db().from('aic_thematiques').update({ ordre:(k + 1) * 10 }).eq('id', L[k].id); if (r.error) throw r.error; } await aicLoad(); }
+    try { for (var k = 0; k < L.length; k++){ var r = touched(await db().from('aic_thematiques').update({ ordre:(k + 1) * 10 }).eq('id', L[k].id).select('id'), 'aic_thematiques'); } await aicLoad(); }
     catch(e){ alert('Réordonnancement refusé : ' + ((e && e.message) || e)); }
   };
 
@@ -144,7 +150,7 @@
     try {
       var r;
       if (id.indexOf('new_') === 0){ row.thematique_id = thId; row.ordre = (AIC.ind.filter(function(x){ return x.thematique_id === thId; }).length + 1) * 10; r = await db().from('aic_indicateurs').insert(row); }
-      else { row.actif = chk('ia_' + id); r = await db().from('aic_indicateurs').update(row).eq('id', id); }
+      else { row.actif = chk('ia_' + id); r = touched(await db().from('aic_indicateurs').update(row).eq('id', id).select('id'), 'aic_indicateurs'); }
       if (r.error) throw r.error;
       await aicLoad(); flash('im_' + id, true, '✓ Enregistré');
     } catch(e){ flash(mid, false, 'Refusé : ' + ((e && e.message) || e)); }
@@ -154,7 +160,7 @@
     var L = AIC.ind.filter(function(x){ return x.thematique_id === cur.thematique_id; }), i = L.findIndex(function(x){ return x.id === id; }), j = i + dir;
     if (i < 0 || j < 0 || j >= L.length) return;
     var tmp = L[i]; L[i] = L[j]; L[j] = tmp;
-    try { for (var k = 0; k < L.length; k++){ var r = await db().from('aic_indicateurs').update({ ordre:(k + 1) * 10 }).eq('id', L[k].id); if (r.error) throw r.error; } await aicLoad(); }
+    try { for (var k = 0; k < L.length; k++){ var r = touched(await db().from('aic_indicateurs').update({ ordre:(k + 1) * 10 }).eq('id', L[k].id).select('id'), 'aic_indicateurs'); } await aicLoad(); }
     catch(e){ alert('Réordonnancement refusé : ' + ((e && e.message) || e)); }
   };
 
