@@ -16,6 +16,12 @@
   function db(){ return (typeof SB !== 'undefined' && SB) ? SB : null; }
   function val(id){ var el = document.getElementById(id); return el ? String(el.value || '').trim() : ''; }
   function me(){ return String((typeof CURRENT_EMAIL !== 'undefined' && CURRENT_EMAIL) || '').toLowerCase(); }
+  /* Une modification bloquée par la RLS renvoie 0 ligne SANS erreur : on exige au moins une ligne touchée. */
+  function touched(r, table){
+    if (r && r.error) throw r.error;
+    if (!r || !r.data || !r.data.length) throw new Error('aucune ligne modifiée : droit d\u2019écriture refusé par la base (' + table + ')');
+    return r;
+  }
   function flash(id, ok, txt){ var el = document.getElementById(id); if(!el) return; el.style.color = ok ? '#1e7d34' : '#9a3412'; el.textContent = txt; if(ok) setTimeout(function(){ if(el.textContent === txt) el.textContent = ''; }, 2500); }
   function fdate(d){ if(!d) return ''; var p = String(d).slice(0,10).split('-'); return p.length === 3 ? p[2] + '/' + p[1] + '/' + p[0] : d; }
   function byId(list, id){ for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i]; return null; }
@@ -223,10 +229,10 @@
     try {
       var r;
       if (kind === 'mis'){
-        r = await db().from('aic_missions').update({ archived_at:ts, statut:on ? 'archivee' : 'active', updated_at:new Date().toISOString() }).eq('id', id); if (r.error) throw r.error;
-        r = await db().from('aic_espaces').update({ archived_at:ts, updated_at:new Date().toISOString() }).eq('mission_id', id); if (r.error) throw r.error;
+        r = touched(await db().from('aic_missions').update({ archived_at:ts, statut:on ? 'archivee' : 'active', updated_at:new Date().toISOString() }).eq('id', id).select('id'), 'aic_missions');
+        r = touched(await db().from('aic_espaces').update({ archived_at:ts, updated_at:new Date().toISOString() }).eq('mission_id', id).select('id'), 'aic_espaces');
       } else {
-        r = await db().from('aic_espaces').update({ archived_at:ts, updated_at:new Date().toISOString() }).eq('id', id); if (r.error) throw r.error;
+        r = touched(await db().from('aic_espaces').update({ archived_at:ts, updated_at:new Date().toISOString() }).eq('id', id).select('id'), 'aic_espaces');
       }
       await aicxLoad(); aicxRerender();
     } catch(e){ alert('Archivage refusé : ' + ((e && e.message) || e)); }
@@ -235,13 +241,12 @@
     var em = val('mb_' + eid).toLowerCase(), ac = val('ma_' + eid) || 'contribution', mid = 'mm_' + eid;
     if (!em || em.indexOf('@') < 1){ flash(mid, false, 'E-mail invalide.'); return; }
     try {
-      var r = await db().from('aic_membres').upsert({ espace_id:eid, email:em, acces:ac, actif:true, updated_at:new Date().toISOString() }, { onConflict:'espace_id,email' });
-      if (r.error) throw r.error;
+      touched(await db().from('aic_membres').upsert({ espace_id:eid, email:em, acces:ac, actif:true, updated_at:new Date().toISOString() }, { onConflict:'espace_id,email' }).select('id'), 'aic_membres');
       await aicxLoad(); aicxRerender(); flash('mm_' + eid, true, '✓ Ajouté');
     } catch(e){ flash(mid, false, 'Refusé : ' + ((e && e.message) || e)); }
   };
   window.aicxMemberToggle = async function(id, on){
-    try { var r = await db().from('aic_membres').update({ actif:!!on, updated_at:new Date().toISOString() }).eq('id', id); if (r.error) throw r.error; await aicxLoad(); aicxRerender(); }
+    try { touched(await db().from('aic_membres').update({ actif:!!on, updated_at:new Date().toISOString() }).eq('id', id).select('id'), 'aic_membres'); await aicxLoad(); aicxRerender(); }
     catch(e){ alert('Refusé : ' + ((e && e.message) || e)); }
   };
 
