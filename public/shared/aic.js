@@ -103,33 +103,56 @@
     if (AIC.msg){ d.innerHTML = head() + '<div class="panel" style="padding:14px 16px;color:var(--signal);">' + esc(AIC.msg) + '</div>'; return; }
     var them = AIC.them;
     var thead = '<thead><tr><th></th><th>Code</th><th>Libellé</th><th>Couleur</th><th>Niveaux</th><th>État</th><th></th></tr></thead>';
-    var tTable = '<div class="panel" style="padding:10px 16px 16px;overflow-x:auto;"><div class="field-label">Thématiques</div><table style="width:100%;">' + thead + '<tbody>'
+    var tTable = '<div class="panel" style="padding:10px 16px 16px;overflow-x:auto;"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;"><div class="field-label">Thématiques</div><button type="button" class="add-btn" onclick="aicThemSaveAll()">✓ Valider les modifications</button><span id="tm_all" role="status" style="font-size:12px;"></span></div><table style="width:100%;">' + thead + '<tbody>'
       + them.map(function(t, i){ return themRow(t, i, them.length); }).join('') + themRow(null, 0, 0) + '</tbody></table></div>';
     var blocks = them.map(function(th){
       var list = AIC.ind.filter(function(x){ return x.thematique_id === th.id; });
       var ih = '<thead><tr><th></th><th>Indicateur</th><th>Unité</th><th>Cible</th><th>Sens</th><th>Fréquence</th><th>Niveaux</th><th>État</th><th></th></tr></thead>';
       return '<div class="panel" style="padding:10px 16px 16px;margin-top:12px;overflow-x:auto;' + (th.actif ? '' : 'opacity:.6;') + '">'
-        + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><span style="width:12px;height:12px;border-radius:3px;background:' + esc(th.couleur) + ';display:inline-block;"></span><b>' + esc(th.code) + ' · ' + esc(th.libelle) + '</b><span class="sub-cell">' + list.length + ' indicateur(s)</span>' + (th.actif ? '' : '<span class="pill p-grey">désactivée</span>') + '</div>'
+        + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><span style="width:12px;height:12px;border-radius:3px;background:' + esc(th.couleur) + ';display:inline-block;"></span><b>' + esc(th.code) + ' · ' + esc(th.libelle) + '</b><span class="sub-cell">' + list.length + ' indicateur(s)</span>' + (th.actif ? '' : '<span class="pill p-grey">désactivée</span>') + '<button type="button" class="add-btn sm" style="margin-left:auto;" onclick="aicIndSaveAll(\'' + th.id + '\')">✓ Valider les modifications</button><span id="ia_all_' + th.id + '" role="status" style="font-size:12px;"></span></div>'
         + '<table style="width:100%;">' + ih + '<tbody>' + list.map(function(x, i){ return indRow(x, th, i, list.length); }).join('') + indRow(null, th, 0, 0) + '</tbody></table></div>';
     }).join('');
     d.innerHTML = head() + tTable + (them.length ? '<div class="field-label" style="margin-top:18px;">Indicateurs par thématique</div>' + blocks : '');
   }
 
   /* ---------- Thématiques ---------- */
+  function soft(msg){ var e = new Error(msg); e.soft = true; return e; }                 /* erreur de saisie, sans préfixe « Refusé » */
+  function errTxt(e){ return (e && e.soft) ? e.message : ('Refusé : ' + ((e && e.message) || e)); }
+  function sameNiv(a, b){ return JSON.stringify((a || []).slice().sort()) === JSON.stringify((b || []).slice().sort()); }
+
+  /* La ligne a-t-elle été modifiée par rapport à ce qui est en base ? */
+  function themDirty(id){
+    if (id === 'new') return !!(val('tc_new') || val('tl_new'));
+    var t = AIC.them.filter(function(x){ return x.id === id; })[0]; if (!t) return false;
+    return val('tc_' + id).toUpperCase() !== t.code || val('tl_' + id) !== t.libelle || (val('tk_' + id) || '#560A0F').toLowerCase() !== String(t.couleur || '').toLowerCase()
+      || !sameNiv(niveauxDe('tn_' + id + '_'), t.niveaux) || chk('ta_' + id) !== !!t.actif;
+  }
+  /* Valide et écrit UNE ligne ; lève une erreur sinon. Ne recharge pas. */
+  async function themSaveOne(id){
+    var code = val('tc_' + id).toUpperCase(), lib = val('tl_' + id), col = val('tk_' + id) || '#560A0F', niv = niveauxDe('tn_' + id + '_');
+    if (!code || !lib) throw soft('Code et libellé obligatoires.');
+    if (!niv.length) throw soft('Cochez au moins un niveau.');
+    if (AIC.them.some(function(t){ return t.code === code && t.id !== id; })) throw soft('Ce code existe déjà.');
+    var row = { code:code, libelle:lib, couleur:col, niveaux:niv, updated_at:new Date().toISOString() }, r;
+    if (id === 'new'){ row.ordre = (AIC.them.length + 1) * 10; r = await db().from('aic_thematiques').insert(row); if (r.error) throw r.error; }
+    else { row.actif = chk('ta_' + id); touched(await db().from('aic_thematiques').update(row).eq('id', id).select('id'), 'aic_thematiques'); }
+  }
   window.aicThemSave = async function(id){
-    var code = val('tc_' + id).toUpperCase(), lib = val('tl_' + id), col = val('tk_' + id) || '#560A0F';
-    var niv = niveauxDe('tn_' + id + '_'), mid = 'tm_' + id;
-    if (!code || !lib){ flash(mid, false, 'Code et libellé obligatoires.'); return; }
-    if (!niv.length){ flash(mid, false, 'Cochez au moins un niveau.'); return; }
-    if (AIC.them.some(function(t){ return t.code === code && t.id !== id; })){ flash(mid, false, 'Ce code existe déjà.'); return; }
-    var row = { code:code, libelle:lib, couleur:col, niveaux:niv, updated_at:new Date().toISOString() };
-    try {
-      var r;
-      if (id === 'new'){ row.ordre = (AIC.them.length + 1) * 10; r = await db().from('aic_thematiques').insert(row); }
-      else { row.actif = chk('ta_' + id); r = touched(await db().from('aic_thematiques').update(row).eq('id', id).select('id'), 'aic_thematiques'); }
-      if (r.error) throw r.error;
-      await aicLoad(); flash('tm_' + id, true, '✓ Enregistré');
-    } catch(e){ flash(mid, false, 'Refusé : ' + ((e && e.message) || e)); }
+    try { await themSaveOne(id); await aicLoad(); flash('tm_' + id, true, '✓ Enregistré'); }
+    catch(e){ flash('tm_' + id, false, errTxt(e)); }
+  };
+  /* Bouton « Valider » : enregistre toutes les lignes modifiées, puis recharge une seule fois.
+     En cas d'erreur sur une ligne, rien n'est rechargé : les saisies restent à l'écran. */
+  window.aicThemSaveAll = async function(){
+    var ids = AIC.them.map(function(t){ return t.id; }).filter(themDirty); if (themDirty('new')) ids.push('new');
+    if (!ids.length){ flash('tm_all', true, 'Aucune modification à valider.'); return; }
+    var ok = 0, errs = [];
+    for (var i = 0; i < ids.length; i++){
+      try { await themSaveOne(ids[i]); ok++; }
+      catch(e){ var t = AIC.them.filter(function(x){ return x.id === ids[i]; })[0]; errs.push((t ? t.code : (val('tc_new').toUpperCase() || 'nouvelle ligne')) + ' : ' + errTxt(e)); }
+    }
+    if (errs.length){ flash('tm_all', false, ok + ' enregistrée(s), ' + errs.length + ' en erreur — ' + errs.join(' | ')); return; }
+    await aicLoad(); flash('tm_all', true, '✓ ' + ok + ' ligne(s) validée(s)');
   };
   window.aicThemMove = async function(id, dir){
     var L = AIC.them.slice(), i = L.findIndex(function(t){ return t.id === id; }), j = i + dir;
@@ -140,20 +163,39 @@
   };
 
   /* ---------- Indicateurs ---------- */
-  window.aicIndSave = async function(id, thId){
+  function indDirty(id, thId){
+    if (id.indexOf('new_') === 0) return !!val('il_' + id);
+    var x = AIC.ind.filter(function(y){ return y.id === id; })[0]; if (!x) return false;
+    var ct = val('ic_' + id).replace(',', '.'), cx = (x.cible == null ? '' : String(x.cible));
+    return val('il_' + id) !== x.libelle || val('iu_' + id) !== (x.unite || '') || (ct !== '' ? parseFloat(ct) : '') !== (cx !== '' ? parseFloat(cx) : '')
+      || (val('is_' + id) || 'haut') !== x.sens || (val('if_' + id) || 'hebdo') !== x.frequence || !sameNiv(niveauxDe('in_' + id + '_'), x.niveaux) || chk('ia_' + id) !== !!x.actif;
+  }
+  async function indSaveOne(id, thId){
     var lib = val('il_' + id), unite = val('iu_' + id), cibleTxt = val('ic_' + id).replace(',', '.');
-    var sens = val('is_' + id) || 'haut', freq = val('if_' + id) || 'hebdo', niv = niveauxDe('in_' + id + '_'), mid = 'im_' + id;
-    if (!lib){ flash(mid, false, 'Libellé obligatoire.'); return; }
-    if (!niv.length){ flash(mid, false, 'Cochez au moins un niveau.'); return; }
-    var cible = null; if (cibleTxt !== ''){ cible = parseFloat(cibleTxt); if (isNaN(cible)){ flash(mid, false, 'Cible : nombre attendu.'); return; } }
-    var row = { libelle:lib, unite:unite, cible:cible, sens:sens, frequence:freq, niveaux:niv, updated_at:new Date().toISOString() };
-    try {
-      var r;
-      if (id.indexOf('new_') === 0){ row.thematique_id = thId; row.ordre = (AIC.ind.filter(function(x){ return x.thematique_id === thId; }).length + 1) * 10; r = await db().from('aic_indicateurs').insert(row); }
-      else { row.actif = chk('ia_' + id); r = touched(await db().from('aic_indicateurs').update(row).eq('id', id).select('id'), 'aic_indicateurs'); }
-      if (r.error) throw r.error;
-      await aicLoad(); flash('im_' + id, true, '✓ Enregistré');
-    } catch(e){ flash(mid, false, 'Refusé : ' + ((e && e.message) || e)); }
+    var sens = val('is_' + id) || 'haut', freq = val('if_' + id) || 'hebdo', niv = niveauxDe('in_' + id + '_');
+    if (!lib) throw soft('Libellé obligatoire.');
+    if (!niv.length) throw soft('Cochez au moins un niveau.');
+    var cible = null; if (cibleTxt !== ''){ cible = parseFloat(cibleTxt); if (isNaN(cible)) throw soft('Cible : nombre attendu.'); }
+    var row = { libelle:lib, unite:unite, cible:cible, sens:sens, frequence:freq, niveaux:niv, updated_at:new Date().toISOString() }, r;
+    if (id.indexOf('new_') === 0){ row.thematique_id = thId; row.ordre = (AIC.ind.filter(function(x){ return x.thematique_id === thId; }).length + 1) * 10; r = await db().from('aic_indicateurs').insert(row); if (r.error) throw r.error; }
+    else { row.actif = chk('ia_' + id); touched(await db().from('aic_indicateurs').update(row).eq('id', id).select('id'), 'aic_indicateurs'); }
+  }
+  window.aicIndSave = async function(id, thId){
+    try { await indSaveOne(id, thId); await aicLoad(); flash('im_' + id, true, '✓ Enregistré'); }
+    catch(e){ flash('im_' + id, false, errTxt(e)); }
+  };
+  window.aicIndSaveAll = async function(thId){
+    var ids = AIC.ind.filter(function(x){ return x.thematique_id === thId; }).map(function(x){ return x.id; }).filter(function(i){ return indDirty(i, thId); });
+    if (indDirty('new_' + thId, thId)) ids.push('new_' + thId);
+    var mid = 'ia_all_' + thId;
+    if (!ids.length){ flash(mid, true, 'Aucune modification à valider.'); return; }
+    var ok = 0, errs = [];
+    for (var i = 0; i < ids.length; i++){
+      try { await indSaveOne(ids[i], thId); ok++; }
+      catch(e){ var x = AIC.ind.filter(function(y){ return y.id === ids[i]; })[0]; errs.push((x ? x.libelle : (val('il_' + ids[i]) || 'nouvelle ligne')) + ' : ' + errTxt(e)); }
+    }
+    if (errs.length){ flash(mid, false, ok + ' enregistré(s), ' + errs.length + ' en erreur — ' + errs.join(' | ')); return; }
+    await aicLoad(); flash(mid, true, '✓ ' + ok + ' ligne(s) validée(s)');
   };
   window.aicIndMove = async function(id, dir){
     var cur = AIC.ind.find(function(x){ return x.id === id; }); if (!cur) return;
