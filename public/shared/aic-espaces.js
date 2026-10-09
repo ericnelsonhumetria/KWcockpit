@@ -418,13 +418,18 @@
       + '.aicx-month{display:flex;align-items:center;gap:8px;margin:14px 0 4px;flex-wrap:wrap;}'
       + '.aicx-month b{font-size:16px;min-width:140px;text-align:center;text-transform:capitalize;}'
       + '.aicx-board{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin:8px 0 14px;}'
-      + '.aicx-tile{background:#fff;border:2px solid rgba(86,10,15,.12);border-radius:12px;overflow:hidden;cursor:pointer;text-align:left;padding:0;font:inherit;color:inherit;transition:box-shadow .15s,transform .15s;}'
+      + '.aicx-tile{display:flex;flex-direction:column;justify-content:flex-start;align-items:stretch;background:#fff;border:2px solid rgba(86,10,15,.12);border-radius:12px;overflow:hidden;cursor:pointer;text-align:left;padding:0;font:inherit;color:inherit;transition:box-shadow .15s,transform .15s;}'
       + '.aicx-tile:hover{box-shadow:0 4px 14px rgba(0,0,0,.14);transform:translateY(-1px);}'
       + '.aicx-tile:focus-visible{outline:3px solid #560A0F;outline-offset:2px;}'
       + '.aicx-tile.sel{border-color:var(--c);box-shadow:0 0 0 3px rgba(86,10,15,.15);}'
-      + '.aicx-th{display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--c);color:#fff;}'
-      + '.aicx-let{font-size:30px;font-weight:800;line-height:1;}.aicx-tl{font-size:13px;font-weight:600;opacity:.95;}'
-      + '.aicx-tb{display:flex;align-items:center;gap:10px;padding:12px;}'
+      + '.aicx-th{flex:none;box-sizing:border-box;height:84px;display:flex;align-items:center;gap:12px;padding:8px 12px;background:var(--c);color:#fff;}'
+      + '.aicx-let{flex:none;font-size:32px;font-weight:800;line-height:1;width:30px;text-align:center;}'
+      + '.aicx-tt{display:flex;flex-direction:column;justify-content:flex-start;gap:3px;min-width:0;height:68px;}'
+      + '.aicx-tl{font-size:15px;font-weight:700;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}'
+      + '.aicx-ts{font-size:11.5px;font-weight:500;line-height:1.25;opacity:.92;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;}'
+      + '.aicx-tt.ns .aicx-tl{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;}.aicx-tt.ns .aicx-ts{display:none;}'
+      + '.aicx-tb{flex:none;box-sizing:border-box;display:flex;align-items:center;gap:10px;padding:10px 12px;overflow:hidden;}'
+      + '.aicx-r-s{height:68px;}.aicx-r-i{height:86px;}.aicx-r-t{height:64px;}.aicx-tb .aicx-cap span,.aicx-tb .aicx-cap b{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}'
       + '.aicx-cap{display:flex;flex-direction:column;font-size:12px;line-height:1.3;}.aicx-cap b{font-size:14px;}.aicx-cap span{opacity:.7;}'
       + '.aicx-dot{display:inline-flex;align-items:center;justify-content:center;border-radius:50%;color:#fff;font-weight:800;flex:none;}'
       + '.aicx-ival{font-size:24px;font-weight:800;line-height:1.1;}.aicx-ival small{font-size:12px;opacity:.7;margin-left:3px;font-weight:600;}.aicx-mini{padding:2px 12px 6px;}.aicx-tile .aicx-tb + .aicx-tb,.aicx-tile .aicx-tb + .aicx-mini{border-top:1px solid rgba(86,10,15,.07);}'
@@ -472,6 +477,14 @@
       + '.aicx-pk input:checked + span{background:var(--pc);border-color:var(--pc);color:#fff;}.aicx-pk input:focus-visible + span{outline:3px solid #560A0F;outline-offset:2px;}'
       + '.aicx-wait{display:inline-block;width:24px;height:24px;line-height:22px;text-align:center;border:2px dashed #c9bfb8;border-radius:50%;color:#b3a69e;font-size:12px;}.aicx-na{color:#c9bfb8;font-size:20px;}'
       + '.aicx-syrow{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;padding:10px 0;border-bottom:1px solid rgba(86,10,15,.08);}'
+      + '.aicx-tr{background:#fff;border:1px solid rgba(86,10,15,.18);border-radius:12px;overflow:hidden;}'
+      + '.aicx-tr-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 12px;background:#f3ede1;border-bottom:1px solid rgba(86,10,15,.12);}'
+      + '.aicx-tr-st{font-size:13px;font-weight:700;color:#6b5b58;}.aicx-tr-st.rec{color:#c0392b;}.aicx-tr-st.rec::first-letter{animation:aicxBlink 1.1s ease-in-out infinite;}'
+      + '@keyframes aicxBlink{50%{opacity:.25;}}@media (prefers-reduced-motion:reduce){.aicx-tr-st.rec::first-letter{animation:none;}}'
+      + '.aicx-tr-body{height:240px;overflow-y:auto;padding:12px 16px;font-size:16px;line-height:1.55;white-space:pre-wrap;word-break:break-word;}'
+      + '.aicx-tr-body.idle{height:84px;}'
+      + '.aicx-tr-body.empty::before{content:attr(data-ph);color:#8a7b77;font-style:italic;font-size:14px;}'
+      + '.aicx-sj > summary{cursor:pointer;font-size:12.5px;color:#5b4b47;padding:6px 0;}'
       + '.aicx-go{background:#2e7d46!important;}.aicx-sbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 14px;margin:6px 0 10px;background:#fff;border:2px solid #c0392b;border-radius:12px;position:sticky;top:0;z-index:5;}'
       + '.aicx-live{color:#c0392b;font-weight:800;font-size:12px;letter-spacing:.08em;animation:aicxp 1.6s infinite;}.aicx-prep{color:#b26a00;}@keyframes aicxp{50%{opacity:.35}}'
       + '@media (prefers-reduced-motion:reduce){.aicx-live{animation:none}}';
@@ -583,19 +596,22 @@
 
   /* ----- Rendu ----- */
   /* Pavé SQCDP : blocs affichés choisis par l'Admin pour cette thématique (statut, indicateur, tendance, mini-courbe, bande du mois). */
+  /* « Qualité (ICM, Satisfaction client) » → titre « Qualité » + sous-titre ; même gabarit pour tous les pavés, avec ou sans parenthèse. */
+  function labelParts(lib){ var m = /^(.*?)\s*\((.*)\)\s*$/.exec(String(lib || '')); return (m && m[1]) ? { t:m[1], s:m[2] } : { t:String(lib || ''), s:'' }; }
   function tileHtml(IX, IXV, th, e, ids, sel){
+    var lp = labelParts(th.libelle);
     var cf = cfgOf(th), inds = indsFor(th, e), pr = principalInd(th, inds), cc = chartCfg(th);
     var rd = refDay(IX, th.id, ids), eff = rd || chartEnd(), a = rd ? agg(IX, th.id, rd, ids) : { st:null, n:0 }, s = a.st ? SC[a.st] : null, b = bounds(SP.month), body = '';
     var cap = SP.month === curMonth() ? 'Aujourd\u2019hui' : (rd ? 'Dernier relevé ' + fdate(rd) : 'Aucun relevé ce mois');
     if (ids.length > 1) cap += ' · ' + a.n + '/' + ids.length + ' sites';
-    if (cf.pave.statut) body += '<div class="aicx-tb">' + face(a.st, 40) + '<div class="aicx-cap"><b>' + (s ? s.l : 'Non renseigné') + '</b><span>' + esc(cap) + '</span></div></div>';
+    if (cf.pave.statut) body += '<div class="aicx-tb aicx-r-s">' + face(a.st, 40) + '<div class="aicx-cap"><b>' + (s ? s.l : 'Non renseigné') + '</b><span>' + esc(cap) + '</span></div></div>';
     if (cf.pave.indic){
       var lv = pr ? lastVal(IXV, pr.id, ids, eff) : null, sg = (pr && lv) ? suggest(pr, lv.v) : null;
-      body += '<div class="aicx-tb"><div><div class="aicx-ival" style="color:' + (sg ? SC[sg].c : 'inherit') + '">' + (lv ? fmt(lv.v) : '—') + (pr && pr.unite ? '<small>' + esc(pr.unite) + '</small>' : '') + '</div><div class="aicx-cap"><span>' + (pr ? esc(pr.libelle) + (pr.cible != null ? ' · cible ' + (pr.sens === 'bas' ? '≤ ' : '≥ ') + fmt(pr.cible) : '') : 'Aucun indicateur défini') + '</span></div></div></div>';
+      body += '<div class="aicx-tb aicx-r-i"><div style="min-width:0;"><div class="aicx-ival" style="color:' + (sg ? SC[sg].c : 'inherit') + '">' + (lv ? fmt(lv.v) : '—') + (pr && pr.unite ? '<small>' + esc(pr.unite) + '</small>' : '') + '</div><div class="aicx-cap"><span>' + (pr ? esc(pr.libelle) + (pr.cible != null ? ' · cible ' + (pr.sens === 'bas' ? '≤ ' : '≥ ') + fmt(pr.cible) : '') : 'Aucun indicateur défini') + '</span></div></div></div>';
     }
     if (cf.pave.tend){
       var tr = pr ? trendOf(function(j){ var r = valDay(IXV, pr.id, ids, j); return r ? r.v : null; }, eff, pr.sens) : trendOf(function(j){ var x = agg(IX, th.id, j, ids).st; return x ? RANK[x] : null; }, eff, 'bas');
-      body += '<div class="aicx-tb">' + arrow(tr.dir, tr.fav, 30) + '<div class="aicx-cap"><b>' + (tr.dir == null ? 'Tendance : pas assez de relevés' : tr.dir === 'flat' ? 'Stable' : (tr.dir === 'up' ? 'En hausse' : 'En baisse') + (tr.pct != null ? ' (' + (tr.pct > 0 ? '+' : '') + Math.round(tr.pct * 100) + ' %)' : '')) + '</b>' + (tr.fav === true ? '<span>favorable</span>' : tr.fav === false ? '<span>défavorable</span>' : '') + '</div></div>';
+      body += '<div class="aicx-tb aicx-r-t">' + arrow(tr.dir, tr.fav, 30) + '<div class="aicx-cap"><b>' + (tr.dir == null ? 'Tendance : pas assez de relevés' : tr.dir === 'flat' ? 'Stable' : (tr.dir === 'up' ? 'En hausse' : 'En baisse') + (tr.pct != null ? ' (' + (tr.pct > 0 ? '+' : '') + Math.round(tr.pct * 100) + '\u00a0%)' : '')) + '</b>' + (tr.fav === true ? '<span>favorable</span>' : tr.fav === false ? '<span>défavorable</span>' : '') + '</div></div>';
     }
     if (cf.pave.courbe){
       var metric = cc.metric === 'auto' ? (pr ? pr.id : 'statut') : cc.metric, isStat = metric === 'statut' || !inds.some(function(i){ return i.id === metric; }), vals = [], end = chartEnd();
@@ -605,7 +621,7 @@
     }
     if (cf.pave.bande){ var strip = ''; for (var d = 1; d <= b.n; d++){ var gg = agg(IX, th.id, SP.month + '-' + pad(d), ids).st; strip += '<i style="background:' + (gg ? SC[gg].c : '#e6e0da') + '"></i>'; } body += '<div class="aicx-strip" aria-hidden="true">' + strip + '</div>'; }
     return '<button type="button" class="aicx-tile' + (sel ? ' sel' : '') + '" aria-pressed="' + (sel ? 'true' : 'false') + '" style="--c:' + esc(th.couleur || '#560A0F') + '" onclick="aicxSelTheme(\'' + th.id + '\')">'
-      + '<div class="aicx-th"><span class="aicx-let">' + esc(th.code) + '</span><span class="aicx-tl">' + esc(th.libelle) + '</span></div>' + body + '</button>';
+      + '<div class="aicx-th" title="' + esc(th.libelle) + '"><span class="aicx-let">' + esc(th.code) + '</span><span class="aicx-tt' + (lp.s ? '' : ' ns') + '"><b class="aicx-tl">' + esc(lp.t) + '</b><span class="aicx-ts">' + esc(lp.s) + '</span></span></div>' + body + '</button>';
   }
   /* Les 3 zones d'une thématique : smiley, indicateur, tendance (+ courbe en dessous). */
   function zonesHtml(IX, IXV, th, e, ids){
@@ -628,7 +644,7 @@
     var tr, lab;
     if (ind){ tr = trendOf(function(j){ var r = valDay(IXV, ind.id, ids, j); return r ? r.v : null; }, rd, ind.sens); lab = esc(ind.libelle); }
     else { tr = trendOf(function(j){ var s = agg(IX, th.id, j, ids).st; return s ? RANK[s] : null; }, rd, 'bas'); lab = 'couleur SQCDP'; }
-    var ttxt = tr.dir == null ? 'Pas assez de relevés (il faut des données sur 2 semaines).' : (tr.dir === 'flat' ? 'Stable' : (tr.dir === 'up' ? 'En hausse' : 'En baisse')) + (tr.dir !== 'flat' && tr.pct != null ? ' (' + (tr.pct > 0 ? '+' : '') + Math.round(tr.pct * 100) + ' %)' : '') + (tr.fav === true ? ' · favorable' : tr.fav === false ? ' · défavorable' : '');
+    var ttxt = tr.dir == null ? 'Pas assez de relevés (il faut des données sur 2 semaines).' : (tr.dir === 'flat' ? 'Stable' : (tr.dir === 'up' ? 'En hausse' : 'En baisse')) + (tr.dir !== 'flat' && tr.pct != null ? ' (' + (tr.pct > 0 ? '+' : '') + Math.round(tr.pct * 100) + '\u00a0%)' : '') + (tr.fav === true ? ' · favorable' : tr.fav === false ? ' · défavorable' : '');
     var trend = '<div class="aicx-card"><h4>Tendance</h4><div class="aicx-row">' + arrow(tr.dir, tr.fav, 64) + '<div><div style="font-weight:700;">' + esc(ttxt) + '</div><div class="aicx-sub">7 derniers jours vs 7 jours précédents · ' + lab + '</div></div></div></div>';
     return '<div class="aicx-cards">' + smiley + indic + trend + '</div>'
       + '<div class="aicx-card" style="margin-bottom:12px;"><h4>Évolution</h4>' + chartHtml(IX, IXV, th, e, ids, inds) + '</div>';
@@ -759,7 +775,7 @@
 
     if (!thems.length) h += '<div class="panel" style="padding:14px 16px;margin-top:10px;">Aucune thématique active pour le niveau ' + e.niveau + '. Elles se configurent dans Admin › Référentiel AIC.</div>';
     else {
-      h += '<div class="aicx-board">' + thems.map(function(t){ return tileHtml(IX, IXV, t, e, ids, sel && t.id === sel.id); }).join('') + '</div>';
+      h += '<div class="aicx-board">' + thems.map(function(t){ return tileHtml(IX, IXV, t, e, ids, sel && t.id === sel.id); }).join('') + '</div>' + transcriptHtml(e);
       if (!leaf) h += '<div class="field-label">Vue d\u2019ensemble des sites · ' + (SP.month === curMonth() ? 'aujourd\u2019hui' : 'dernier relevé du mois') + '</div>' + sitesMatrixHtml(IX, thems, leaves(e));
       h += icmHtml(e, ids);
       if (sel){
@@ -778,7 +794,8 @@
     if (!SP.acts || SP.acts.err) h += '<div class="panel" style="padding:12px 16px;color:var(--signal);">Actions indisponibles' + (SP.acts ? ' : ' + esc(SP.acts.err) : '') + '.</div>';
     else if (!SP.acts.list.length) h += '<div class="panel" style="padding:12px 16px;">Aucune action rattachée. Les actions décidées pendant une séance AIC s\u2019y rattachent automatiquement (rituel et site).</div>';
     else h += '<div class="panel" style="padding:8px 16px;">' + SP.acts.list.map(function(a){ return '<div style="display:flex;gap:10px;padding:5px 0;border-bottom:1px solid rgba(86,10,15,.08);font-size:13px;"><span class="sub-cell">#' + esc(a.numero || '') + '</span><span>' + esc(a.libelle) + '</span><span class="sub-cell" style="margin-left:auto;white-space:nowrap;">' + esc(a.statut || '') + (a.echeance ? ' · ' + esc(fdate(a.echeance)) : '') + '</span></div>'; }).join('') + '</div>';
-    dashEl().innerHTML = h;
+    dashEl().innerHTML = h; TR.last = null;
+    trEnsure();
     if (!inSess) b4AfterRender();
   }
 
@@ -1177,14 +1194,15 @@
   }
   function sujetsHtml(e, thems){
     if (B4.missing) return X.ceo ? '<div class="field-label" style="margin-top:18px;">Sujets</div><div class="panel" style="padding:10px 14px;color:var(--signal);">Sujets indisponibles : exécutez d\u2019abord aic_brique4.sql.</div>' : '';
-    var h = '<div class="field-label" style="margin-top:18px;">Sujets de cet espace par champ SQCDP</div><div class="panel" style="padding:10px 16px 12px;">';
+    var nOpen = B4.sujets.filter(function(x){ return x.statut === 'ouvert'; }).length;
+    var h = '<details class="aicx-sj" style="margin-top:14px;"><summary>Sujets à remonter par champ SQCDP · ' + nOpen + ' ouvert' + (nOpen > 1 ? 's' : '') + '</summary><div class="panel" style="padding:10px 16px 12px;">';
     var canC = canContribute(e);
     h += sujetsGroupedHtml(B4.sujets, thems, { empty:'Aucun sujet ouvert.', row:function(s){
       var up = B4.flux.filter(function(f){ return f.sujet_id === s.id; }).map(function(f){ var c = byId(X.espaces, f.cible_espace_id); return c ? 'AIC ' + c.niveau : 'niveau supérieur'; });
       return '<div class="aicx-srow"><div style="flex:1;"><b style="font-size:13px;">' + esc(s.titre) + '</b>' + (s.detail ? '<div class="sub-cell">' + esc(s.detail) + '</div>' : '') + '<div class="sub-cell">' + esc(nomDe(s.cree_par)) + ' · ' + esc(fdate(String(s.created_at).slice(0, 10))) + (up.length ? ' · <b style="color:#560A0F;">retenu pour le bilan ' + esc(up.join(', ')) + '</b>' : '') + '</div></div>'
         + (canC ? '<select aria-label="Statut du sujet" onchange="aicxSujetStatut(\'' + s.id + '\',this.value)" style="' + INP + 'height:28px;"><option value="ouvert"' + (s.statut === 'ouvert' ? ' selected' : '') + '>Ouvert</option><option value="traite"' + (s.statut === 'traite' ? ' selected' : '') + '>Traité</option><option value="clos"' + (s.statut === 'clos' ? ' selected' : '') + '>Clos</option></select><button type="button" class="add-btn sm ghost" onclick="aicxSujetArchive(\'' + s.id + '\')">Archiver</button>' : '<span class="pill p-grey">' + esc(s.statut) + '</span>') + '</div>'; } });
     if (canC && thems.length) h += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;align-items:center;"><select id="sj_th" aria-label="Champ SQCDP" style="' + INP + '">' + thems.map(function(t){ return '<option value="' + t.id + '">' + esc(t.code + ' · ' + t.libelle) + '</option>'; }).join('') + '</select><input id="sj_ti" placeholder="Sujet à porter (court)" aria-label="Titre du sujet" style="' + INP + 'width:260px;"><input id="sj_de" placeholder="Détail (facultatif)" aria-label="Détail" style="' + INP + 'width:260px;"><button type="button" class="add-btn sm" onclick="aicxSujetAdd()">+ Ajouter le sujet</button><span id="sj_msg" role="status" style="font-size:12px;"></span></div>';
-    return h + '</div>';
+    return h + '</div></details>';
   }
   function recvHtml(e, thems){
     if (B4.missing || !B4.recv.length) return '';
@@ -1211,6 +1229,29 @@
     return liveBannerHtml(e) + animPrepHtml(e) + prepCardHtml(e, thems, IX, ids) + teamPrepHtml(e, thems) + synthHtml(e, thems);
   }
   function b4Bottom(e, thems){ return sujetsHtml(e, thems) + recvHtml(e, thems); }
+
+  /* ---------- Transcription en direct : miroir de la dictée du compte-rendu (Réunions & Rituels) ---------- */
+  var TR = { t:null, last:null };
+  function transcriptHtml(e){
+    if (!canAnimate(e)) return '';
+    return '<div class="field-label" style="margin-top:14px;">Transcription en direct</div><div class="aicx-tr"><div class="aicx-tr-bar"><span id="aicx_tr_state" class="aicx-tr-st" role="status">⏸ Micro arrêté</span><span id="aicx_tr_count" class="sub-cell"></span>'
+      + '<button type="button" id="aicx_tr_btn" class="add-btn sm" style="margin-left:auto;" onclick="aicxTrMic()">🎤 Démarrer la transcription</button></div>'
+      + '<div id="aicx_tr_body" class="aicx-tr-body empty" role="log" aria-label="Transcription en direct" tabindex="0" data-ph=""></div></div>';
+  }
+  window.aicxTrMic = function(){ if (typeof window.crDictate === 'function' && document.getElementById('crTranscript')) window.crDictate(); };
+  function trTick(){
+    var body = document.getElementById('aicx_tr_body');
+    if (!body){ if (TR.t) clearInterval(TR.t); TR.t = null; TR.last = null; return; }
+    var src = document.getElementById('crTranscript'), mic = document.getElementById('crMic'), st = document.getElementById('aicx_tr_state'), btn = document.getElementById('aicx_tr_btn'), cnt = document.getElementById('aicx_tr_count');
+    var rec = !!(mic && /Arrêter/i.test(mic.textContent || '')), v = src ? String(src.value || '') : '', words = (v.match(/[\p{L}\p{N}][\p{L}\p{N}'\u2019-]*/gu) || []).length;
+    if (st){ st.className = 'aicx-tr-st' + (rec ? ' rec' : ''); st.textContent = rec ? '● Transcription en cours' : (src ? '⏸ Micro arrêté' : '⏸ En attente du compte-rendu'); }
+    if (cnt) cnt.textContent = words ? words + ' mot' + (words > 1 ? 's' : '') : '';
+    if (btn){ btn.textContent = rec ? '⏹ Arrêter' : '🎤 Démarrer la transcription'; btn.disabled = !(src && typeof window.crDictate === 'function'); btn.title = btn.disabled ? 'Ouvrez d\u2019abord le compte-rendu : « Préparer l\u2019AIC » ou « Lancer l\u2019AIC »' : ''; }
+    body.classList.toggle('idle', !src);   /* hors séance : bandeau compact ; dès que le compte-rendu est ouvert : pleine hauteur, sans saut pendant l'AIC */
+    body.setAttribute('data-ph', !src ? 'Le compte-rendu n\u2019est pas ouvert : « Préparer l\u2019AIC » ouvre l\u2019espace de transcription.' : (rec ? 'Écoute en cours…' : 'Prêt : « Démarrer la transcription », les échanges s\u2019affichent ici en direct.'));
+    if (v !== TR.last){ var stick = body.scrollTop + body.clientHeight >= body.scrollHeight - 30; TR.last = v; body.textContent = v; body.classList.toggle('empty', !v.trim()); if (stick) body.scrollTop = body.scrollHeight; }
+  }
+  function trEnsure(){ if (!TR.t && document.getElementById('aicx_tr_body')) TR.t = setInterval(trTick, 400); trTick(); }
   function b4AfterRender(){ if (B4.live && document.getElementById('aicx_live')){ chronoStart(B4.live); if (!CH.poll) CH.poll = setInterval(window.aicxPollLive, 30000); } }
 
   /* ---------- Admin : durée de l'AIC (par espace) et « qui doit préparer » ---------- */
