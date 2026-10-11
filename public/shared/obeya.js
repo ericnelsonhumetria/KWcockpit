@@ -12,7 +12,7 @@
   if (!COCKPIT) return;
 
   var O = { sit:null, d:null, c:null, off:0, dismissed:false, drafts:{}, bilan:null, filter:null, showEcartes:false, busy:false,
-            pane:'board', tab:null, open:{}, formOpen:{}, helpOpen:false, confirm:null, confirmT:null, fcard:null, crMounted:false, crId:null, poll:null, clock:null, tr:null, lastTr:null, redSeen:false, c2missing:false, err:'' };
+            pane:'board', fin:null, finState:null, finErr:'', tab:null, open:{}, formOpen:{}, helpOpen:false, confirm:null, confirmT:null, fcard:null, crMounted:false, crId:null, poll:null, clock:null, tr:null, lastTr:null, redSeen:false, c2missing:false, err:'' };
   var URL_IA = '/.netlify/functions/obeya-analyse-ia';
   var SC = { vert:{ l:'Vert', c:'#2e7d46', bg:'#e7f3ea', fg:'#1e5b32' }, orange:{ l:'À surveiller', c:'#e08a00', bg:'#fff1d6', fg:'#7a4a00' }, rouge:{ l:'Action requise', c:'#c0392b', bg:'#fbe6e3', fg:'#8a1f14' } };
   var TYPE_LBL = { blocage:'Blocage', echeances:'Échéances incompatibles', doublon:'Même sujet, deux cartes', zone_grise:'Zone grise', autre:'Autre problème d’interface' };
@@ -101,7 +101,7 @@
     if (!ok){ v.innerHTML = css() + head0() + '<div class="panel" style="padding:16px;">' + (O.err && missing(O.err) ? 'L’Obeya Codir n’est pas encore installé : exécutez obeya_brique1.sql dans Supabase.' : 'Accès réservé aux membres de l’Obeya Codir : titulaires d’une fonction responsable d’une carte, et animateur. Les fonctions se définissent dans Admin.') + '</div>'; return; }
     try { await load(); }
     catch(e){ var m = (e && e.message) || String(e); v.innerHTML = css() + head0() + '<div class="panel" style="padding:16px;color:var(--signal);">Obeya indisponible : ' + esc(m) + (missing(m) ? ' — exécutez obeya_brique1.sql (puis 2 et 3).' : '') + '</div>'; return; }
-    paintAll(); startTimers(); focusTop();
+    paintAll(); startTimers(); focusTop(); loadFin(false);
     if (isAnim() && liveSeance()){ mountCR().then(function(ok){ if (ok){ applyPane(); paintLive(); paintTr(); } }); }
   }
   /* Le bandeau du Cockpit occupe le haut de la page : on amène l'Obeya sous les yeux (toujours sur mobile ; sur ordinateur, en séance). */
@@ -142,6 +142,14 @@
       + '.obx-msg{font-size:13px;} .obx-msg:empty{display:none;} .obx-msg:not(:empty){background:#fff;border-radius:10px;padding:8px 12px;display:inline-block;max-width:100%;}'
       + '.obx-help{font-size:13px;color:#4a3d40;} .obx-help summary{cursor:pointer;color:var(--b);font-weight:700;} .obx-help ul{margin:8px 0 0;padding-left:18px;line-height:1.6;} .obx-hero .obx-help,.obx-hero .obx-help summary{color:#f3ca4b;} .obx-hero .obx-help ul{color:rgba(255,255,255,.9);}'
       + '.obx-guide.compact{margin:8px 0 0;padding-top:10px;gap:6px;} .obx-guide.compact .obx-gt{font-size:19px;margin:0;} .obx-hero.compact{padding:14px 24px 16px;}'
+      /* indicateurs financiers (en premier) */
+      + '.obx-fin{margin:10px 0 0;} .obx-fin-h{display:flex;gap:6px 14px;align-items:center;flex-wrap:wrap;margin-bottom:10px;} .obx-fin-h b{font-size:17px;color:var(--ink);} .obx-fin-act{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap;}'
+      + '.obx-fin-g{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr));gap:16px;}'
+      + '.obx-ft{background:#fff;border-radius:16px;box-shadow:0 2px 10px rgba(86,10,15,.10);border-top:5px solid var(--gold);padding:16px 22px 18px;display:flex;flex-direction:column;gap:9px;}'
+      + '.obx-ft .l{font-size:12px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--b);} .obx-ft .v{font-size:40px;font-weight:800;line-height:1.05;color:var(--ink);font-variant-numeric:tabular-nums;} .obx-ft .v small{font-size:15px;font-weight:700;color:var(--mut);margin-left:10px;}'
+      + '.obx-gauge{display:flex;height:12px;border-radius:6px;background:#efe7de;overflow:hidden;} .obx-gauge i{display:block;height:100%;} .obx-gauge i.f{background:#560A0F;} .obx-gauge i.c{background:#c9a000;} .obx-gauge i.p75{background:#e9c968;} .obx-gauge i.p50{background:#f4e3b0;}'
+      + '.obx-legend{display:flex;gap:4px 16px;flex-wrap:wrap;font-size:12px;color:var(--mut);} .obx-legend span:before{content:"";display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;background:var(--c);}'
+      + '.obx-fin-err{background:#fff;border-radius:12px;padding:12px 16px;font-size:13px;color:#8a1f14;box-shadow:0 2px 10px rgba(86,10,15,.10);display:flex;gap:10px;align-items:center;flex-wrap:wrap;}'
       /* indicateurs */
       + '.obx-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:20px;}'
       + '.obx-kpi{display:flex;flex-direction:column;gap:5px;text-align:left;padding:14px 16px 13px;border-radius:14px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.09);color:#fff;cursor:pointer;font:inherit;transition:background .12s,transform .12s;} .obx-kpi:hover{background:rgba(255,255,255,.17);transform:translateY(-2px);}'
@@ -210,6 +218,80 @@
   function nbPrets(){ return cartes().filter(function(c){ return c.contenu; }).length; }
   function plural(n, a, b){ return n > 1 ? b : a; }
 
+  /* ---------- Indicateurs financiers (EN PREMIER) : CA commandé et CA projeté pondéré 50 % ----------
+     Mêmes sources et mêmes règles que « Atterrissage CA » du Tableau de bord : CA facturé HT (Evoliz) + carnet de commandes et opportunités.
+       CA commandé            = facturé + carnet ferme (« Commandé »)
+       CA projeté pondéré 50 % = commandé + affaires à 75 % + affaires à 50 % (cumulatif, comme dans le Tableau de bord)
+     Ces données sont réservées à la direction / finance (fonctions serveur evoliz et finance-projection) : pour les autres membres de
+     l'Obeya (réponse 403), le bandeau n'apparaît pas. Rien n'est élargi. */
+  function fmtE(n){ return Number(n || 0).toLocaleString('fr-FR', { style:'currency', currency:'EUR', maximumFractionDigits:0 }); }
+  function fmtM(n){ n = Number(n || 0); return n >= 1e6 ? (n / 1e6).toLocaleString('fr-FR', { maximumFractionDigits:2 }) + ' M€' : fmtE(n); }
+  /* Règle IDENTIQUE aux cartes « CA » du Tableau de bord (loadFinanceCards : montantLigneS / dansAnneeS / sommeProbaS) :
+     une ligne du carnet compte « à venir » selon window.finAVenir (source unique du Tableau de bord) : mois de facturation STRICTEMENT postérieur
+     au mois des données, même année ; non datée = présumée à venir. Les lignes échues sont exclues, et signalées comme dans le Tableau de bord. */
+  function montantLigne(r){ if (r.montant != null && r.montant !== '' && !isNaN(Number(r.montant))) return Number(r.montant); return (Number(r.tjm) || 0) * (Number(r.jours) || 0); }
+  function aVenir(r){ if (typeof window.finAVenir === 'function') return window.finAVenir(r); if (!r.mois_facturation) return true; return String(r.mois_facturation).slice(0, 4) === String(new Date().getFullYear()); }
+  function somme(rows, p){ return rows.filter(function(r){ return r.probabilite === p && aVenir(r); }).reduce(function(a, r){ return a + montantLigne(r); }, 0); }
+  /* Horodatage des données et mois de référence : même logique que dataTs() / refMonth() du Tableau de bord */
+  function finDataTs(){ if (typeof window.FIN_DATA_TS === 'number') return window.FIN_DATA_TS; try { var sn = localStorage.getItem('kw:finance:snapshot:v1'); if (sn){ var o = JSON.parse(sn); if (o && o.ts) return o.ts; } } catch(e){} return Date.now(); }
+  function finRef(){ var d = new Date(finDataTs()); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2); }
+  function enRetard(r){ if (!r || !r.mois_facturation) return false; var ym = String(r.mois_facturation).slice(0, 7), ref = finRef(); return ym.slice(0, 4) === ref.slice(0, 4) && ym <= ref; }
+  var MOIS_FR = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+  async function loadFin(force){
+    if (!db() || (!force && (O.finState === 'ok' || O.finState === 'denied' || O.finState === 'loading'))) { paintFin(); return; }
+    O.finState = 'loading'; if (O.fin) paintFin();
+    try {
+      var tok = (typeof kwFreshToken === 'function') ? await kwFreshToken() : ((typeof SB_SESSION !== 'undefined' && SB_SESSION && SB_SESSION.access_token) || ''), h = { Authorization:'Bearer ' + tok }, y = new Date().getFullYear();
+      var rs = await Promise.all([ fetch('/api/evoliz?start=' + y + '-01-01', { headers:h }), fetch('/api/finance-projection?annee=' + y, { headers:h }) ]);
+      if (rs[0].status === 403 || rs[1].status === 403){ O.finState = 'denied'; O.fin = null; paintFin(); return; }
+      if (!rs[0].ok || !rs[1].ok) throw new Error(!rs[0].ok ? 'Evoliz indisponible (' + rs[0].status + ')' : 'Carnet indisponible (' + rs[1].status + ')');
+      var ev = await rs[0].json(), cd = await rs[1].json(), rows = Array.isArray(cd.rows) ? cd.rows : [];
+      var base = Number(ev.ca_ht) || 0, sg = somme(rows, 'signe'), a = somme(rows, 'p75'), b = somme(rows, 'p50');
+      var late = rows.filter(function(r){ return enRetard(r) && (r.probabilite === 'signe' || r.probabilite === 'p75' || r.probabilite === 'p50'); });
+      var ref = finRef(), dts = finDataTs();
+      O.fin = { base:base, signe:sg, p75:a, p50:b, commande:base + sg, projete:base + sg + a + b, ts:Date.now(), n:rows.length, ref:ref, dts:dts, ageJ:Math.floor((Date.now() - dts) / 86400000), lateN:late.length, lateMt:late.reduce(function(x, r){ return x + montantLigne(r); }, 0),
+                 refAncien: ref < (new Date().getFullYear() + '-' + ('0' + (new Date().getMonth() + 1)).slice(-2)) }; O.finState = 'ok'; O.finErr = '';
+    } catch(e){ O.finState = 'error'; O.finErr = (e && e.message) || String(e); O.fin = null; }
+    paintFin();
+  }
+  function finTile(lab, val, parts, sub, obj){
+    var tot = parts.reduce(function(a, p){ return a + p.v; }, 0), scale = Math.max(obj, tot) || 1, pct = obj > 0 ? Math.round(val / obj * 100) : null;
+    return '<div class="obx-ft"><span class="l">' + esc(lab) + '</span><span class="v">' + esc(fmtE(val)) + (pct != null ? '<small>' + pct + ' % de l’objectif</small>' : '') + '</span>'
+      + '<div class="obx-gauge" role="img" aria-label="' + esc(lab + ' : ' + parts.map(function(p){ return p.l + ' ' + fmtE(p.v); }).join(', ')) + '">' + parts.filter(function(p){ return p.v > 0; }).map(function(p){ return '<i class="' + p.c + '" style="width:' + (p.v / scale * 100) + '%"></i>'; }).join('') + '</div>'
+      + '<div class="obx-legend">' + parts.map(function(p){ var col = { f:'#560A0F', c:'#c9a000', p75:'#e9c968', p50:'#f4e3b0' }[p.c]; return '<span style="--c:' + col + '">' + esc(p.l) + ' ' + esc(fmtE(p.v)) + '</span>'; }).join('') + '</div>'
+      + '<div class="obx-sub">' + sub + '</div></div>';
+  }
+  function paintFin(){
+    var el = $('obxFin'); if (!el) return; var st = O.finState;
+    if (!st || st === 'denied' || (st === 'loading' && !O.fin)){ el.innerHTML = ''; return; }
+    var y = new Date().getFullYear(), obj = Number(window.FINANCE_OBJECTIF) || 0;
+    var head = '<div class="obx-fin-h"><b>Indicateurs financiers ' + y + '</b><span class="obx-sub">Evoliz + carnet · réservé à la direction' + (O.fin ? ' · mis à jour à ' + hhmm(new Date(O.fin.ts).toISOString()) : '') + '</span><span class="obx-fin-act">'
+      + btn('lnk sm', '', 'obxFinRefresh()', '↻ Actualiser') + btn('sec sm', '', 'obxGoFinance()', '+ Ajouter une opportunité') + '</span></div>';
+    if (st === 'error'){ el.innerHTML = head + '<div class="obx-fin-err"><b>Indicateurs financiers indisponibles</b> · ' + esc(O.finErr) + ' ' + btn('sec sm', '', 'obxFinRefresh()', 'Réessayer') + '</div>'; return; }
+    var f = O.fin; if (!f) return;
+    var refTxt = MOIS_FR[+f.ref.slice(5, 7) - 1] + ' ' + f.ref.slice(0, 4);
+    var note = '<div class="obx-sub" style="margin-top:10px;">Mêmes règles que le Tableau de bord : réalisé Evoliz (' + esc(fts(new Date(f.ts).toISOString())) + ') + carnet <b>à venir</b> (mois de facturation postérieur à <b>' + esc(refTxt) + '</b>, mois des données).</div>';
+    if (f.lateN > 0) note += '<div class="obx-sub" style="margin-top:4px;color:#8a1f14;font-weight:700;">⚠ ' + f.lateN + ' ligne' + plural(f.lateN, '', 's') + ' de carnet échue' + plural(f.lateN, '', 's') + ' (' + esc(fmtE(f.lateMt)) + ') exclue' + plural(f.lateN, '', 's') + ' : recalez la date, marquez-les facturées ou supprimez-les dans le carnet.</div>';
+    if (f.refAncien || f.ageJ > 7) note += '<div class="obx-sub" style="margin-top:4px;color:#8a1f14;font-weight:700;">⚠ Les données financières du Tableau de bord datent du ' + esc(fts(new Date(f.dts).toISOString())) + ' (mois de référence : ' + esc(refTxt) + ') : relancez « Mettre à jour toutes les données financières » pour aligner le carnet sur le mois en cours.</div>';
+    el.innerHTML = head + '<div class="obx-fin-g">'
+      + finTile('CA commandé', f.commande, [{ l:'Réalisé (Evoliz)', v:f.base, c:'f' }, { l:'Carnet signé à venir', v:f.signe, c:'c' }], 'Réalisé Evoliz + carnet signé à venir. Objectif ' + esc(fmtM(obj)) + '.', obj)
+      + finTile('CA projeté pondéré 50 %', f.projete, [{ l:'Réalisé (Evoliz)', v:f.base, c:'f' }, { l:'Carnet signé à venir', v:f.signe, c:'c' }, { l:'Affaires à 75 %', v:f.p75, c:'p75' }, { l:'Affaires à 50 %', v:f.p50, c:'p50' }], 'Commandé + affaires à 75 % et à 50 % (cumulatif : scénario « Pondéré 50 % » du Tableau de bord). ' + f.n + ' ligne' + plural(f.n, '', 's') + ' au carnet.', obj) + '</div>' + note;
+  }
+  window.obxFinRefresh = function(){ loadFin(true); };
+  /* Où s'ajoutent les opportunités : Tableau de bord, « Ajout de commandes et opportunités » (carnet). On y amène l'utilisateur et on déplie la section. */
+  window.obxGoFinance = async function(){
+    var sleep = function(ms){ return new Promise(function(r){ setTimeout(r, ms); }); };
+    switchTab('dash');
+    for (var i = 0; i < 50 && !document.getElementById('finZone'); i++) await sleep(100);
+    var zone = function(){ var z = document.getElementById('finCarnetZone'); return z && /Ajout de commandes/.test(z.textContent) ? z : null; };
+    for (var k = 0; k < 40 && !document.getElementById('finCarnetZone'); k++) await sleep(100);     /* la zone du carnet est créée un peu après le reste du Tableau de bord */
+    try { if (!zone() && typeof window.loadFinanceProjection === 'function') await window.loadFinanceProjection(); } catch(e){}
+    for (var j = 0; j < 30 && !zone(); j++) await sleep(100);
+    var z = zone(), d = z && z.querySelector('details');
+    if (d){ d.open = true; try { d.scrollIntoView({ behavior:'smooth', block:'start' }); } catch(e){} }
+    else { var fz = document.getElementById('finZone'); if (fz && fz.scrollIntoView){ try { fz.scrollIntoView({ block:'start' }); } catch(e){} } alert('La saisie des opportunités apparaît après « Mettre à jour toutes les données financières » en haut du Tableau de bord.'); }
+  };
+
   /* ---------- Squelette ---------- */
   function defaultTab(){ if (isAnim()) return liveSeance() ? 'ordre' : 'prep'; return liveSeance() ? 'ordre' : 'cartes'; }
   function tabsList(){
@@ -225,7 +307,7 @@
   function paintAll(){
     var v = view(); if (!v) return;
     var keep = (O.crMounted && $('obxCR')) ? $('obxCR') : null; if (keep && keep.parentNode) keep.parentNode.removeChild(keep);
-    v.innerHTML = css() + '<div class="obx-root"><div class="obx-hero" id="obxHero"><div id="obxHead"></div><div id="obxGuide"></div><div id="obxKpis" class="obx-kpis"></div></div><div id="obxBilan"></div>'
+    v.innerHTML = css() + '<div class="obx-root"><div id="obxFin" class="obx-fin"></div><div class="obx-hero" id="obxHero"><div id="obxHead"></div><div id="obxGuide"></div><div id="obxKpis" class="obx-kpis"></div></div><div id="obxBilan"></div>'
       + '<div class="obx-sticky" id="obxSticky"><div id="obxLive"></div><div id="obxTabs" class="obx-tabs" role="tablist" aria-label="Sections de l’Obeya"></div></div>'
       + '<div id="obxBoard">'
       + '<section class="obx-pane" id="obxP_prep" role="tabpanel" aria-labelledby="obxT_prep"><div id="obxPrep"></div></section>'
@@ -236,7 +318,7 @@
       + '<section class="obx-pane" id="obxP_tr" role="tabpanel" aria-labelledby="obxT_tr"><div id="obxTr"></div></section>'
       + '</div><div id="obxCR" style="display:none;"></div><div id="obxToasts" class="obx-toasts" aria-live="polite"></div></div>';
     if (keep){ var ph = $('obxCR'); if (ph && ph.parentNode) ph.parentNode.replaceChild(keep, ph); }
-    paintHead(); paintGuide(); paintKpis(); paintLive(); paintBilan(); paintPrep(); paintForms(); paintTour(); paintTr(); paintWall(); paintIface(); paintJournal(); paintTabs(); applyPane();
+    paintFin(); paintHead(); paintGuide(); paintKpis(); paintLive(); paintBilan(); paintPrep(); paintForms(); paintTour(); paintTr(); paintWall(); paintIface(); paintJournal(); paintTabs(); applyPane();
   }
   function repaintLight(){ paintHead(); paintGuide(); paintKpis(); paintLive(); paintPrep(); paintTour(); paintWall(); paintIface(); paintJournal(); paintTabs(); }
 
@@ -677,5 +759,5 @@
   function leaveTimers(){ if (O.poll) clearInterval(O.poll); if (O.clock) clearInterval(O.clock); if (O.tr) clearInterval(O.tr); O.poll = O.clock = O.tr = null; }
 
   /* Pour les tests et la déconnexion : rien ne reste d'un utilisateur à l'autre. */
-  window.obeyaReset = function(){ leave(); _accP = null; _accEmail = ''; O.sit = null; O.d = null; O.c = null; O.drafts = {}; O.bilan = null; O.filter = null; O.fcard = null; O.tab = null; O.open = {}; O.formOpen = {}; O.confirm = null; O.crMounted = false; O.pane = 'board'; O.dismissed = false; O.busy = false; };
+  window.obeyaReset = function(){ leave(); _accP = null; _accEmail = ''; O.sit = null; O.d = null; O.c = null; O.drafts = {}; O.bilan = null; O.fin = null; O.finState = null; O.filter = null; O.fcard = null; O.tab = null; O.open = {}; O.formOpen = {}; O.confirm = null; O.crMounted = false; O.pane = 'board'; O.dismissed = false; O.busy = false; };
 })();
