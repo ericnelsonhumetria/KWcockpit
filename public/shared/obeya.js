@@ -112,57 +112,86 @@
   /* ---------- Styles ---------- */
   function css(){
     return '<style>'
-      + '.obx-root{--b:#560A0F;--g:#c9a000;--ink:#1a1416;--mut:#7a6a67;--ln:#eadfd8;--ok:#2e7d46;--wa:#e08a00;--ko:#c0392b;max-width:1180px;}'
+      + '.obx-root{--b:#560A0F;--g:#c9a000;--gold:#EFB810;--ink:#1a1416;--mut:#7a6a67;--ln:#eadfd8;--ok:#2e7d46;--wa:#e08a00;--ko:#c0392b;width:100%;max-width:none;}'
       + '.obx-root *{box-sizing:border-box;} .obx-root [hidden]{display:none !important;}'
       + '.obx-root button:focus-visible,.obx-root summary:focus-visible,.obx-root textarea:focus-visible,.obx-root input:focus-visible,.obx-root [role=tab]:focus-visible{outline:3px solid #c9a000;outline-offset:2px;}'
-      + '.obx-btn.add-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:42px;padding:0 18px;border-radius:10px;font-size:14px;font-weight:700;border:1px solid var(--b);cursor:pointer;line-height:1.1;text-align:center;}'
+      /* boutons */
+      + '.obx-btn.add-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:42px;padding:0 18px;border-radius:10px;font-size:14px;font-weight:700;border:1px solid var(--b);cursor:pointer;line-height:1.1;text-align:center;transition:background .12s,transform .12s;}'
       + '.obx-btn.pri{background:var(--b);color:#fff;} .obx-btn.pri:hover{background:#3d070b;}'
-      + '.obx-btn.gold{background:var(--g);border-color:var(--g);color:#1a1416;} .obx-btn.gold:hover{background:#b08c00;}'
+      + '.obx-btn.gold{background:var(--gold);border-color:var(--gold);color:#1a1416;} .obx-btn.gold:hover{background:#f3ca4b;}'
       + '.obx-btn.sec{background:#fff;color:var(--b);} .obx-btn.sec:hover{background:#faf3ec;}'
       + '.obx-btn.lnk{background:transparent;border-color:transparent;color:var(--b);text-decoration:underline;min-height:32px;padding:2px 0;font-weight:600;font-size:13px;justify-content:flex-start;text-align:left;line-height:1.35;}'
       + '.obx-btn.sm{min-height:36px;padding:0 12px;font-size:13px;}'
-      + '.obx-btn:disabled{opacity:.55;cursor:default;} .obx-btn.is-busy{position:relative;color:transparent !important;} .obx-btn.is-busy:after{content:"";position:absolute;width:16px;height:16px;border:3px solid rgba(255,255,255,.5);border-top-color:#fff;border-radius:50%;animation:obxspin .8s linear infinite;} .obx-btn.sec.is-busy:after{border-color:rgba(86,10,15,.25);border-top-color:var(--b);}'
+      + '.obx-btn:disabled{opacity:.55;cursor:default;} .obx-btn.is-busy{position:relative;color:transparent !important;} .obx-btn.is-busy:after{content:"";position:absolute;width:16px;height:16px;border:3px solid rgba(0,0,0,.2);border-top-color:#1a1416;border-radius:50%;animation:obxspin .8s linear infinite;}'
       + '@keyframes obxspin{to{transform:rotate(360deg);}} @media (prefers-reduced-motion:reduce){.obx-btn.is-busy:after{animation:none;}}'
-      + '.obx-title{display:flex;gap:10px 16px;align-items:baseline;flex-wrap:wrap;margin:0 0 10px;} .obx-title h2{margin:0;font-size:26px;color:var(--ink);} .obx-sub{color:var(--mut);font-size:13px;}'
-      + '.obx-guide{background:linear-gradient(135deg,#fff 0%,#fbf5ec 100%);border:1px solid var(--ln);border-top:5px solid var(--g);border-radius:14px;box-shadow:0 2px 10px rgba(86,10,15,.10);padding:18px 22px;margin:8px 0 14px;display:flex;flex-direction:column;gap:12px;}'
-      + '.obx-guide .row{display:flex;gap:14px 24px;align-items:center;flex-wrap:wrap;} .obx-gk{font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--b);} .obx-gt{font-size:21px;font-weight:800;color:var(--ink);margin:2px 0;} .obx-gd{font-size:14px;color:#4a3d40;max-width:70ch;line-height:1.5;}'
+      /* bandeau d'en-tête : titre, prochaine étape, indicateurs */
+      + '.obx-hero{position:relative;overflow:hidden;border-radius:18px;margin:10px 0 16px;padding:22px 28px 24px;color:#fff;background:radial-gradient(900px 320px at 92% -30%,rgba(239,184,16,.30),transparent 62%),linear-gradient(120deg,#3a070b 0%,#560A0F 55%,#7d1b21 100%);box-shadow:0 10px 28px rgba(86,10,15,.28);}'
+      + '.obx-hero:after{content:"";position:absolute;left:0;right:0;bottom:0;height:4px;background:linear-gradient(90deg,#EFB810,#f3ca4b 45%,rgba(239,184,16,0));}'
+      + '.obx-hero .sec-eyebrow{color:#EFB810 !important;} .obx-title{display:flex;gap:10px 18px;align-items:flex-end;flex-wrap:wrap;margin:0 0 6px;} .obx-title h2{margin:0;font-size:32px;line-height:1.1;color:#fff;letter-spacing:-.01em;}'
+      + '.obx-hero .obx-chip{background:rgba(255,255,255,.14) !important;color:#fff !important;border-color:rgba(255,255,255,.4) !important;} .obx-hero .obx-chip.live{background:#c0392b !important;border-color:#c0392b !important;}'
+      + '.obx-sub{color:var(--mut);font-size:13px;} .obx-hero .obx-sub{color:rgba(255,255,255,.78);}'
+      + '.obx-guide{background:transparent;border:0;box-shadow:none;padding:16px 0 0;margin:14px 0 0;border-top:1px solid rgba(255,255,255,.16);display:flex;flex-direction:column;gap:12px;} .obx-guide .row{display:flex;gap:14px 28px;align-items:center;flex-wrap:wrap;}'
+      + '.obx-gk{font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#EFB810;} .obx-gt{font-size:24px;font-weight:800;color:#fff;margin:2px 0 4px;line-height:1.2;} .obx-gd{font-size:14.5px;color:rgba(255,255,255,.88);max-width:78ch;line-height:1.55;}'
       + '.obx-gcta{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-left:auto;}'
-      + '.obx-steps{display:flex;gap:6px 18px;list-style:none;margin:0;padding:0;flex-wrap:wrap;} .obx-steps li{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--mut);font-weight:600;} .obx-steps i{display:inline-flex;width:24px;height:24px;border-radius:50%;align-items:center;justify-content:center;font-style:normal;font-size:12px;font-weight:800;background:#efe7de;color:#8b7d78;}'
-      + '.obx-steps li.cur{color:var(--ink);} .obx-steps li.cur i{background:var(--g);color:#1a1416;} .obx-steps li.done{color:var(--ok);} .obx-steps li.done i{background:var(--ok);color:#fff;}'
-      + '.obx-prog{list-style:none;margin:0;padding:10px 14px;background:#fff;border:1px solid var(--ln);border-radius:10px;display:flex;flex-direction:column;gap:6px;font-size:13px;} .obx-prog li{display:flex;gap:8px;align-items:center;color:var(--mut);} .obx-prog li.cur{color:var(--ink);font-weight:700;} .obx-prog li.done{color:var(--ok);}'
-      + '.obx-msg{font-size:13px;} .obx-msg:empty{display:none;} .obx-guide.compact{padding:10px 16px;margin:6px 0 8px;border-top-width:4px;gap:6px;} .obx-guide.compact .obx-gt{font-size:17px;margin:0;} .obx-help{font-size:13px;color:#4a3d40;} .obx-help summary{cursor:pointer;color:var(--b);font-weight:700;} .obx-help ul{margin:8px 0 0;padding-left:18px;line-height:1.6;}'
-      + '.obx-sticky{position:sticky;top:0;z-index:40;background:#f3efe9;padding:6px 0 8px;margin:0 0 6px;}'
-      + '.obx-tabs{display:flex;gap:4px;overflow-x:auto;background:#eadfd3;padding:4px;border-radius:12px;scrollbar-width:thin;}'
-      + '.obx-tab{flex:0 0 auto;display:inline-flex;gap:8px;align-items:center;min-height:42px;padding:0 16px;border:0;border-radius:9px;background:transparent;color:#5a4a46;font-weight:700;font-size:14px;cursor:pointer;white-space:nowrap;font-family:inherit;} .obx-tab:hover{background:rgba(255,255,255,.55);} .obx-tab[aria-selected=true]{background:#fff;color:var(--b);box-shadow:0 1px 4px rgba(86,10,15,.18);}'
-      + '.obx-bdg{display:inline-block;min-width:22px;padding:1px 7px;border-radius:999px;font-size:12px;font-weight:800;text-align:center;background:#e3d9cf;color:#5a4a46;} .obx-bdg.ok{background:#dcefe2;color:#1e5b32;} .obx-bdg.warn{background:#ffe6b8;color:#7a4a00;} .obx-bdg.ko{background:var(--ko);color:#fff;}'
-      + '.obx-pane{padding-top:6px;} .obx-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;align-items:start;}'
-      + '.obx-card{background:#fff;border-radius:14px;box-shadow:0 2px 8px rgba(86,10,15,.10);padding:16px 18px;border-top:4px solid #cfc6bd;display:flex;flex-direction:column;gap:12px;} .obx-card.mine{box-shadow:0 0 0 2px var(--b),0 2px 8px rgba(86,10,15,.12);}'
-      + '.obx-sec{margin:6px 0 12px;} .obx-sec h3{margin:0;font-size:18px;color:var(--ink);} .obx-sec p{margin:4px 0 0;color:var(--mut);font-size:13px;max-width:78ch;line-height:1.5;}'
+      + '.obx-hero .obx-btn.pri{background:var(--gold);border-color:var(--gold);color:#1a1416;} .obx-hero .obx-btn.pri:hover{background:#f3ca4b;}'
+      + '.obx-hero .obx-btn.sec{background:transparent;color:#fff;border-color:rgba(255,255,255,.7);} .obx-hero .obx-btn.sec:hover{background:rgba(255,255,255,.14);}'
+      + '.obx-hero .obx-btn.lnk{color:#f3ca4b;} .obx-hero .obx-btn.is-busy:after{border-color:rgba(0,0,0,.25);border-top-color:#1a1416;}'
+      + '.obx-steps{display:flex;gap:6px 22px;list-style:none;margin:0;padding:0;flex-wrap:wrap;} .obx-steps li{display:flex;gap:8px;align-items:center;font-size:13px;color:rgba(255,255,255,.62);font-weight:600;} .obx-steps i{display:inline-flex;width:26px;height:26px;border-radius:50%;align-items:center;justify-content:center;font-style:normal;font-size:12px;font-weight:800;background:rgba(255,255,255,.16);color:#fff;}'
+      + '.obx-steps li.cur{color:#fff;} .obx-steps li.cur i{background:var(--gold);color:#1a1416;} .obx-steps li.done{color:#9be0b0;} .obx-steps li.done i{background:#2e7d46;color:#fff;}'
+      + '.obx-prog{list-style:none;margin:0;padding:10px 14px;background:#fff;color:var(--ink);border-radius:10px;display:flex;flex-direction:column;gap:6px;font-size:13px;} .obx-prog li{display:flex;gap:8px;align-items:center;color:var(--mut);} .obx-prog li.cur{color:var(--ink);font-weight:700;} .obx-prog li.done{color:var(--ok);}'
+      + '.obx-msg{font-size:13px;} .obx-msg:empty{display:none;} .obx-msg:not(:empty){background:#fff;border-radius:10px;padding:8px 12px;display:inline-block;max-width:100%;}'
+      + '.obx-help{font-size:13px;color:#4a3d40;} .obx-help summary{cursor:pointer;color:var(--b);font-weight:700;} .obx-help ul{margin:8px 0 0;padding-left:18px;line-height:1.6;} .obx-hero .obx-help,.obx-hero .obx-help summary{color:#f3ca4b;} .obx-hero .obx-help ul{color:rgba(255,255,255,.9);}'
+      + '.obx-guide.compact{margin:8px 0 0;padding-top:10px;gap:6px;} .obx-guide.compact .obx-gt{font-size:19px;margin:0;} .obx-hero.compact{padding:14px 24px 16px;}'
+      /* indicateurs */
+      + '.obx-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:20px;}'
+      + '.obx-kpi{display:flex;flex-direction:column;gap:5px;text-align:left;padding:14px 16px 13px;border-radius:14px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.09);color:#fff;cursor:pointer;font:inherit;transition:background .12s,transform .12s;} .obx-kpi:hover{background:rgba(255,255,255,.17);transform:translateY(-2px);}'
+      + '.obx-kpi .l{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#EFB810;font-weight:800;} .obx-kpi .n{font-size:34px;font-weight:800;line-height:1.05;font-variant-numeric:tabular-nums;} .obx-kpi .n small{font-size:16px;font-weight:700;opacity:.8;} .obx-kpi .s{font-size:12.5px;color:rgba(255,255,255,.82);line-height:1.35;}'
+      + '.obx-kpi .n.ko{color:#ffb0a6;} .obx-kpi .n.ok{color:#9be0b0;} .obx-seg{display:flex;gap:4px;margin:2px 0 1px;} .obx-seg i{flex:1;height:8px;border-radius:4px;background:rgba(255,255,255,.22);} .obx-seg i.on{background:#7be0a0;} .obx-seg i.late{background:#EFB810;}'
+      /* onglets */
+      + '.obx-sticky{position:sticky;top:0;z-index:40;background:#f3efe9;padding:6px 0 8px;margin:0 0 8px;}'
+      + '.obx-tabs{display:flex;gap:4px;overflow-x:auto;background:#eadfd3;padding:5px;border-radius:14px;scrollbar-width:thin;}'
+      + '.obx-tab{flex:0 0 auto;display:inline-flex;gap:8px;align-items:center;min-height:44px;padding:0 20px;border:0;border-radius:10px;background:transparent;color:#5a4a46;font-weight:700;font-size:15px;cursor:pointer;white-space:nowrap;font-family:inherit;} .obx-tab:hover{background:rgba(255,255,255,.55);} .obx-tab[aria-selected=true]{background:#fff;color:var(--b);box-shadow:0 2px 6px rgba(86,10,15,.2);}'
+      + '.obx-bdg{display:inline-block;min-width:22px;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:800;text-align:center;background:#e3d9cf;color:#5a4a46;} .obx-bdg.ok{background:#dcefe2;color:#1e5b32;} .obx-bdg.warn{background:#ffe6b8;color:#7a4a00;} .obx-bdg.ko{background:var(--ko);color:#fff;}'
+      /* sections */
+      + '.obx-pane{padding-top:8px;} .obx-sec{margin:6px 0 14px;} .obx-sec h3{margin:0;font-size:20px;color:var(--ink);} .obx-sec p{margin:4px 0 0;color:var(--mut);font-size:13.5px;max-width:90ch;line-height:1.5;}'
+      + '.obx-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,330px),1fr));gap:18px;align-items:stretch;}'
+      + '.obx-cols{column-width:480px;column-gap:30px;} .obx-cols>*{break-inside:avoid;}'
+      + '.obx-card{background:#fff;border-radius:16px;box-shadow:0 2px 10px rgba(86,10,15,.10);padding:16px 18px;border-top:4px solid #cfc6bd;display:flex;flex-direction:column;gap:12px;} .obx-card.mine{box-shadow:0 0 0 2px var(--b),0 4px 14px rgba(86,10,15,.16);}'
+      /* cartes de fonction */
+      + '.obx-card.fn{padding:0;gap:0;overflow:hidden;border-top:5px solid #cfc6bd;transition:box-shadow .15s,transform .15s;} .obx-card.fn:hover{box-shadow:0 8px 22px rgba(86,10,15,.18);transform:translateY(-2px);}'
+      + '.obx-fh{padding:16px 18px 14px;display:flex;gap:14px;align-items:flex-start;background:linear-gradient(180deg,var(--tint,#f6f1ea) 0%,#fff 100%);border-bottom:1px solid #f0e7df;}'
+      + '.obx-ico{flex:none;width:50px;height:50px;border-radius:15px;display:flex;align-items:center;justify-content:center;font-size:26px;background:var(--tint2,#efe7de);}'
+      + '.obx-fh .tt{flex:1 1 auto;min-width:0;} .obx-fh .tt b{font-size:20px;line-height:1.2;color:var(--ink);} .obx-trow{display:flex;gap:6px 10px;align-items:center;flex-wrap:wrap;} .obx-fb{padding:14px 18px 18px;display:flex;flex-direction:column;gap:12px;flex:1 1 auto;}'
+      + '.obx-who{display:flex;flex-direction:column;align-items:flex-start;gap:5px;margin-top:7px;} .obx-avs{display:inline-flex;} .obx-av{display:inline-flex;width:28px;height:28px;border-radius:50%;background:var(--b);color:#fff;font-size:11px;font-weight:800;align-items:center;justify-content:center;border:2px solid #fff;margin-left:-5px;box-shadow:0 0 0 1px rgba(86,10,15,.15);} .obx-av:first-child{margin-left:0;} .obx-av.more{background:#8a7a76;}'
       + '.obx-chip{display:inline-block;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:700;border:1px solid;white-space:nowrap;} .obx-row{display:flex;gap:8px 14px;align-items:center;flex-wrap:wrap;}'
-      + '.obx-ol{display:flex;gap:10px;align-items:flex-start;padding:7px 0;border-bottom:1px solid #f0e7df;} .obx-ol:last-child{border-bottom:0;} .obx-ol>b{flex:none;width:22px;height:22px;border-radius:50%;background:#f3eee6;color:#5a4a46;font-size:12px;display:inline-flex;align-items:center;justify-content:center;margin-top:1px;} .obx-ol span{line-height:1.4;font-size:15px;}'
-      + '.obx-box{border-radius:10px;padding:10px 12px;font-size:13px;line-height:1.45;} .obx-box .t{font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;margin-bottom:2px;}'
+      + '.obx-ol{display:flex;gap:10px;align-items:flex-start;padding:7px 0;border-bottom:1px solid #f0e7df;} .obx-ol:last-child{border-bottom:0;} .obx-ol>b{flex:none;width:24px;height:24px;border-radius:50%;background:#f3eee6;color:#5a4a46;font-size:12px;display:inline-flex;align-items:center;justify-content:center;margin-top:1px;} .obx-ol span{line-height:1.4;font-size:15px;}'
+      + '.obx-box{border-radius:12px;padding:10px 13px;font-size:13.5px;line-height:1.45;} .obx-box .t{font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;margin-bottom:3px;}'
       + '.obx-risk{background:#fbe6e3;color:#4a1a14;} .obx-risk .t{color:#8a1f14;} .obx-opp{background:#e7f3ea;color:#173d27;} .obx-opp .t{color:#1e5b32;}'
-      + '.obx-fc{background:#fff;border-radius:14px;box-shadow:0 2px 8px rgba(86,10,15,.10);border-top:4px solid var(--g);margin:0 0 14px;} .obx-fc>summary{list-style:none;cursor:pointer;padding:14px 18px;display:flex;gap:10px 14px;align-items:center;flex-wrap:wrap;} .obx-fc>summary::-webkit-details-marker{display:none;} .obx-fc>summary:after{content:"▾";margin-left:auto;color:var(--mut);} .obx-fc[open]>summary:after{content:"▴";}'
-      + '.obx-fc .in{padding:0 18px 18px;display:flex;flex-direction:column;gap:12px;} .obx-fg{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;}'
+      /* formulaires */
+      + '.obx-fc{background:#fff;border-radius:16px;box-shadow:0 2px 10px rgba(86,10,15,.10);border-top:5px solid var(--gold);margin:0 0 16px;} .obx-fc>summary{list-style:none;cursor:pointer;padding:15px 20px;display:flex;gap:10px 14px;align-items:center;flex-wrap:wrap;} .obx-fc>summary::-webkit-details-marker{display:none;} .obx-fc>summary:after{content:"▾";margin-left:auto;color:var(--mut);} .obx-fc[open]>summary:after{content:"▴";}'
+      + '.obx-fc .in{padding:0 20px 20px;display:flex;flex-direction:column;gap:12px;} .obx-fg{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:14px;}'
       + '.obx-lb{display:block;font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#5a4a46;margin-bottom:4px;} .obx-lb i{color:var(--ko);font-style:normal;}'
       + '.obx-in{width:100%;min-height:42px;padding:8px 12px;border:1px solid #cdbfb6;border-radius:10px;font-size:15px;font-family:inherit;line-height:1.4;background:#fff;} .obx-in:focus{border-color:var(--b);} .obx-in.bad{border-color:var(--ko);background:#fff7f6;}'
       + '.obx-meta{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--mut);min-height:16px;} .obx-err{color:var(--ko);font-weight:700;}'
-      + '.obx-live{background:#fff;border:1px solid var(--ln);border-radius:12px;box-shadow:0 3px 10px rgba(86,10,15,.15);padding:8px 14px;margin:0 0 6px;display:flex;gap:8px 18px;align-items:center;flex-wrap:wrap;}'
+      /* séance */
+      + '.obx-live{background:#fff;border:1px solid var(--ln);border-radius:14px;box-shadow:0 3px 12px rgba(86,10,15,.16);padding:8px 16px;margin:0 0 6px;display:flex;gap:8px 18px;align-items:center;flex-wrap:wrap;}'
       + '.obx-clock{display:inline-flex;align-items:baseline;gap:10px;padding:2px 16px;border-radius:12px;border:2px solid var(--ok);color:#1e5b32;background:#e7f3ea;font-variant-numeric:tabular-nums;} .obx-clock b{font-size:30px;line-height:1.15;letter-spacing:.02em;} .obx-clock span{font-size:12px;font-weight:700;} .obx-clock.red{border-color:var(--ko);background:var(--ko);color:#fff;}'
       + '.obx-dot{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:6px;background:var(--ko);} .obx-dot.off{background:#9a8f88;}'
-      + '.obx-tr{border:1px solid var(--ln);border-radius:12px;background:#fbf8f2;} .obx-tr-bar{display:flex;gap:10px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--ln);flex-wrap:wrap;}'
-      + '.obx-tr-body{min-height:180px;max-height:46vh;overflow-y:auto;padding:12px 14px;white-space:pre-wrap;font-size:15px;line-height:1.55;} .obx-tr-body.empty:before{content:attr(data-ph);color:#8b8578;font-size:13px;}'
+      + '.obx-tr{border:1px solid var(--ln);border-radius:14px;background:#fbf8f2;} .obx-tr-bar{display:flex;gap:10px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--ln);flex-wrap:wrap;}'
+      + '.obx-tr-body{min-height:200px;max-height:52vh;overflow-y:auto;padding:14px 16px;white-space:pre-wrap;font-size:16px;line-height:1.6;} .obx-tr-body.empty:before{content:attr(data-ph);color:#8b8578;font-size:13px;}'
+      /* interfaces */
       + '.obx-mx{display:grid;gap:4px;} .obx-mx button{min-height:40px;border-radius:8px;border:1px solid #e0d6cf;background:#fff;font-weight:700;cursor:pointer;} .obx-mx button:disabled{cursor:default;color:#aaa;}'
-      + '.obx-find{background:#fff;border-radius:14px;box-shadow:0 2px 8px rgba(86,10,15,.10);border-top:4px solid var(--wa);margin:0 0 12px;} .obx-find.bl{border-top-color:var(--ko);}'
-      + '.obx-find>summary{list-style:none;cursor:pointer;padding:13px 16px;display:flex;gap:6px 12px;align-items:center;flex-wrap:wrap;} .obx-find>summary::-webkit-details-marker{display:none;} .obx-find>summary:after{content:"▾";margin-left:auto;color:var(--mut);} .obx-find[open]>summary:after{content:"▴";}'
-      + '.obx-find .ft{font-size:15px;font-weight:700;flex:1 1 280px;min-width:0;} .obx-find .in{padding:0 16px 16px;display:flex;flex-direction:column;gap:12px;}'
-      + '.obx-opts{display:flex;gap:10px;flex-wrap:wrap;align-items:stretch;} .obx-opt{flex:1 1 250px;text-align:left;border:2px solid #e0d6cf;background:#fff;border-radius:12px;padding:10px 14px;cursor:pointer;font:inherit;display:flex;flex-direction:column;gap:3px;min-height:64px;} .obx-opt:hover{border-color:var(--b);} .obx-opt .e{font-size:12px;color:var(--mut);line-height:1.4;}'
+      + '.obx-flist{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,540px),1fr));gap:14px;align-items:start;margin-bottom:14px;}'
+      + '.obx-find{background:#fff;border-radius:16px;box-shadow:0 2px 10px rgba(86,10,15,.10);border-top:5px solid var(--wa);} .obx-find.bl{border-top-color:var(--ko);}'
+      + '.obx-find>summary{list-style:none;cursor:pointer;padding:14px 18px;display:flex;gap:6px 12px;align-items:center;flex-wrap:wrap;} .obx-find>summary::-webkit-details-marker{display:none;} .obx-find>summary:after{content:"▾";margin-left:auto;color:var(--mut);} .obx-find[open]>summary:after{content:"▴";}'
+      + '.obx-find .ft{font-size:15.5px;font-weight:700;flex:1 1 280px;min-width:0;} .obx-find .in{padding:0 18px 18px;display:flex;flex-direction:column;gap:12px;}'
+      + '.obx-opts{display:flex;gap:10px;flex-wrap:wrap;align-items:stretch;} .obx-opt{flex:1 1 240px;text-align:left;border:2px solid #e0d6cf;background:#fff;border-radius:12px;padding:10px 14px;cursor:pointer;font:inherit;display:flex;flex-direction:column;gap:3px;min-height:64px;} .obx-opt:hover{border-color:var(--b);} .obx-opt .e{font-size:12px;color:var(--mut);line-height:1.4;}'
       + '.obx-opt.conf{border-color:var(--b);background:#fdf3e6;box-shadow:0 0 0 2px rgba(201,160,0,.45);} .obx-opt.conf .e{color:#5a2d00;font-weight:600;}'
       + '.obx-chk{display:flex;gap:12px;align-items:flex-start;padding:10px 12px;border-radius:12px;border:1px solid transparent;} .obx-chk.cur{background:#fdf3e6;border-color:#ecd7a4;} .obx-chk.done{opacity:.55;} .obx-chk.done .tt{text-decoration:line-through;}'
       + '.obx-chk input{width:22px;height:22px;margin-top:2px;flex:none;accent-color:var(--b);cursor:pointer;} .obx-chk .tt{font-size:14px;line-height:1.4;}'
       + '.obx-toasts{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:9400;display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none;} .obx-toast{pointer-events:auto;background:#1a1416;color:#fff;border-radius:12px;padding:10px 16px;font-size:14px;box-shadow:0 6px 20px rgba(0,0,0,.3);display:flex;gap:12px;align-items:center;max-width:min(92vw,560px);} .obx-toast.ko{background:#8a1f14;} .obx-toast button{background:transparent;border:0;color:#fff;font-size:18px;cursor:pointer;line-height:1;}'
       + '.obx-ov{position:fixed;inset:0;background:rgba(20,14,12,.55);z-index:9500;display:flex;align-items:center;justify-content:center;padding:16px;} .obx-ov>div{background:#fff;border-radius:14px;max-width:760px;width:100%;max-height:88vh;overflow:auto;padding:20px 22px;}'
-      + '@media (max-width:640px){.obx-guide{padding:16px;} .obx-gcta{margin-left:0;width:100%;} .obx-gcta .obx-btn{flex:1 1 100%;} .obx-title h2{font-size:22px;} .obx-clock b{font-size:26px;} .obx-btn.add-btn{min-height:46px;}}'
+      + '@media (max-width:640px){.obx-hero{padding:18px 16px 20px;border-radius:14px;} .obx-gcta{margin-left:0;width:100%;} .obx-gcta .obx-btn{flex:1 1 100%;} .obx-title h2{font-size:26px;} .obx-gt{font-size:21px;} .obx-kpi .n{font-size:28px;} .obx-clock b{font-size:26px;} .obx-btn.add-btn{min-height:46px;} .obx-tab{padding:0 14px;}}'
       + '</style>';
   }
   function chip(t, bg, fg, bd){ return '<span class="obx-chip" style="background:' + bg + ';color:' + fg + ';border-color:' + bd + ';">' + esc(t) + '</span>'; }
@@ -196,7 +225,7 @@
   function paintAll(){
     var v = view(); if (!v) return;
     var keep = (O.crMounted && $('obxCR')) ? $('obxCR') : null; if (keep && keep.parentNode) keep.parentNode.removeChild(keep);
-    v.innerHTML = css() + '<div class="obx-root"><div id="obxHead"></div><div id="obxGuide"></div><div id="obxBilan"></div>'
+    v.innerHTML = css() + '<div class="obx-root"><div class="obx-hero" id="obxHero"><div id="obxHead"></div><div id="obxGuide"></div><div id="obxKpis" class="obx-kpis"></div></div><div id="obxBilan"></div>'
       + '<div class="obx-sticky" id="obxSticky"><div id="obxLive"></div><div id="obxTabs" class="obx-tabs" role="tablist" aria-label="Sections de l’Obeya"></div></div>'
       + '<div id="obxBoard">'
       + '<section class="obx-pane" id="obxP_prep" role="tabpanel" aria-labelledby="obxT_prep"><div id="obxPrep"></div></section>'
@@ -207,9 +236,9 @@
       + '<section class="obx-pane" id="obxP_tr" role="tabpanel" aria-labelledby="obxT_tr"><div id="obxTr"></div></section>'
       + '</div><div id="obxCR" style="display:none;"></div><div id="obxToasts" class="obx-toasts" aria-live="polite"></div></div>';
     if (keep){ var ph = $('obxCR'); if (ph && ph.parentNode) ph.parentNode.replaceChild(keep, ph); }
-    paintHead(); paintGuide(); paintLive(); paintBilan(); paintPrep(); paintForms(); paintTour(); paintTr(); paintWall(); paintIface(); paintJournal(); paintTabs(); applyPane();
+    paintHead(); paintGuide(); paintKpis(); paintLive(); paintBilan(); paintPrep(); paintForms(); paintTour(); paintTr(); paintWall(); paintIface(); paintJournal(); paintTabs(); applyPane();
   }
-  function repaintLight(){ paintHead(); paintGuide(); paintLive(); paintPrep(); paintTour(); paintWall(); paintIface(); paintJournal(); paintTabs(); }
+  function repaintLight(){ paintHead(); paintGuide(); paintKpis(); paintLive(); paintPrep(); paintTour(); paintWall(); paintIface(); paintJournal(); paintTabs(); }
 
   function paintTabs(){
     var el = $('obxTabs'); if (!el) return; var cur = curTab(), list = tabsList();
@@ -235,7 +264,22 @@
   function paintHead(){
     var el = $('obxHead'); if (!el) return; var s = seance(), live = liveSeance();
     el.innerHTML = '<div class="obx-title"><div><div class="sec-eyebrow">Codir KW</div><h2>Obeya Codir</h2></div><div class="obx-row" style="margin-left:auto;"><b style="font-size:15px;">Séance du ' + esc(s ? longDate(s.date_seance) : '') + '</b>'
-      + (live ? chip('● En cours', '#fbe6e3', '#8a1f14', '#c0392b') : neutral('Préparation')) + '</div></div>';
+      + (live ? '<span class="obx-chip live">● En cours</span>' : '<span class="obx-chip">Préparation</span>') + '</div></div>';
+  }
+  /* Indicateurs du bandeau : l'état de la séance en un coup d'œil, chaque tuile ouvre sa section */
+  function paintKpis(){
+    var el = $('obxKpis'), hero = $('obxHero'); if (!el) return; var live = liveSeance() && isAnim();
+    if (hero) hero.classList.toggle('compact', live);
+    if (live){ el.innerHTML = ''; el.hidden = true; return; } el.hidden = false;
+    var cs = cartes(), n = cs.length, prets = nbPrets(), L = constatsLive(), bl = L.filter(function(x){ return x.gravite === 'bloquant'; }).length, dec = (O.c && O.c.decisions || []).length, prep = prepared(), has = !!(O.c && O.c.analyse);
+    var dur = (O.d && O.d.config && O.d.config.duree_min) || 60, T = prep ? tourItems().T : [], mins = T.reduce(function(a, x){ return a + x.min; }, 0);
+    var seg = cs.map(function(c){ return '<i class="' + (c.contenu ? (c.contenu.moment === 'apres' ? 'late' : 'on') : '') + '"></i>'; }).join('');
+    var miss = cs.filter(function(c){ return !c.contenu; });
+    function tile(tab, l, nHtml, nCls, sub, extra){ return '<button type="button" class="obx-kpi" onclick="obxTab(\'' + tab + '\')" aria-label="' + esc(l) + ' : ouvrir"><span class="l">' + esc(l) + '</span><span class="n ' + (nCls || '') + '">' + nHtml + '</span>' + (extra || '') + '<span class="s">' + sub + '</span></button>'; }
+    el.innerHTML = tile('cartes', 'Cartes prêtes', prets + '<small>/' + n + '</small>', prets === n ? 'ok' : '', miss.length ? esc(miss.map(function(c){ return c.carte; }).join(', ')) + ' à obtenir' : 'Toutes les cartes sont prêtes', '<span class="obx-seg" aria-hidden="true">' + seg + '</span>')
+      + tile('iface', 'Problèmes d’interface', has ? String(L.length) : '—', has ? (bl ? 'ko' : (L.length ? '' : 'ok')) : '', has ? bl + ' bloquant' + plural(bl, '', 's') + ' · ' + (L.length - bl) + ' à clarifier' : 'Analyse non lancée')
+      + tile('ordre', 'Ordre du jour', prep ? T.length + '<small> point' + plural(T.length, '', 's') + '</small>' : '—', '', prep ? '≈ ' + mins + ' min sur ' + dur : 'Généré par « Préparer l’Obeya »')
+      + tile('journal', 'Décisions', String(dec), '', dec ? 'inscrites au journal' : 'Aucune pour le moment');
   }
   function guideTexts(){
     var anim = isAnim(), live = liveSeance(), prep = prepared(), cs = cartes(), n = cs.length, prets = nbPrets(), miss = cs.filter(function(c){ return !c.contenu; }), mine = cs.filter(function(c){ return c.mine; });
@@ -314,7 +358,7 @@
     var dateEd = (s && s.statut === 'prepa') ? '<div class="obx-row"><label for="obxDate" class="obx-lb" style="margin:0;">Date de la séance</label><input id="obxDate" type="date" class="obx-in" style="width:auto;" value="' + esc(String(s.date_seance).slice(0, 10)) + '">' + btn('sec sm', '', 'obxSetDate()', 'Changer la date') + '<span id="obxHdrMsg" class="obx-sub"></span></div>' : '';
     var btns = live ? btn('sec', '', 'obxEnd()', '■ Terminer l’Obeya') : (btn('sec', '', 'obxPrepare()', prep ? '↻ Relancer l’analyse du plan d’action' : 'Préparer l’Obeya') + btn('gold', '', 'obxLaunch()', '▶ Lancer l’Obeya'));
     el.innerHTML = '<div class="obx-sec"><h3>Préparation · mode animateur</h3><p>Vous ne renseignez pas de carte pour l’animation : « Préparer l’Obeya » crée le compte-rendu, fait analyser le plan d’action par l’IA et génère l’ordre du jour. Le bilan vérifie que vous l’avez fait avant le lancement.</p></div>'
-      + '<div class="obx-card" style="border-top-color:#c9a000;"><div class="obx-row"><b style="font-size:16px;">' + prets + ' carte' + plural(prets, '', 's') + ' prête' + plural(prets, '', 's') + ' sur ' + cartes().length + '</b><span class="obx-sub">· animateur : ' + (prep ? 'prêt' : 'à faire') + '</span></div>' + rows + '<div class="obx-row">' + btns + '</div>' + dateEd + '</div>';
+      + '<div class="obx-card" style="border-top-color:#c9a000;"><div class="obx-row"><b style="font-size:16px;">' + prets + ' carte' + plural(prets, '', 's') + ' prête' + plural(prets, '', 's') + ' sur ' + cartes().length + '</b><span class="obx-sub">· animateur : ' + (prep ? 'prêt' : 'à faire') + '</span></div>' + '<div class="obx-cols">' + rows + '</div><div class="obx-row">' + btns + '</div>' + dateEd + '</div>';
   }
 
   /* ---------- Ma carte (responsable de carte) ---------- */
@@ -387,26 +431,33 @@
       return '<div class="obx-chk' + (d ? ' done' : (i === cur && anim ? ' cur' : '')) + '">' + (anim ? '<input type="checkbox" id="obxK_' + i + '" aria-label="Point traité : ' + esc(x.why) + '"' + (d ? ' checked' : '') + ' onchange="obxToggleDone(\'' + x.key + '\',this.checked)">' : '<span style="width:12px;height:12px;border-radius:50%;background:' + s.c + ';margin-top:6px;flex:none;"></span>')
         + '<div style="flex:1 1 260px;min-width:0;"><div class="tt"><b>' + esc(x.k) + '</b> · ' + esc(x.who) + '</div><div class="tt" style="color:#4a3d40;">' + esc(x.why) + '</div></div><span class="obx-sub" style="white-space:nowrap;">' + x.min + ' min</span></div>'; }).join('');
     el.innerHTML = '<div class="obx-sec"><h3>Tour par exception</h3><p>On ne passe en revue que ce qui s’écarte : le reste, au vert, n’est pas abordé.' + (anim ? ' Cochez chaque point au fil de la séance.' : '') + '</p></div><div class="obx-card" style="border-top-color:#560A0F;"><div class="obx-row" id="obxTourLeft">' + tourLeftHtml() + '</div>'
-      + (r.T.length ? '' : '<div class="obx-sub">Rien à traiter : toutes les cartes sont au vert et préparées.</div>') + rows
+      + (r.T.length ? '' : '<div class="obx-sub">Rien à traiter : toutes les cartes sont au vert et préparées.</div>') + '<div class="obx-cols">' + rows + '</div>'
       + '<div class="obx-sub">Non abordées, car vertes (' + r.greens.length + ') : ' + (r.greens.length ? esc(r.greens.join(', ')) : 'aucune') + '.</div></div>';
   }
   window.obxToggleDone = function(key, on){ var d = doneSet(); if (on) d[key] = 1; else delete d[key]; try { sessionStorage.setItem(doneKey(), JSON.stringify(d)); } catch(e){} paintTour(); };
 
   /* ---------- Cartes du Codir ---------- */
+  var ICONS = [[/commerce/i, '🤝'], [/transform/i, '🔄'], [/m[ée]thod/i, '📐'], [/\brh\b|ressources/i, '👥'], [/marketing|communication/i, '📣']];
+  function iconOf(name){ for (var i = 0; i < ICONS.length; i++) if (ICONS[i][0].test(name)) return ICONS[i][1]; return '◆'; }
+  var TINT = { vert:['#e9f5ed', '#d3ecdb'], orange:['#fff3dc', '#fde3b0'], rouge:['#fdeceb', '#f8cfcb'], none:['#f3eee6', '#e9dfd3'] };
+  function initials(nom){ var p = String(nom || '?').trim().split(/\s+/); return ((p[0] || '?').charAt(0) + (p.length > 1 ? p[p.length - 1].charAt(0) : (p[0] || '').charAt(1))).toUpperCase(); }
+  function avatars(c){ var t = c.titulaires || [], h = t.slice(0, 3).map(function(x){ return '<span class="obx-av" aria-hidden="true">' + esc(initials(x.nom)) + '</span>'; }).join(''); if (t.length > 3) h += '<span class="obx-av more" aria-hidden="true">+' + (t.length - 3) + '</span>'; return '<span class="obx-avs">' + h + '</span>'; }
   function paintWall(){
     var el = $('obxWall'); if (!el) return;
     var html = '<div class="obx-sec"><h3>Les cartes du Codir</h3><p>Trois sujets par fonction ; un risque et une opportunité prioritaires s’il y en a. Le statut tient aussi compte des problèmes d’interface détectés par l’IA.</p></div><div class="obx-grid">';
     cartes().forEach(function(c){
-      var k = c.contenu, st = k ? statutCarte(c) : null, S = st ? SC[st] : null, ow = owedOf(c.role), wa = waitsOf(c.role);
+      var k = c.contenu, st = k ? statutCarte(c) : null, S = st ? SC[st] : null, ow = owedOf(c.role), wa = waitsOf(c.role), T = TINT[st || 'none'];
       var assoc = (c.associees || []).length ? '<div class="obx-sub">Alimentée aussi par : ' + esc(c.associees.map(label).join(', ')) + '</div>' : '';
       var body;
       if (!k) body = '<div class="obx-box" style="background:#f3eee6;color:var(--mut);">' + esc(names(c)) + ' renseigne la carte de cette fonction avant la séance.</div>' + (c.mine ? '<div>' + btn('pri', '', 'obxGoForm(\'' + esc(c.role) + '\')', 'Renseigner ma carte') + '</div>' : '');
       else body = '<div>' + [0, 1, 2].map(function(i){ return '<div class="obx-ol"><b>' + (i + 1) + '</b><span>' + esc(k.sujets[i]) + '</span></div>'; }).join('') + '</div>'
-        + (k.risque ? '<div class="obx-box obx-risk"><div class="t">Risque prioritaire</div>' + esc(k.risque) + '</div>' : '')
-        + (k.opportunite ? '<div class="obx-box obx-opp"><div class="t">Opportunité prioritaire</div>' + esc(k.opportunite) + '</div>' : '');
+        + (k.risque ? '<div class="obx-box obx-risk"><div class="t">⚠ Risque prioritaire</div>' + esc(k.risque) + '</div>' : '')
+        + (k.opportunite ? '<div class="obx-box obx-opp"><div class="t">✦ Opportunité prioritaire</div>' + esc(k.opportunite) + '</div>' : '');
       var foot = (k && O.c) ? (ow + wa === 0 ? '<div class="obx-sub">Aucun problème d’interface détecté</div>' : '<div>' + btn('lnk sm', '', 'obxGoIface(\'' + esc(c.role) + '\')', ow + ' à résoudre de votre côté · ' + wa + ' vous concernent côté autre carte →') + '</div>') : '';
-      html += '<div class="obx-card' + (c.mine ? ' mine' : '') + '" style="border-top-color:' + (S ? S.c : '#cfc6bd') + ';"><div class="obx-row" style="justify-content:space-between;align-items:flex-start;"><div><b style="font-size:18px;">' + esc(c.carte) + '</b>' + (c.mine ? ' ' + chip('Votre carte', '#f6e7e8', '#560A0F', '#560A0F') : '') + '<div class="obx-sub">Responsable : ' + esc(names(c)) + '</div>'
-        + '<div class="obx-sub">' + (k ? 'Carte préparée par ' + esc(nomDe(k.saisi_par, c)) + ' à ' + hhmm(k.saisi_le) + (k.moment === 'apres' ? ' (après le lancement)' : '') : 'Carte non préparée') + '</div>' + assoc + '</div>' + (S ? stChip(st) : neutral('Non préparée')) + '</div>' + body + foot + '</div>';
+      html += '<div class="obx-card fn' + (c.mine ? ' mine' : '') + '" style="border-top-color:' + (S ? S.c : '#cfc6bd') + ';--tint:' + T[0] + ';--tint2:' + T[1] + ';"><div class="obx-fh"><div class="obx-ico" aria-hidden="true">' + iconOf(c.carte) + '</div><div class="tt"><div class="obx-trow"><b>' + esc(c.carte) + '</b>' + (S ? stChip(st) : neutral('Non préparée')) + (c.mine ? chip('Votre carte', '#f6e7e8', '#560A0F', '#560A0F') : '') + '</div>'
+        + '<div class="obx-who">' + avatars(c) + '<span class="obx-sub">Responsable : ' + esc(names(c)) + '</span></div>'
+        + '<div class="obx-sub" style="margin-top:2px;">' + (k ? 'Carte préparée par ' + esc(nomDe(k.saisi_par, c)) + ' à ' + hhmm(k.saisi_le) + (k.moment === 'apres' ? ' (après le lancement)' : '') : 'Carte non préparée') + '</div>' + assoc + '</div>'
+        + '</div><div class="obx-fb">' + body + foot + '</div></div>';
     });
     el.innerHTML = html + '</div>';
   }
@@ -414,7 +465,7 @@
 
   /* ---------- Problèmes d'interface entre cartes ---------- */
   function effectText(o){
-    var m = byRole()[o.fonction], who = m ? names(m) : ((O.sit && (O.sit.fonctions || []).indexOf(o.fonction) >= 0) ? 'vous' : 'le titulaire de la fonction « ' + label(o.fonction) + ' »');
+    var m = byRole()[o.fonction], tt = m ? (m.titulaires || []) : [], who = m ? (tt.length > 1 ? tt[0].nom + ' (premier responsable ; réaffectable dans le plan d’action)' : names(m)) : ((O.sit && (O.sit.fonctions || []).indexOf(o.fonction) >= 0) ? 'vous' : 'le titulaire de la fonction « ' + label(o.fonction) + ' »');
     return 'Crée l’action « ' + o.action_libelle + ' » pour ' + who + ', dans ' + (o.delai_jours || 3) + ' jours';
   }
   function findOpen(x){ return O.open[x.id] !== undefined ? O.open[x.id] : (x.gravite === 'bloquant' || x.etat === 'retenu'); }
@@ -443,6 +494,7 @@
     }
     if (O.filter || O.fcard) html += '<div class="obx-row" style="margin-bottom:10px;">' + (O.filter ? btn('sec sm', '', 'obxFilter()', 'Filtre : ' + esc(codeLabel(O.filter.from) + ' vers ' + codeLabel(O.filter.to)) + ' · effacer') : '') + (O.fcard ? btn('sec sm', '', 'obxGoIface()', 'Carte : ' + esc(codeLabel(O.fcard)) + ' · effacer') : '') + '</div>';
     if (!shown.length) html += '<div class="obx-card"><div>' + (live.length ? 'Aucun problème dans ce filtre.' : 'Aucun problème d’interface à traiter. Le Codir peut s’en tenir aux cartes.') + '</div></div>';
+    html += '<div class="obx-flist">';
     shown.forEach(function(x){
       var bl = x.gravite === 'bloquant', kept = x.etat === 'retenu' || bl;
       html += '<details class="obx-find' + (bl ? ' bl' : '') + '" id="obxF_' + esc(x.id) + '"' + (findOpen(x) ? ' open' : '') + ' ontoggle="obxFindToggle(\'' + esc(x.id) + '\',this.open)"><summary>' + chip(bl ? 'Bloquant' : 'À clarifier', bl ? SC.rouge.bg : SC.orange.bg, bl ? SC.rouge.fg : SC.orange.fg, bl ? SC.rouge.c : SC.orange.c)
@@ -458,6 +510,7 @@
       } else if (x.etat === 'retenu') html += '<div class="obx-sub">Retenu pour la séance par l’animateur.</div>';
       html += '</div></details>';
     });
+    html += '</div>';
     if (decides.length) html += '<div class="obx-card" style="border-top-color:#2e7d46;margin-bottom:14px;"><b>Décidés (' + decides.length + ')</b>' + decides.map(function(x){ var o = (x.options || [])[x.decide_option] || {};
       return '<div class="obx-ol"><b>✓</b><div style="flex:1 1 240px;"><div style="font-size:13px;"><b>' + esc(x.titre) + '</b></div><div class="obx-sub">' + esc(o.libelle || '') + (x.action_numero ? ' · action #' + x.action_numero + ' créée' : '') + '</div></div></div>'; }).join('') + '</div>';
     if (anim && ecartes.length) html += '<div class="obx-card" style="margin-bottom:14px;"><div class="obx-row"><b>Écartés (' + ecartes.length + ')</b>' + btn('sec sm', '', 'obxToggleEcartes()', O.showEcartes ? 'Masquer' : 'Afficher') + '</div>'
@@ -484,8 +537,8 @@
 
   function paintJournal(){
     var el = $('obxJournal'); if (!el) return; var j = (O.c && O.c.decisions) || [];
-    el.innerHTML = '<div class="obx-sec"><h3>Journal des décisions</h3><p>Chaque décision crée une action dans le plan d’action et reste consultable ici.</p></div><div class="obx-card">'
-      + (j.length ? j.map(function(d){ return '<div class="obx-ol"><b style="width:auto;border-radius:6px;padding:0 6px;">' + esc(fts(d.decide_le)) + '</b><div style="flex:1 1 260px;min-width:0;"><div style="font-size:14px;"><b>' + esc(d.libelle) + '</b></div><div class="obx-sub">' + esc(d.option_libelle) + (d.fonction ? ' · ' + esc(codeLabel(d.fonction)) : '') + (d.pilote_nom ? ' · ' + esc(d.pilote_nom) : '') + '</div></div>' + (d.action_numero ? neutral('Action #' + d.action_numero) : '') + '</div>'; }).join('') : '<div class="obx-sub">Aucune décision pour le moment.</div>') + '</div>';
+    el.innerHTML = '<div class="obx-sec"><h3>Journal des décisions</h3><p>Chaque décision crée une action dans le plan d’action et reste consultable ici.</p></div><div class="obx-card"><div class="obx-cols">'
+      + (j.length ? j.map(function(d){ return '<div class="obx-ol"><b style="width:auto;border-radius:6px;padding:0 6px;">' + esc(fts(d.decide_le)) + '</b><div style="flex:1 1 260px;min-width:0;"><div style="font-size:14px;"><b>' + esc(d.libelle) + '</b></div><div class="obx-sub">' + esc(d.option_libelle) + (d.fonction ? ' · ' + esc(codeLabel(d.fonction)) : '') + (d.pilote_nom ? ' · ' + esc(d.pilote_nom) : '') + '</div></div>' + (d.action_numero ? neutral('Action #' + d.action_numero) : '') + '</div>'; }).join('') : '<div class="obx-sub">Aucune décision pour le moment.</div>') + '</div></div>';
   }
 
   window.obxSetDate = async function(){
