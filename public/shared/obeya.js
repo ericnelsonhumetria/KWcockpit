@@ -12,7 +12,7 @@
   if (!COCKPIT) return;
 
   var O = { sit:null, d:null, c:null, off:0, dismissed:false, drafts:{}, bilan:null, filter:null, showEcartes:false, busy:false,
-            pane:'board', crMounted:false, crId:null, poll:null, clock:null, tr:null, lastTr:null, redSeen:false, c2missing:false, err:'' };
+            pane:'board', tab:null, open:{}, formOpen:{}, helpOpen:false, confirm:null, confirmT:null, fcard:null, crMounted:false, crId:null, poll:null, clock:null, tr:null, lastTr:null, redSeen:false, c2missing:false, err:'' };
   var URL_IA = '/.netlify/functions/obeya-analyse-ia';
   var SC = { vert:{ l:'Vert', c:'#2e7d46', bg:'#e7f3ea', fg:'#1e5b32' }, orange:{ l:'À surveiller', c:'#e08a00', bg:'#fff1d6', fg:'#7a4a00' }, rouge:{ l:'Action requise', c:'#c0392b', bg:'#fbe6e3', fg:'#8a1f14' } };
   var TYPE_LBL = { blocage:'Blocage', echeances:'Échéances incompatibles', doublon:'Même sujet, deux cartes', zone_grise:'Zone grise', autre:'Autre problème d’interface' };
@@ -101,75 +101,176 @@
     if (!ok){ v.innerHTML = css() + head0() + '<div class="panel" style="padding:16px;">' + (O.err && missing(O.err) ? 'L’Obeya Codir n’est pas encore installé : exécutez obeya_brique1.sql dans Supabase.' : 'Accès réservé aux membres de l’Obeya Codir : titulaires d’une fonction responsable d’une carte, et animateur. Les fonctions se définissent dans Admin.') + '</div>'; return; }
     try { await load(); }
     catch(e){ var m = (e && e.message) || String(e); v.innerHTML = css() + head0() + '<div class="panel" style="padding:16px;color:var(--signal);">Obeya indisponible : ' + esc(m) + (missing(m) ? ' — exécutez obeya_brique1.sql (puis 2 et 3).' : '') + '</div>'; return; }
-    paintAll(); startTimers();
+    paintAll(); startTimers(); focusTop();
     if (isAnim() && liveSeance()){ mountCR().then(function(ok){ if (ok){ applyPane(); paintLive(); paintTr(); } }); }
   }
+  /* Le bandeau du Cockpit occupe le haut de la page : on amène l'Obeya sous les yeux (toujours sur mobile ; sur ordinateur, en séance). */
+  function focusTop(){ var v = view(); if (!v || !v.scrollIntoView) return; if ((window.innerWidth || 1200) <= 700 || liveSeance()) setTimeout(function(){ try { v.scrollIntoView({ block:'start' }); } catch(e){} }, 0); }
   async function refreshOnly(){ try { await load(); repaintLight(); paintTr(); } catch(e){} }
   function head0(){ return '<div class="sec-eyebrow">Codir KW</div><div class="sec-title">Obeya Codir</div>'; }
 
   /* ---------- Styles ---------- */
   function css(){
     return '<style>'
-      + '.obx-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:16px;align-items:start;}'
-      + '.obx-card{background:#fff;border-radius:12px;box-shadow:0 2px 8px rgba(86,10,15,.12);padding:16px 18px;border-top:4px solid #cfc6bd;display:flex;flex-direction:column;gap:12px;}'
-      + '.obx-sec{margin:22px 0 10px;} .obx-sec h3{margin:0;font-size:17px;color:var(--ink);} .obx-sec p{margin:4px 0 0;color:var(--muted);font-size:13px;max-width:78ch;}'
-      + '.obx-chip{display:inline-block;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:700;border:1px solid;white-space:nowrap;}'
-      + '.obx-row{display:flex;gap:10px 14px;align-items:center;flex-wrap:wrap;}'
-      + '.obx-ol{display:flex;gap:10px;align-items:flex-start;padding:6px 0;border-bottom:1px solid #eee3dc;} .obx-ol:last-child{border-bottom:0;} .obx-ol b{min-width:20px;color:var(--muted);font-size:12px;}'
-      + '.obx-box{border-radius:8px;padding:9px 12px;font-size:13px;} .obx-box .t{font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;margin-bottom:2px;}'
+      + '.obx-root{--b:#560A0F;--g:#c9a000;--ink:#1a1416;--mut:#7a6a67;--ln:#eadfd8;--ok:#2e7d46;--wa:#e08a00;--ko:#c0392b;max-width:1180px;}'
+      + '.obx-root *{box-sizing:border-box;} .obx-root [hidden]{display:none !important;}'
+      + '.obx-root button:focus-visible,.obx-root summary:focus-visible,.obx-root textarea:focus-visible,.obx-root input:focus-visible,.obx-root [role=tab]:focus-visible{outline:3px solid #c9a000;outline-offset:2px;}'
+      + '.obx-btn.add-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:42px;padding:0 18px;border-radius:10px;font-size:14px;font-weight:700;border:1px solid var(--b);cursor:pointer;line-height:1.1;text-align:center;}'
+      + '.obx-btn.pri{background:var(--b);color:#fff;} .obx-btn.pri:hover{background:#3d070b;}'
+      + '.obx-btn.gold{background:var(--g);border-color:var(--g);color:#1a1416;} .obx-btn.gold:hover{background:#b08c00;}'
+      + '.obx-btn.sec{background:#fff;color:var(--b);} .obx-btn.sec:hover{background:#faf3ec;}'
+      + '.obx-btn.lnk{background:transparent;border-color:transparent;color:var(--b);text-decoration:underline;min-height:32px;padding:2px 0;font-weight:600;font-size:13px;justify-content:flex-start;text-align:left;line-height:1.35;}'
+      + '.obx-btn.sm{min-height:36px;padding:0 12px;font-size:13px;}'
+      + '.obx-btn:disabled{opacity:.55;cursor:default;} .obx-btn.is-busy{position:relative;color:transparent !important;} .obx-btn.is-busy:after{content:"";position:absolute;width:16px;height:16px;border:3px solid rgba(255,255,255,.5);border-top-color:#fff;border-radius:50%;animation:obxspin .8s linear infinite;} .obx-btn.sec.is-busy:after{border-color:rgba(86,10,15,.25);border-top-color:var(--b);}'
+      + '@keyframes obxspin{to{transform:rotate(360deg);}} @media (prefers-reduced-motion:reduce){.obx-btn.is-busy:after{animation:none;}}'
+      + '.obx-title{display:flex;gap:10px 16px;align-items:baseline;flex-wrap:wrap;margin:0 0 10px;} .obx-title h2{margin:0;font-size:26px;color:var(--ink);} .obx-sub{color:var(--mut);font-size:13px;}'
+      + '.obx-guide{background:linear-gradient(135deg,#fff 0%,#fbf5ec 100%);border:1px solid var(--ln);border-top:5px solid var(--g);border-radius:14px;box-shadow:0 2px 10px rgba(86,10,15,.10);padding:18px 22px;margin:8px 0 14px;display:flex;flex-direction:column;gap:12px;}'
+      + '.obx-guide .row{display:flex;gap:14px 24px;align-items:center;flex-wrap:wrap;} .obx-gk{font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--b);} .obx-gt{font-size:21px;font-weight:800;color:var(--ink);margin:2px 0;} .obx-gd{font-size:14px;color:#4a3d40;max-width:70ch;line-height:1.5;}'
+      + '.obx-gcta{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-left:auto;}'
+      + '.obx-steps{display:flex;gap:6px 18px;list-style:none;margin:0;padding:0;flex-wrap:wrap;} .obx-steps li{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--mut);font-weight:600;} .obx-steps i{display:inline-flex;width:24px;height:24px;border-radius:50%;align-items:center;justify-content:center;font-style:normal;font-size:12px;font-weight:800;background:#efe7de;color:#8b7d78;}'
+      + '.obx-steps li.cur{color:var(--ink);} .obx-steps li.cur i{background:var(--g);color:#1a1416;} .obx-steps li.done{color:var(--ok);} .obx-steps li.done i{background:var(--ok);color:#fff;}'
+      + '.obx-prog{list-style:none;margin:0;padding:10px 14px;background:#fff;border:1px solid var(--ln);border-radius:10px;display:flex;flex-direction:column;gap:6px;font-size:13px;} .obx-prog li{display:flex;gap:8px;align-items:center;color:var(--mut);} .obx-prog li.cur{color:var(--ink);font-weight:700;} .obx-prog li.done{color:var(--ok);}'
+      + '.obx-msg{font-size:13px;} .obx-msg:empty{display:none;} .obx-guide.compact{padding:10px 16px;margin:6px 0 8px;border-top-width:4px;gap:6px;} .obx-guide.compact .obx-gt{font-size:17px;margin:0;} .obx-help{font-size:13px;color:#4a3d40;} .obx-help summary{cursor:pointer;color:var(--b);font-weight:700;} .obx-help ul{margin:8px 0 0;padding-left:18px;line-height:1.6;}'
+      + '.obx-sticky{position:sticky;top:0;z-index:40;background:#f3efe9;padding:6px 0 8px;margin:0 0 6px;}'
+      + '.obx-tabs{display:flex;gap:4px;overflow-x:auto;background:#eadfd3;padding:4px;border-radius:12px;scrollbar-width:thin;}'
+      + '.obx-tab{flex:0 0 auto;display:inline-flex;gap:8px;align-items:center;min-height:42px;padding:0 16px;border:0;border-radius:9px;background:transparent;color:#5a4a46;font-weight:700;font-size:14px;cursor:pointer;white-space:nowrap;font-family:inherit;} .obx-tab:hover{background:rgba(255,255,255,.55);} .obx-tab[aria-selected=true]{background:#fff;color:var(--b);box-shadow:0 1px 4px rgba(86,10,15,.18);}'
+      + '.obx-bdg{display:inline-block;min-width:22px;padding:1px 7px;border-radius:999px;font-size:12px;font-weight:800;text-align:center;background:#e3d9cf;color:#5a4a46;} .obx-bdg.ok{background:#dcefe2;color:#1e5b32;} .obx-bdg.warn{background:#ffe6b8;color:#7a4a00;} .obx-bdg.ko{background:var(--ko);color:#fff;}'
+      + '.obx-pane{padding-top:6px;} .obx-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;align-items:start;}'
+      + '.obx-card{background:#fff;border-radius:14px;box-shadow:0 2px 8px rgba(86,10,15,.10);padding:16px 18px;border-top:4px solid #cfc6bd;display:flex;flex-direction:column;gap:12px;} .obx-card.mine{box-shadow:0 0 0 2px var(--b),0 2px 8px rgba(86,10,15,.12);}'
+      + '.obx-sec{margin:6px 0 12px;} .obx-sec h3{margin:0;font-size:18px;color:var(--ink);} .obx-sec p{margin:4px 0 0;color:var(--mut);font-size:13px;max-width:78ch;line-height:1.5;}'
+      + '.obx-chip{display:inline-block;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:700;border:1px solid;white-space:nowrap;} .obx-row{display:flex;gap:8px 14px;align-items:center;flex-wrap:wrap;}'
+      + '.obx-ol{display:flex;gap:10px;align-items:flex-start;padding:7px 0;border-bottom:1px solid #f0e7df;} .obx-ol:last-child{border-bottom:0;} .obx-ol>b{flex:none;width:22px;height:22px;border-radius:50%;background:#f3eee6;color:#5a4a46;font-size:12px;display:inline-flex;align-items:center;justify-content:center;margin-top:1px;} .obx-ol span{line-height:1.4;font-size:15px;}'
+      + '.obx-box{border-radius:10px;padding:10px 12px;font-size:13px;line-height:1.45;} .obx-box .t{font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;margin-bottom:2px;}'
       + '.obx-risk{background:#fbe6e3;color:#4a1a14;} .obx-risk .t{color:#8a1f14;} .obx-opp{background:#e7f3ea;color:#173d27;} .obx-opp .t{color:#1e5b32;}'
-      + '.obx-in{width:100%;box-sizing:border-box;min-height:38px;padding:6px 10px;border:1px solid rgba(86,10,15,.25);border-radius:6px;font-size:14px;font-family:inherit;}'
-      + '.obx-fg{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;}'
-      + '.obx-live{position:sticky;top:0;z-index:40;background:#fff;border:1px solid #eadfd8;border-radius:12px;box-shadow:0 3px 10px rgba(86,10,15,.15);padding:8px 14px;margin:10px 0;display:flex;gap:10px 18px;align-items:center;flex-wrap:wrap;}'
-      + '.obx-clock{display:inline-flex;align-items:baseline;gap:10px;padding:4px 18px;border-radius:12px;border:2px solid #2e7d46;color:#1e5b32;background:#e7f3ea;font-variant-numeric:tabular-nums;}'
-      + '.obx-clock b{font-size:34px;line-height:1.1;letter-spacing:.02em;} .obx-clock span{font-size:12px;font-weight:700;}'
-      + '.obx-clock.red{border-color:#c0392b;background:#c0392b;color:#fff;}'
-      + '.obx-dot{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:6px;background:#c0392b;} .obx-dot.off{background:#9a8f88;}'
-      + '.obx-tr{border:1px solid #eadfd8;border-radius:10px;background:#fbf8f2;} .obx-tr-bar{display:flex;gap:10px;align-items:center;padding:8px 12px;border-bottom:1px solid #eadfd8;flex-wrap:wrap;}'
-      + '.obx-tr-body{min-height:150px;max-height:280px;overflow-y:auto;padding:12px 14px;white-space:pre-wrap;font-size:15px;line-height:1.55;} .obx-tr-body.empty:before{content:attr(data-ph);color:#8b8578;font-size:13px;}'
-      + '.obx-mx{display:grid;gap:4px;} .obx-mx button{min-height:40px;border-radius:6px;border:1px solid #e0d6cf;background:#fff;font-weight:700;cursor:pointer;} .obx-mx button:disabled{cursor:default;color:#aaa;}'
-      + '.obx-opt{flex:1 1 250px;text-align:left;border:2px solid #e0d6cf;background:#fff;border-radius:10px;padding:9px 12px;cursor:pointer;font:inherit;display:flex;flex-direction:column;gap:3px;} .obx-opt:hover{border-color:#560A0F;} .obx-opt .e{font-size:12px;color:var(--muted);}'
+      + '.obx-fc{background:#fff;border-radius:14px;box-shadow:0 2px 8px rgba(86,10,15,.10);border-top:4px solid var(--g);margin:0 0 14px;} .obx-fc>summary{list-style:none;cursor:pointer;padding:14px 18px;display:flex;gap:10px 14px;align-items:center;flex-wrap:wrap;} .obx-fc>summary::-webkit-details-marker{display:none;} .obx-fc>summary:after{content:"▾";margin-left:auto;color:var(--mut);} .obx-fc[open]>summary:after{content:"▴";}'
+      + '.obx-fc .in{padding:0 18px 18px;display:flex;flex-direction:column;gap:12px;} .obx-fg{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;}'
+      + '.obx-lb{display:block;font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#5a4a46;margin-bottom:4px;} .obx-lb i{color:var(--ko);font-style:normal;}'
+      + '.obx-in{width:100%;min-height:42px;padding:8px 12px;border:1px solid #cdbfb6;border-radius:10px;font-size:15px;font-family:inherit;line-height:1.4;background:#fff;} .obx-in:focus{border-color:var(--b);} .obx-in.bad{border-color:var(--ko);background:#fff7f6;}'
+      + '.obx-meta{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--mut);min-height:16px;} .obx-err{color:var(--ko);font-weight:700;}'
+      + '.obx-live{background:#fff;border:1px solid var(--ln);border-radius:12px;box-shadow:0 3px 10px rgba(86,10,15,.15);padding:8px 14px;margin:0 0 6px;display:flex;gap:8px 18px;align-items:center;flex-wrap:wrap;}'
+      + '.obx-clock{display:inline-flex;align-items:baseline;gap:10px;padding:2px 16px;border-radius:12px;border:2px solid var(--ok);color:#1e5b32;background:#e7f3ea;font-variant-numeric:tabular-nums;} .obx-clock b{font-size:30px;line-height:1.15;letter-spacing:.02em;} .obx-clock span{font-size:12px;font-weight:700;} .obx-clock.red{border-color:var(--ko);background:var(--ko);color:#fff;}'
+      + '.obx-dot{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:6px;background:var(--ko);} .obx-dot.off{background:#9a8f88;}'
+      + '.obx-tr{border:1px solid var(--ln);border-radius:12px;background:#fbf8f2;} .obx-tr-bar{display:flex;gap:10px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--ln);flex-wrap:wrap;}'
+      + '.obx-tr-body{min-height:180px;max-height:46vh;overflow-y:auto;padding:12px 14px;white-space:pre-wrap;font-size:15px;line-height:1.55;} .obx-tr-body.empty:before{content:attr(data-ph);color:#8b8578;font-size:13px;}'
+      + '.obx-mx{display:grid;gap:4px;} .obx-mx button{min-height:40px;border-radius:8px;border:1px solid #e0d6cf;background:#fff;font-weight:700;cursor:pointer;} .obx-mx button:disabled{cursor:default;color:#aaa;}'
+      + '.obx-find{background:#fff;border-radius:14px;box-shadow:0 2px 8px rgba(86,10,15,.10);border-top:4px solid var(--wa);margin:0 0 12px;} .obx-find.bl{border-top-color:var(--ko);}'
+      + '.obx-find>summary{list-style:none;cursor:pointer;padding:13px 16px;display:flex;gap:6px 12px;align-items:center;flex-wrap:wrap;} .obx-find>summary::-webkit-details-marker{display:none;} .obx-find>summary:after{content:"▾";margin-left:auto;color:var(--mut);} .obx-find[open]>summary:after{content:"▴";}'
+      + '.obx-find .ft{font-size:15px;font-weight:700;flex:1 1 280px;min-width:0;} .obx-find .in{padding:0 16px 16px;display:flex;flex-direction:column;gap:12px;}'
+      + '.obx-opts{display:flex;gap:10px;flex-wrap:wrap;align-items:stretch;} .obx-opt{flex:1 1 250px;text-align:left;border:2px solid #e0d6cf;background:#fff;border-radius:12px;padding:10px 14px;cursor:pointer;font:inherit;display:flex;flex-direction:column;gap:3px;min-height:64px;} .obx-opt:hover{border-color:var(--b);} .obx-opt .e{font-size:12px;color:var(--mut);line-height:1.4;}'
+      + '.obx-opt.conf{border-color:var(--b);background:#fdf3e6;box-shadow:0 0 0 2px rgba(201,160,0,.45);} .obx-opt.conf .e{color:#5a2d00;font-weight:600;}'
+      + '.obx-chk{display:flex;gap:12px;align-items:flex-start;padding:10px 12px;border-radius:12px;border:1px solid transparent;} .obx-chk.cur{background:#fdf3e6;border-color:#ecd7a4;} .obx-chk.done{opacity:.55;} .obx-chk.done .tt{text-decoration:line-through;}'
+      + '.obx-chk input{width:22px;height:22px;margin-top:2px;flex:none;accent-color:var(--b);cursor:pointer;} .obx-chk .tt{font-size:14px;line-height:1.4;}'
+      + '.obx-toasts{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:9400;display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none;} .obx-toast{pointer-events:auto;background:#1a1416;color:#fff;border-radius:12px;padding:10px 16px;font-size:14px;box-shadow:0 6px 20px rgba(0,0,0,.3);display:flex;gap:12px;align-items:center;max-width:min(92vw,560px);} .obx-toast.ko{background:#8a1f14;} .obx-toast button{background:transparent;border:0;color:#fff;font-size:18px;cursor:pointer;line-height:1;}'
       + '.obx-ov{position:fixed;inset:0;background:rgba(20,14,12,.55);z-index:9500;display:flex;align-items:center;justify-content:center;padding:16px;} .obx-ov>div{background:#fff;border-radius:14px;max-width:760px;width:100%;max-height:88vh;overflow:auto;padding:20px 22px;}'
-      + '@media (prefers-reduced-motion:no-preference){.obx-card{transition:box-shadow .12s;}}'
+      + '@media (max-width:640px){.obx-guide{padding:16px;} .obx-gcta{margin-left:0;width:100%;} .obx-gcta .obx-btn{flex:1 1 100%;} .obx-title h2{font-size:22px;} .obx-clock b{font-size:26px;} .obx-btn.add-btn{min-height:46px;}}'
       + '</style>';
   }
   function chip(t, bg, fg, bd){ return '<span class="obx-chip" style="background:' + bg + ';color:' + fg + ';border-color:' + bd + ';">' + esc(t) + '</span>'; }
   function neutral(t){ return chip(t, '#f3eee6', '#5a4a46', '#d9cfc6'); }
   function stChip(k){ var s = SC[k]; return chip(s.l, s.bg, s.fg, s.c); }
+  function btn(cls, id, onclick, text, extra){ return '<button type="button" class="add-btn obx-btn ' + cls + '"' + (id ? ' id="' + id + '"' : '') + ' onclick="' + onclick + '"' + (extra || '') + '>' + text + '</button>'; }
 
   /* ---------- Données dérivées ---------- */
-  function constatsLive(){ return ((O.c && O.c.constats) || []).filter(function(x){ return x.etat !== 'ecarte' && x.etat !== 'decide'; }); }
+  function constatsAll(){ return (O.c && O.c.constats) || []; }
+  function constatsLive(){ return constatsAll().filter(function(x){ return x.etat !== 'ecarte' && x.etat !== 'decide'; }); }
   function owedOf(role){ return constatsLive().filter(function(x){ return x.from_fn === role; }).length; }
   function waitsOf(role){ return constatsLive().filter(function(x){ return x.to_fn === role; }).length; }
   function statutCarte(c){ var o = owedOf(c.role); return o >= 2 ? 'rouge' : (o === 1 ? 'orange' : 'vert'); }
   function prepared(){ var s = seance(); return !!(s && s.prepare_le); }
   function codeLabel(code){ var m = byRole()[code]; return m ? m.carte : (code ? label(code) : ''); }
+  function nbPrets(){ return cartes().filter(function(c){ return c.contenu; }).length; }
+  function plural(n, a, b){ return n > 1 ? b : a; }
 
-  /* ---------- Rendu ---------- */
+  /* ---------- Squelette ---------- */
+  function defaultTab(){ if (isAnim()) return liveSeance() ? 'ordre' : 'prep'; return liveSeance() ? 'ordre' : 'cartes'; }
+  function tabsList(){
+    var anim = isAnim(), live = liveSeance(), c = cartes(), L = constatsLive(), bl = L.filter(function(x){ return x.gravite === 'bloquant'; }).length, dec = (O.c && O.c.decisions || []).length;
+    return [ { id:'prep', l:'Préparation', show:anim, b:prepared() ? '✓' : '!', t:prepared() ? 'ok' : 'warn' },
+             { id:'cartes', l:'Cartes', show:true, b:nbPrets() + '/' + c.length, t:nbPrets() === c.length ? 'ok' : '' },
+             { id:'ordre', l:'Ordre du jour', show:true, b:prepared() ? String(tourItems().T.length) : '', t:'' },
+             { id:'iface', l:'Interfaces', show:true, b:(O.c && O.c.analyse) ? String(L.length) : '', t:bl ? 'ko' : (L.length ? 'warn' : 'ok') },
+             { id:'journal', l:'Journal', show:true, b:dec ? String(dec) : '', t:'' },
+             { id:'tr', l:'Transcription', show:anim && live, b:'●', t:'ko' } ].filter(function(x){ return x.show; });
+  }
+  function curTab(){ var l = tabsList(); if (O.tab && l.some(function(x){ return x.id === O.tab; })) return O.tab; return defaultTab(); }
   function paintAll(){
     var v = view(); if (!v) return;
     var keep = (O.crMounted && $('obxCR')) ? $('obxCR') : null; if (keep && keep.parentNode) keep.parentNode.removeChild(keep);
-    v.innerHTML = css() + '<div id="obxHead"></div><div id="obxLive"></div><div id="obxBilan"></div>'
-      + '<div id="obxBoard"><div id="obxPrep"></div><div id="obxForms"></div><div id="obxTour"></div><div id="obxTr"></div><div id="obxWall"></div><div id="obxIface"></div><div id="obxJournal"></div></div>'
-      + '<div id="obxCR" style="display:none;"></div>';
+    v.innerHTML = css() + '<div class="obx-root"><div id="obxHead"></div><div id="obxGuide"></div><div id="obxBilan"></div>'
+      + '<div class="obx-sticky" id="obxSticky"><div id="obxLive"></div><div id="obxTabs" class="obx-tabs" role="tablist" aria-label="Sections de l’Obeya"></div></div>'
+      + '<div id="obxBoard">'
+      + '<section class="obx-pane" id="obxP_prep" role="tabpanel" aria-labelledby="obxT_prep"><div id="obxPrep"></div></section>'
+      + '<section class="obx-pane" id="obxP_cartes" role="tabpanel" aria-labelledby="obxT_cartes"><div id="obxForms"></div><div id="obxWall"></div></section>'
+      + '<section class="obx-pane" id="obxP_ordre" role="tabpanel" aria-labelledby="obxT_ordre"><div id="obxTour"></div></section>'
+      + '<section class="obx-pane" id="obxP_iface" role="tabpanel" aria-labelledby="obxT_iface"><div id="obxIface"></div></section>'
+      + '<section class="obx-pane" id="obxP_journal" role="tabpanel" aria-labelledby="obxT_journal"><div id="obxJournal"></div></section>'
+      + '<section class="obx-pane" id="obxP_tr" role="tabpanel" aria-labelledby="obxT_tr"><div id="obxTr"></div></section>'
+      + '</div><div id="obxCR" style="display:none;"></div><div id="obxToasts" class="obx-toasts" aria-live="polite"></div></div>';
     if (keep){ var ph = $('obxCR'); if (ph && ph.parentNode) ph.parentNode.replaceChild(keep, ph); }
-    paintHead(); paintLive(); paintBilan(); paintPrep(); paintForms(); paintTour(); paintTr(); paintWall(); paintIface(); paintJournal(); applyPane();
+    paintHead(); paintGuide(); paintLive(); paintBilan(); paintPrep(); paintForms(); paintTour(); paintTr(); paintWall(); paintIface(); paintJournal(); paintTabs(); applyPane();
   }
-  function repaintLight(){ paintHead(); paintLive(); paintPrep(); paintTour(); paintWall(); paintIface(); paintJournal(); }
+  function repaintLight(){ paintHead(); paintGuide(); paintLive(); paintPrep(); paintTour(); paintWall(); paintIface(); paintJournal(); paintTabs(); }
 
+  function paintTabs(){
+    var el = $('obxTabs'); if (!el) return; var cur = curTab(), list = tabsList();
+    el.innerHTML = list.map(function(t){ var on = t.id === cur;
+      return '<button type="button" role="tab" id="obxT_' + t.id + '" aria-selected="' + on + '" aria-controls="obxP_' + t.id + '" tabindex="' + (on ? 0 : -1) + '" class="obx-tab" onclick="obxTab(\'' + t.id + '\')" onkeydown="obxTabKey(event)">' + esc(t.l) + (t.b ? ' <span class="obx-bdg ' + t.t + '">' + esc(t.b) + '</span>' : '') + '</button>'; }).join('');
+    ['prep','cartes','ordre','iface','journal','tr'].forEach(function(id){ var p = $('obxP_' + id); if (p) p.hidden = (id !== cur) || !list.some(function(x){ return x.id === id; }); });
+  }
+  window.obxTab = function(id){ O.tab = id; paintTabs(); var t = $('obxT_' + id); if (t && t.scrollIntoView) { try { t.scrollIntoView({ block:'nearest', inline:'nearest' }); } catch(e){} } };
+  window.obxTabKey = function(e){
+    var k = e.key; if (k !== 'ArrowRight' && k !== 'ArrowLeft' && k !== 'Home' && k !== 'End') return;
+    var list = tabsList(), cur = curTab(), i = list.findIndex(function(x){ return x.id === cur; });
+    i = k === 'Home' ? 0 : (k === 'End' ? list.length - 1 : (i + (k === 'ArrowRight' ? 1 : -1) + list.length) % list.length);
+    e.preventDefault(); obxTab(list[i].id); var t = $('obxT_' + list[i].id); if (t) t.focus();
+  };
+
+  function toast(txt, kind){
+    var box = $('obxToasts'); if (!box) return; var d = document.createElement('div'); d.className = 'obx-toast' + (kind === 'ko' ? ' ko' : ''); d.setAttribute('role', kind === 'ko' ? 'alert' : 'status');
+    d.innerHTML = '<span>' + esc(txt) + '</span><button type="button" aria-label="Fermer" onclick="this.parentNode.remove()">×</button>'; box.appendChild(d);
+    setTimeout(function(){ if (d.parentNode) d.parentNode.removeChild(d); }, kind === 'ko' ? 9000 : 5500);
+  }
+
+  /* ---------- En-tête et carte « Prochaine étape » ---------- */
   function paintHead(){
     var el = $('obxHead'); if (!el) return; var s = seance(), live = liveSeance();
-    var st = live ? chip('● En cours', '#fbe6e3', '#8a1f14', '#c0392b') : neutral('Préparation');
-    var dateEd = (isAnim() && s && s.statut === 'prepa')
-      ? '<span class="obx-row" style="gap:6px;"><label for="obxDate" class="sub-cell">Date</label><input id="obxDate" type="date" class="obx-in" style="width:auto;" value="' + esc(String(s.date_seance).slice(0,10)) + '"><button type="button" class="add-btn sm ghost" onclick="obxSetDate()">Changer</button></span>' : '';
-    el.innerHTML = head0() + '<div class="sec-note">Une carte par fonction : trois sujets à aborder, et s’il y en a un risque et une opportunité prioritaires. Les fonctions et leurs titulaires sont définis dans Admin. Chacun prépare sa carte ; l’animateur prépare avec « Préparer l’Obeya ».</div>'
-      + '<div class="obx-row" style="margin:8px 0;"><b style="font-size:16px;">Séance du ' + esc(s ? longDate(s.date_seance) : '') + '</b>' + st + dateEd + '<span id="obxHdrMsg" class="sub-cell"></span></div>';
+    el.innerHTML = '<div class="obx-title"><div><div class="sec-eyebrow">Codir KW</div><h2>Obeya Codir</h2></div><div class="obx-row" style="margin-left:auto;"><b style="font-size:15px;">Séance du ' + esc(s ? longDate(s.date_seance) : '') + '</b>'
+      + (live ? chip('● En cours', '#fbe6e3', '#8a1f14', '#c0392b') : neutral('Préparation')) + '</div></div>';
   }
-  window.obxSetDate = async function(){
-    var v = inputVal('obxDate'); if (!v) return;
-    try { await rpc('obeya_seance_date', { p_date: v }); await load(); repaintLight(); flash('obxHdrMsg', true, '✓ Date enregistrée'); }
-    catch(e){ flash('obxHdrMsg', false, 'Refusé : ' + ((e && e.message) || e)); }
-  };
+  function guideTexts(){
+    var anim = isAnim(), live = liveSeance(), prep = prepared(), cs = cartes(), n = cs.length, prets = nbPrets(), miss = cs.filter(function(c){ return !c.contenu; }), mine = cs.filter(function(c){ return c.mine; });
+    var bl = constatsLive().filter(function(x){ return x.gravite === 'bloquant'; }).length, g = { step:0, k:'', t:'', d:'', cta:'' };
+    var ownTodo = mine.filter(function(c){ return !c.contenu; })[0];
+    if (anim){
+      if (live){ g.step = 3; g.k = 'Étape 3 sur 3'; g.t = 'L’Obeya est en cours'; g.d = 'Suivez l’ordre du jour. À la fin, terminez l’Obeya : le bilan de préparation est enregistré.'; g.cta = btn('sec', 'obxBtnEnd', 'obxEnd()', '■ Terminer l’Obeya'); }
+      else if (prep){ g.step = 2; g.k = 'Étape 2 sur 3'; g.t = 'Lancez l’Obeya quand le Codir est réuni';
+        g.d = (miss.length ? 'Carte' + plural(miss.length, '', 's') + ' à obtenir : ' + miss.map(function(c){ return c.carte + ' (' + names(c) + ')'; }).join(', ') + '. ' : 'Toutes les cartes sont prêtes. ') + (bl ? bl + ' problème' + plural(bl, '', 's') + ' d’interface bloquant' + plural(bl, '', 's') + ' à traiter en séance.' : 'Aucun problème d’interface bloquant.');
+        g.cta = btn('sec', 'obxBtnPrep', 'obxPrepare()', '↻ Relancer l’analyse du plan d’action') + btn('gold', 'obxBtnGo', 'obxLaunch()', '▶ Lancer l’Obeya'); }
+      else { g.step = 1; g.k = 'Étape 1 sur 3'; g.t = 'Préparez l’Obeya'; g.d = prets + ' carte' + plural(prets, '', 's') + ' sur ' + n + ' déjà prête' + plural(prets, '', 's') + '. L’IA analyse le plan d’action, repère les problèmes d’interface entre fonctions et génère l’ordre du jour.';
+        g.cta = btn('lnk', 'obxBtnGo', 'obxLaunch()', 'Lancer sans préparer', ' title="Le bilan signalera que l’animateur n’a pas préparé"') + btn('pri', 'obxBtnPrep', 'obxPrepare()', 'Préparer l’Obeya'); }
+    } else if (live){ g.k = 'En séance'; g.t = 'L’Obeya est en cours'; g.d = ownTodo ? 'Votre carte « ' + ownTodo.carte + ' » n’est pas renseignée : renseignez-la maintenant, elle sera notée « après le lancement ».' : 'Suivez l’ordre du jour avec le Codir.'; g.cta = ownTodo ? btn('pri', '', 'obxGoForm(\'' + esc(ownTodo.role) + '\')', 'Renseigner ma carte') : ''; }
+    else if (ownTodo){ g.k = 'À faire'; g.t = 'Renseignez votre carte « ' + ownTodo.carte + ' »'; g.d = 'Trois sujets à aborder, et s’il y en a un risque prioritaire et une opportunité prioritaire. À enregistrer avant le lancement : le bilan en tient compte.'; g.cta = btn('pri', '', 'obxGoForm(\'' + esc(ownTodo.role) + '\')', 'Renseigner ma carte'); }
+    else if (mine.length){ g.k = 'Prêt'; g.t = 'Votre carte « ' + mine[0].carte + ' » est prête ✓'; g.d = 'Rien d’autre à faire avant la séance. Vous pouvez encore la modifier jusqu’au lancement.'; g.cta = btn('sec', '', 'obxGoForm(\'' + esc(mine[0].role) + '\')', 'Modifier ma carte'); }
+    g.ownTodo = ownTodo;
+    return g;
+  }
+  function helpHtml(){
+    return isAnim()
+      ? '<li><b>Préparer l’Obeya</b> : crée le compte-rendu, fait analyser le plan d’action par l’IA et génère l’ordre du jour.</li><li><b>Lancer l’Obeya</b> : l’horloge d’1 h démarre (rouge à 10 min de la fin) et la dictée vocale du compte-rendu est lancée.</li><li><b>Terminer l’Obeya</b> : le bilan de préparation est enregistré. Chaque décision crée une action dans le plan d’action.</li>'
+      : '<li>Chaque fonction du Codir a <b>une carte</b> : trois sujets à aborder, et s’il y en a un risque et une opportunité prioritaires.</li><li>Le <b>responsable de la carte</b> la renseigne avant la séance ; son bilan est enregistré.</li><li>En séance, l’ordre du jour ne reprend que ce qui s’écarte : <b>le reste, au vert, n’est pas abordé</b>.</li>';
+  }
+  function paintGuide(){
+    var el = $('obxGuide'); if (!el) return; var g = guideTexts(), anim = isAnim();
+    if (anim && liveSeance()){ el.innerHTML = '<div class="obx-guide compact" role="region" aria-label="Prochaine étape"><div class="row"><div style="flex:1 1 240px;min-width:0;"><div class="obx-gk">' + esc(g.k) + '</div><div class="obx-gt">' + esc(g.t) + '</div></div><div class="obx-gcta">' + g.cta + '</div></div><ol id="obxProg" class="obx-prog" hidden></ol><div id="obxMsg" class="obx-msg" role="status"></div></div>'; return; }
+    var steps = anim ? '<ol class="obx-steps" aria-label="Étapes de l’animateur">' + ['Préparer', 'Lancer', 'Terminer'].map(function(t, i){ var st = (i + 1) < g.step ? 'done' : ((i + 1) === g.step ? 'cur' : ''); return '<li class="' + st + '"><i>' + ((i + 1) < g.step ? '✓' : (i + 1)) + '</i>' + t + '</li>'; }).join('') + '</ol>' : '';
+    var own = (anim && g.ownTodo) ? '<div class="obx-sub">Votre carte « ' + esc(g.ownTodo.carte) + ' » est aussi à renseigner. ' + btn('lnk sm', '', 'obxGoForm(\'' + esc(g.ownTodo.role) + '\')', 'Renseigner ma carte') + '</div>' : '';
+    el.innerHTML = '<div class="obx-guide" role="region" aria-label="Prochaine étape"><div class="row"><div style="flex:1 1 320px;min-width:0;"><div class="obx-gk">' + esc(g.k) + '</div><div class="obx-gt">' + esc(g.t) + '</div><div class="obx-gd">' + esc(g.d) + '</div></div><div class="obx-gcta">' + g.cta + '</div></div>'
+      + steps + '<ol id="obxProg" class="obx-prog" hidden></ol><div id="obxMsg" class="obx-msg" role="status"></div>' + own
+      + '<details class="obx-help"' + (O.helpOpen ? ' open' : '') + ' ontoggle="O_help(this.open)"><summary>Comment ça marche ?</summary><ul>' + helpHtml() + '</ul></details>'
+      + (live_note() ? '<div class="obx-sub">' + live_note() + '</div>' : '') + '</div>';
+  }
+  window.O_help = function(o){ O.helpOpen = !!o; };
+  function live_note(){ return liveSeance() ? 'Cette séance peut être enregistrée et transcrite dans le compte-rendu : l’animateur vous en informe.' : ''; }
 
   /* Barre de séance : horloge d'1 h (durée et seuil rouge réglés en base), rouge à 10 min de la fin */
   function clockInfo(){
@@ -178,7 +279,7 @@
     var end = new Date(s.lance_le).getTime() + (s.duree_min || cfg.duree_min) * 60000, rem = end - nowSrv(), over = rem < 0, a = Math.abs(rem);
     var txt = (over ? '+' : '') + pad(Math.floor(a / 60000)) + ':' + pad(Math.floor((a % 60000) / 1000));
     var red = rem <= cfg.rouge_min * 60000;
-    return { txt:txt, red:red, over:over, lbl: over ? 'Dépassement' : (red ? 'Dernières minutes' : 'Temps restant'),
+    return { txt:txt, red:red, over:over, rem:rem, lbl: over ? 'Dépassement' : (red ? 'Dernières minutes' : 'Temps restant'),
              st: over ? 'Le temps prévu est dépassé' : (red ? 'Plus que ' + cfg.rouge_min + ' minutes' : 'Il reste plus de ' + cfg.rouge_min + ' minutes'),
              sub: 'Durée prévue : ' + (s.duree_min || cfg.duree_min) + ' min · fin à ' + hhmm(new Date(end).toISOString()) };
   }
@@ -187,72 +288,76 @@
     if (!ci){ el.innerHTML = ''; return; }
     var anim = isAnim();
     el.innerHTML = '<div class="obx-live"><div id="obxClock" class="obx-clock' + (ci.red ? ' red' : '') + '" role="timer" aria-live="off"><b id="obxClockTxt">' + esc(ci.txt) + '</b><span id="obxClockLbl">' + esc(ci.lbl) + '</span></div>'
-      + '<div style="flex:1 1 220px;min-width:0;"><div id="obxClockSt" role="status" style="font-weight:700;font-size:13px;">' + esc(ci.st) + '</div><div class="sub-cell" id="obxClockSub">' + esc(ci.sub) + '</div></div>'
+      + '<div style="flex:1 1 200px;min-width:0;"><div id="obxClockSt" role="status" style="font-weight:700;font-size:13px;">' + esc(ci.st) + '</div><div class="obx-sub" id="obxClockSub">' + esc(ci.sub) + '</div></div>'
       + '<div class="obx-row"><span style="font-size:13px;font-weight:700;"><span id="obxRecDot" class="obx-dot off"></span><span id="obxRecLbl">' + (anim ? 'Dictée arrêtée' : 'Séance en cours') + '</span></span>'
-      + (anim && O.crMounted ? '<button type="button" class="add-btn sm ghost" id="obxPaneBtn" onclick="obxTogglePane()">' + (O.pane === 'cr' ? 'Tableau Obeya' : 'Compte-rendu') + '</button>' : '') + '</div>'
-      + '<div class="sub-cell" style="flex:1 1 100%;">Cette séance peut être enregistrée et transcrite dans le compte-rendu : l’animateur vous en informe.</div></div>';
+      + (anim && O.crMounted ? btn('sec sm', 'obxPaneBtn', 'obxTogglePane()', O.pane === 'cr' ? '← Tableau Obeya' : 'Compte-rendu') : '') + '</div></div>';
   }
   function tickClock(){
-    var ci = clockInfo(); if (!ci){ if ($('obxClock')) paintLive(); return; }
+    var ci = clockInfo(); if (!ci){ if ($('obxClock')) { paintLive(); paintGuide(); } return; }
     var c = $('obxClock'); if (!c){ paintLive(); return; }
     var t = $('obxClockTxt'); if (t) t.textContent = ci.txt;
     var l = $('obxClockLbl'); if (l) l.textContent = ci.lbl;
     c.classList.toggle('red', ci.red);
     var st = $('obxClockSt'); if (st && st.textContent !== ci.st) st.textContent = ci.st;
+    var tl = $('obxTourLeft'); if (tl){ var h = tourLeftHtml(); if (tl.innerHTML !== h) tl.innerHTML = h; }
   }
 
-  /* Panneau de préparation (mode ANIMATEUR) */
+  /* ---------- Préparation (animateur) ---------- */
   function paintPrep(){
     var el = $('obxPrep'); if (!el) return; var s = seance();
     if (!isAnim()){ el.innerHTML = ''; return; }
-    var prep = prepared(), live = liveSeance();
-    var rows = '<div class="obx-ol"><b>•</b><div style="flex:1 1 240px;"><b style="color:var(--ink);font-size:13px;">Animateur de l’Obeya</b> <span class="sub-cell">prépare avec le bouton</span></div>'
-      + (prep ? chip('Prête à ' + hhmm(s.prepare_le) + (later(s.prepare_le, s.lance_le) ? ' · après le lancement' : ''), SC.vert.bg, SC.vert.fg, SC.vert.c) : chip('À préparer', SC.rouge.bg, SC.rouge.fg, SC.rouge.c)) + '</div>';
-    var prets = 0;
-    cartes().forEach(function(c){
-      var k = c.contenu; if (k) prets++;
-      rows += '<div class="obx-ol"><b>•</b><div style="flex:1 1 240px;"><b style="color:var(--ink);font-size:13px;">' + esc(c.carte) + '</b> <span class="sub-cell">' + esc(names(c)) + ' · prépare en renseignant sa carte</span></div>'
-        + (k ? chip((k.moment === 'apres' ? 'Tardive' : 'Prête') + ' · ' + hhmm(k.saisi_le), k.moment === 'apres' ? SC.orange.bg : SC.vert.bg, k.moment === 'apres' ? SC.orange.fg : SC.vert.fg, k.moment === 'apres' ? SC.orange.c : SC.vert.c) : chip('À préparer', SC.rouge.bg, SC.rouge.fg, SC.rouge.c)) + '</div>';
-    });
-    var btns = '';
-    if (!live) btns += '<button type="button" class="add-btn" id="obxBtnPrep" onclick="obxPrepare()">' + (prep ? '↻ Relancer l’analyse du plan d’action' : 'Préparer l’Obeya') + '</button>'
-                     + '<button type="button" class="add-btn" id="obxBtnGo" style="background:#c9a000;border-color:#c9a000;color:#1a1416;" onclick="obxLaunch()">▶ Lancer l’Obeya</button>';
-    else btns += '<button type="button" class="add-btn" onclick="obxEnd()">■ Terminer l’Obeya</button>';
-    el.innerHTML = '<div class="obx-sec"><h3>Préparation · mode animateur</h3><p>Vous ne renseignez pas de carte pour l’animation : « Préparer l’Obeya » crée le compte-rendu, fait analyser le plan d’action par l’IA (problèmes d’interface entre cartes) et génère l’ordre du jour. Le bilan vérifie que vous l’avez fait avant le lancement.</p></div>'
-      + '<div class="obx-card" style="border-top-color:#c9a000;"><div class="obx-row"><b>' + prets + ' carte' + (prets > 1 ? 's' : '') + ' prête' + (prets > 1 ? 's' : '') + ' sur ' + cartes().length + '</b><span class="sub-cell">· animateur : ' + (prep ? 'prêt' : 'à faire') + '</span></div>' + rows
-      + '<div class="obx-row">' + btns + '<span id="obxMsg" style="font-size:13px;"></span></div></div>';
+    var prep = prepared(), live = liveSeance(), prets = 0;
+    function row(name, sub, chipHtml){ return '<div class="obx-ol"><b>•</b><div style="flex:1 1 240px;"><b style="all:unset;font-weight:700;font-size:14px;">' + esc(name) + '</b> <span class="obx-sub" style="font-size:13px;">' + esc(sub) + '</span></div>' + chipHtml + '</div>'; }
+    var rows = row('Animateur de l’Obeya', 'prépare avec le bouton', prep ? chip('Prête à ' + hhmm(s.prepare_le) + (later(s.prepare_le, s.lance_le) ? ' · après le lancement' : ''), SC.vert.bg, SC.vert.fg, SC.vert.c) : chip('À préparer', SC.rouge.bg, SC.rouge.fg, SC.rouge.c));
+    cartes().forEach(function(c){ var k = c.contenu; if (k) prets++;
+      rows += row(c.carte, names(c) + ' · prépare en renseignant sa carte', k ? chip((k.moment === 'apres' ? 'Tardive' : 'Prête') + ' · ' + hhmm(k.saisi_le), k.moment === 'apres' ? SC.orange.bg : SC.vert.bg, k.moment === 'apres' ? SC.orange.fg : SC.vert.fg, k.moment === 'apres' ? SC.orange.c : SC.vert.c) : chip('À préparer', SC.rouge.bg, SC.rouge.fg, SC.rouge.c)); });
+    var dateEd = (s && s.statut === 'prepa') ? '<div class="obx-row"><label for="obxDate" class="obx-lb" style="margin:0;">Date de la séance</label><input id="obxDate" type="date" class="obx-in" style="width:auto;" value="' + esc(String(s.date_seance).slice(0, 10)) + '">' + btn('sec sm', '', 'obxSetDate()', 'Changer la date') + '<span id="obxHdrMsg" class="obx-sub"></span></div>' : '';
+    var btns = live ? btn('sec', '', 'obxEnd()', '■ Terminer l’Obeya') : (btn('sec', '', 'obxPrepare()', prep ? '↻ Relancer l’analyse du plan d’action' : 'Préparer l’Obeya') + btn('gold', '', 'obxLaunch()', '▶ Lancer l’Obeya'));
+    el.innerHTML = '<div class="obx-sec"><h3>Préparation · mode animateur</h3><p>Vous ne renseignez pas de carte pour l’animation : « Préparer l’Obeya » crée le compte-rendu, fait analyser le plan d’action par l’IA et génère l’ordre du jour. Le bilan vérifie que vous l’avez fait avant le lancement.</p></div>'
+      + '<div class="obx-card" style="border-top-color:#c9a000;"><div class="obx-row"><b style="font-size:16px;">' + prets + ' carte' + plural(prets, '', 's') + ' prête' + plural(prets, '', 's') + ' sur ' + cartes().length + '</b><span class="obx-sub">· animateur : ' + (prep ? 'prêt' : 'à faire') + '</span></div>' + rows + '<div class="obx-row">' + btns + '</div>' + dateEd + '</div>';
   }
 
-  /* Formulaires (mode RESPONSABLE DE CARTE) : un par carte dont on est responsable */
+  /* ---------- Ma carte (responsable de carte) ---------- */
+  function readForm(i){ return { s:[inputVal('obx_s1_' + i), inputVal('obx_s2_' + i), inputVal('obx_s3_' + i)], r:inputVal('obx_r_' + i), o:inputVal('obx_o_' + i) }; }
   function paintForms(){
     var el = $('obxForms'); if (!el) return; var mine = cartes().filter(function(c){ return c.mine; });
     if (!mine.length){ el.innerHTML = ''; return; }
     var html = '<div class="obx-sec"><h3>Ma préparation · responsable de carte</h3><p>Préparer l’Obeya, pour un responsable, c’est renseigner la carte : trois sujets à aborder, et s’il y en a un risque prioritaire et une opportunité prioritaire. Votre préparation est complète si elle est enregistrée avant le lancement.</p></div>';
     mine.forEach(function(c, i){
       var k = c.contenu, p = c.precedent, dr = O.drafts[c.role];
-      var src = dr || (k ? { s:k.sujets, r:k.risque, o:k.opportunite } : (p ? { s:p.sujets, r:p.risque, o:p.opportunite } : { s:['','',''], r:'', o:'' }));
-      var from = (!dr && !k && p) ? '<div class="sub-cell">Repris de la séance du ' + esc(fdate(p.date)) + ' : modifiez ou confirmez.</div>' : '';
+      var src = dr || (k ? { s:k.sujets, r:k.risque, o:k.opportunite } : (p ? { s:p.sujets, r:p.risque, o:p.opportunite } : { s:['', '', ''], r:'', o:'' }));
+      var from = (!dr && !k && p) ? '<div class="obx-box" style="background:#f8f1e8;">Repris de la séance du ' + esc(fdate(p.date)) + ' : modifiez ou confirmez.</div>' : '';
       var stat = k ? chip((k.moment === 'apres' ? 'Préparée après le lancement' : 'Prête avant le lancement'), k.moment === 'apres' ? SC.orange.bg : SC.vert.bg, k.moment === 'apres' ? SC.orange.fg : SC.vert.fg, k.moment === 'apres' ? SC.orange.c : SC.vert.c) : chip('Non préparée', SC.rouge.bg, SC.rouge.fg, SC.rouge.c);
-      function f(id, lab, v){ return '<div><label for="obx_' + id + '_' + i + '" class="field-label">' + lab + '</label><textarea id="obx_' + id + '_' + i + '" class="obx-in" rows="2" maxlength="300" style="resize:vertical;" oninput="obxDraft(\'' + esc(c.role) + '\',' + i + ')">' + esc(v || '') + '</textarea></div>'; }
-      html += '<div class="obx-card" style="border-top-color:#c9a000;margin-bottom:12px;"><div class="obx-row"><b style="font-size:16px;">' + esc(c.carte) + '</b>' + stat + '<span class="sub-cell" id="obxFm_' + i + '">' + (k ? 'Enregistrée par ' + esc(nomDe(k.saisi_par, c)) + ' à ' + hhmm(k.saisi_le) : 'Pas encore enregistrée') + '</span></div>' + from
-        + '<div class="obx-fg">' + f('s1', 'Sujet 1', src.s[0]) + f('s2', 'Sujet 2', src.s[1]) + f('s3', 'Sujet 3', src.s[2]) + f('r', 'Risque prioritaire (facultatif)', src.r) + f('o', 'Opportunité prioritaire (facultatif)', src.o) + '</div>'
-        + '<div class="obx-row"><button type="button" class="add-btn" onclick="obxSaveCard(\'' + esc(c.role) + '\',' + i + ')">Enregistrer ma préparation</button><span class="sub-cell">Les trois sujets sont obligatoires.</span></div></div>';
+      var open = O.formOpen[c.role] !== undefined ? O.formOpen[c.role] : !k;
+      function f(id, lab, v, req){ var cnt = String(v || '').length; return '<div><label for="obx_' + id + '_' + i + '" class="obx-lb">' + lab + (req ? ' <i title="Obligatoire">*</i>' : '') + '</label><textarea id="obx_' + id + '_' + i + '" class="obx-in" rows="2" maxlength="300" oninput="obxDraft(\'' + esc(c.role) + '\',' + i + ')">' + esc(v || '') + '</textarea><div class="obx-meta"><span class="obx-err" id="obxE_' + id + '_' + i + '"></span><span id="obxC_' + id + '_' + i + '">' + cnt + '/300</span></div></div>'; }
+      html += '<details class="obx-fc" id="obxFc_' + i + '"' + (open ? ' open' : '') + ' ontoggle="obxFormToggle(\'' + esc(c.role) + '\',this.open)"><summary><b style="font-size:16px;">Ma carte · ' + esc(c.carte) + '</b>' + stat + '<span class="obx-sub" id="obxFm_' + i + '">' + (k ? 'Enregistrée par ' + esc(nomDe(k.saisi_par, c)) + ' à ' + hhmm(k.saisi_le) : 'Pas encore enregistrée') + '</span></summary><div class="in">' + from
+        + '<div class="obx-fg">' + f('s1', 'Sujet 1', src.s[0], true) + f('s2', 'Sujet 2', src.s[1], true) + f('s3', 'Sujet 3', src.s[2], true) + f('r', 'Risque prioritaire (facultatif)', src.r) + f('o', 'Opportunité prioritaire (facultatif)', src.o) + '</div>'
+        + '<div class="obx-row">' + btn('pri', '', 'obxSaveCard(\'' + esc(c.role) + '\',' + i + ')', 'Enregistrer ma préparation') + '<span class="obx-sub">Les trois sujets sont obligatoires.</span></div></div></details>';
     });
     el.innerHTML = html;
   }
-  function readForm(i){ return { s:[inputVal('obx_s1_' + i), inputVal('obx_s2_' + i), inputVal('obx_s3_' + i)], r:inputVal('obx_r_' + i), o:inputVal('obx_o_' + i) }; }
-  window.obxDraft = function(role, i){ O.drafts[role] = readForm(i); };
+  window.obxFormToggle = function(role, o){ O.formOpen[role] = !!o; };
+  window.obxDraft = function(role, i){ O.drafts[role] = readForm(i); ['s1', 's2', 's3', 'r', 'o'].forEach(function(id){ var t = $('obx_' + id + '_' + i), c = $('obxC_' + id + '_' + i), e = $('obxE_' + id + '_' + i); if (c && t) c.textContent = t.value.length + '/300'; if (t && t.value.trim()){ t.classList.remove('bad'); if (e) e.textContent = ''; } }); };
+  window.obxGoForm = function(role){
+    O.tab = 'cartes'; var idx = cartes().filter(function(c){ return c.mine; }).findIndex(function(c){ return c.role === role; }); O.formOpen[role] = true; paintTabs(); paintForms();
+    var fc = $('obxFc_' + Math.max(0, idx)); if (fc){ try { fc.scrollIntoView({ behavior:'smooth', block:'start' }); } catch(e){} var first = $('obx_s1_' + Math.max(0, idx)); if (first) setTimeout(function(){ try { first.focus(); } catch(e){} }, 250); }
+  };
   window.obxSaveCard = async function(role, i){
-    var f = readForm(i), mid = 'obxFm_' + i;
-    if (!f.s[0].trim() || !f.s[1].trim() || !f.s[2].trim()){ flash(mid, false, 'Les trois sujets sont obligatoires.'); return; }
+    var f = readForm(i), mid = 'obxFm_' + i, bad = false;
+    [['s1', 0], ['s2', 1], ['s3', 2]].forEach(function(p){ var t = $('obx_' + p[0] + '_' + i), e = $('obxE_' + p[0] + '_' + i), empty = !f.s[p[1]].trim(); if (t) t.classList.toggle('bad', empty); if (e) e.textContent = empty ? 'Obligatoire' : ''; if (empty) bad = true; });
+    if (bad){ flash(mid, false, 'Les trois sujets sont obligatoires.'); var firstBad = document.querySelector('#obxForms .obx-in.bad'); if (firstBad) firstBad.focus(); return; }
     flash(mid, true, 'Enregistrement…');
     try { var r = await rpc('obeya_carte_enregistrer', { p_role:role, p_s1:f.s[0], p_s2:f.s[1], p_s3:f.s[2], p_risque:f.r, p_opp:f.o });
-      delete O.drafts[role]; await load(); paintForms(); repaintLight();
-      flash('obxFm_' + i, true, '✓ Enregistrée à ' + hhmm(r.saisi_le) + (r.moment === 'apres' ? ' · après le lancement' : ' · avant le lancement')); }
-    catch(e){ flash(mid, false, 'Refusé : ' + ((e && e.message) || e)); }
+      delete O.drafts[role]; O.formOpen[role] = false; await load(); paintForms(); repaintLight();
+      flash('obxFm_' + i, true, '✓ Enregistrée à ' + hhmm(r.saisi_le) + (r.moment === 'apres' ? ' · après le lancement' : ' · avant le lancement'));
+      toast('Carte enregistrée' + (r.moment === 'apres' ? ' (après le lancement)' : ' : merci, votre préparation est complète') + '.'); }
+    catch(e){ flash(mid, false, 'Refusé : ' + ((e && e.message) || e)); toast('Enregistrement refusé : ' + ((e && e.message) || e), 'ko'); }
   };
 
-  /* Tour par exception : cartes non vertes, problèmes d'interface bloquants ou retenus, cartes non préparées */
+  /* ---------- Ordre du jour : tour par exception, cochable en séance ---------- */
+  function hash(str){ var h = 5381; for (var i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) | 0; return String(h >>> 0); }
+  function doneKey(){ var s = seance(); return 'obx_done_' + (s ? s.id : ''); }
+  function doneSet(){ try { return JSON.parse(sessionStorage.getItem(doneKey()) || '{}'); } catch(e){ return {}; } }
   function tourItems(){
     var T = [], greens = [];
     cartes().forEach(function(c){
@@ -263,103 +368,131 @@
     constatsLive().filter(function(x){ return x.gravite === 'bloquant' || x.etat === 'retenu'; }).forEach(function(x){
       T.push({ k:'Interface', who:codeLabel(x.from_fn) + (x.to_fn ? ' vers ' + codeLabel(x.to_fn) : ''), why:x.titre, min:3, tone: x.gravite === 'bloquant' ? 'rouge' : 'orange' });
     });
+    T.forEach(function(x){ x.key = hash(x.k + '|' + x.who + '|' + x.why); });
     return { T:T, greens:greens };
+  }
+  function tourLeftHtml(){
+    var r = tourItems(), dn = doneSet(), left = r.T.filter(function(x){ return !dn[x.key]; }), mins = left.reduce(function(a, x){ return a + x.min; }, 0), ci = clockInfo();
+    var base = '<b>' + left.length + ' point' + plural(left.length, '', 's') + ' à voir</b> · environ ' + mins + ' min';
+    if (!ci) return base + ' sur ' + ((O.d && O.d.config && O.d.config.duree_min) || 60);
+    var remMin = Math.max(0, Math.floor(ci.rem / 60000));
+    return base + ' · temps restant ' + remMin + ' min' + (mins > remMin ? ' ' + chip('Plus de points que de temps : écartez ou reportez', SC.rouge.bg, SC.rouge.fg, SC.rouge.c) : (left.length ? ' ' + chip('Dans le temps', SC.vert.bg, SC.vert.fg, SC.vert.c) : ' ' + chip('Tout est vu', SC.vert.bg, SC.vert.fg, SC.vert.c)));
   }
   function paintTour(){
     var el = $('obxTour'); if (!el) return;
     if (!prepared()){ el.innerHTML = '<div class="obx-sec"><h3>Tour par exception</h3><p>L’ordre du jour est généré par « Préparer l’Obeya » : l’IA analyse d’abord le plan d’action.</p></div>'; return; }
-    var r = tourItems(), tot = r.T.reduce(function(a, x){ return a + x.min; }, 0), dur = (O.d.config && O.d.config.duree_min) || 60;
-    var rows = r.T.map(function(x, i){ var s = SC[x.tone] || SC.orange; return '<div class="obx-ol"><b>' + (i + 1) + '</b><span style="width:10px;height:10px;border-radius:50%;background:' + s.c + ';margin-top:5px;flex:none;"></span><div style="flex:1 1 260px;min-width:0;"><div style="font-size:13px;"><b style="color:var(--ink);">' + esc(x.k) + '</b> · ' + esc(x.who) + '</div><div style="color:var(--ink-soft);font-size:13px;">' + esc(x.why) + '</div></div><span class="sub-cell" style="white-space:nowrap;">' + x.min + ' min</span></div>'; }).join('');
-    el.innerHTML = '<div class="obx-sec"><h3>Tour par exception</h3><p>On ne passe en revue que ce qui s’écarte : le reste, au vert, n’est pas abordé.</p></div><div class="obx-card" style="border-top-color:#560A0F;"><div class="obx-row"><b>' + r.T.length + ' point' + (r.T.length > 1 ? 's' : '') + ' · environ ' + tot + ' min sur ' + dur + '</b></div>'
-      + (rows || '<div class="sub-cell">Rien à traiter : toutes les cartes sont au vert et préparées.</div>') + '<div class="sub-cell">Non abordées, car vertes (' + r.greens.length + ') : ' + (r.greens.length ? esc(r.greens.join(', ')) : 'aucune') + '.</div></div>';
+    var r = tourItems(), dn = doneSet(), anim = isAnim(), live = liveSeance(), cur = -1;
+    r.T.forEach(function(x, i){ if (cur < 0 && !dn[x.key]) cur = i; });
+    var rows = r.T.map(function(x, i){ var s = SC[x.tone] || SC.orange, d = !!dn[x.key];
+      return '<div class="obx-chk' + (d ? ' done' : (i === cur && anim ? ' cur' : '')) + '">' + (anim ? '<input type="checkbox" id="obxK_' + i + '" aria-label="Point traité : ' + esc(x.why) + '"' + (d ? ' checked' : '') + ' onchange="obxToggleDone(\'' + x.key + '\',this.checked)">' : '<span style="width:12px;height:12px;border-radius:50%;background:' + s.c + ';margin-top:6px;flex:none;"></span>')
+        + '<div style="flex:1 1 260px;min-width:0;"><div class="tt"><b>' + esc(x.k) + '</b> · ' + esc(x.who) + '</div><div class="tt" style="color:#4a3d40;">' + esc(x.why) + '</div></div><span class="obx-sub" style="white-space:nowrap;">' + x.min + ' min</span></div>'; }).join('');
+    el.innerHTML = '<div class="obx-sec"><h3>Tour par exception</h3><p>On ne passe en revue que ce qui s’écarte : le reste, au vert, n’est pas abordé.' + (anim ? ' Cochez chaque point au fil de la séance.' : '') + '</p></div><div class="obx-card" style="border-top-color:#560A0F;"><div class="obx-row" id="obxTourLeft">' + tourLeftHtml() + '</div>'
+      + (r.T.length ? '' : '<div class="obx-sub">Rien à traiter : toutes les cartes sont au vert et préparées.</div>') + rows
+      + '<div class="obx-sub">Non abordées, car vertes (' + r.greens.length + ') : ' + (r.greens.length ? esc(r.greens.join(', ')) : 'aucune') + '.</div></div>';
   }
+  window.obxToggleDone = function(key, on){ var d = doneSet(); if (on) d[key] = 1; else delete d[key]; try { sessionStorage.setItem(doneKey(), JSON.stringify(d)); } catch(e){} paintTour(); };
 
-  /* Cartes par fonction */
+  /* ---------- Cartes du Codir ---------- */
   function paintWall(){
-    var el = $('obxWall'); if (!el) return; var by = byRole();
+    var el = $('obxWall'); if (!el) return;
     var html = '<div class="obx-sec"><h3>Les cartes du Codir</h3><p>Trois sujets par fonction ; un risque et une opportunité prioritaires s’il y en a. Le statut tient aussi compte des problèmes d’interface détectés par l’IA.</p></div><div class="obx-grid">';
     cartes().forEach(function(c){
       var k = c.contenu, st = k ? statutCarte(c) : null, S = st ? SC[st] : null, ow = owedOf(c.role), wa = waitsOf(c.role);
-      var assoc = (c.associees || []).length ? '<div class="sub-cell">Alimentée aussi par : ' + esc(c.associees.map(label).join(', ')) + '</div>' : '';
+      var assoc = (c.associees || []).length ? '<div class="obx-sub">Alimentée aussi par : ' + esc(c.associees.map(label).join(', ')) + '</div>' : '';
       var body;
-      if (!k) body = '<div class="obx-box" style="background:#f3eee6;color:var(--muted);">' + esc(names(c)) + ' renseigne la carte de cette fonction avant la séance.</div>';
-      else body = '<div>' + [0,1,2].map(function(i){ return '<div class="obx-ol"><b>' + (i + 1) + '</b><span>' + esc(k.sujets[i]) + '</span></div>'; }).join('') + '</div>'
+      if (!k) body = '<div class="obx-box" style="background:#f3eee6;color:var(--mut);">' + esc(names(c)) + ' renseigne la carte de cette fonction avant la séance.</div>' + (c.mine ? '<div>' + btn('pri', '', 'obxGoForm(\'' + esc(c.role) + '\')', 'Renseigner ma carte') + '</div>' : '');
+      else body = '<div>' + [0, 1, 2].map(function(i){ return '<div class="obx-ol"><b>' + (i + 1) + '</b><span>' + esc(k.sujets[i]) + '</span></div>'; }).join('') + '</div>'
         + (k.risque ? '<div class="obx-box obx-risk"><div class="t">Risque prioritaire</div>' + esc(k.risque) + '</div>' : '')
         + (k.opportunite ? '<div class="obx-box obx-opp"><div class="t">Opportunité prioritaire</div>' + esc(k.opportunite) + '</div>' : '');
-      html += '<div class="obx-card" style="border-top-color:' + (S ? S.c : '#cfc6bd') + ';"><div class="obx-row" style="justify-content:space-between;"><div><b style="font-size:17px;">' + esc(c.carte) + '</b><div class="sub-cell">Responsable : ' + esc(names(c)) + '</div>'
-        + '<div class="sub-cell">' + (k ? 'Carte préparée par ' + esc(nomDe(k.saisi_par, c)) + ' à ' + hhmm(k.saisi_le) + (k.moment === 'apres' ? ' (après le lancement)' : '') : 'Carte non préparée') + '</div>' + assoc + '</div>' + (S ? stChip(st) : neutral('Non préparée')) + '</div>'
-        + body + (k && O.c ? '<div class="sub-cell">' + (ow + wa === 0 ? 'Aucun problème d’interface détecté' : ow + ' à résoudre de votre côté · ' + wa + ' vous concernent côté autre carte') + '</div>' : '') + '</div>';
+      var foot = (k && O.c) ? (ow + wa === 0 ? '<div class="obx-sub">Aucun problème d’interface détecté</div>' : '<div>' + btn('lnk sm', '', 'obxGoIface(\'' + esc(c.role) + '\')', ow + ' à résoudre de votre côté · ' + wa + ' vous concernent côté autre carte →') + '</div>') : '';
+      html += '<div class="obx-card' + (c.mine ? ' mine' : '') + '" style="border-top-color:' + (S ? S.c : '#cfc6bd') + ';"><div class="obx-row" style="justify-content:space-between;align-items:flex-start;"><div><b style="font-size:18px;">' + esc(c.carte) + '</b>' + (c.mine ? ' ' + chip('Votre carte', '#f6e7e8', '#560A0F', '#560A0F') : '') + '<div class="obx-sub">Responsable : ' + esc(names(c)) + '</div>'
+        + '<div class="obx-sub">' + (k ? 'Carte préparée par ' + esc(nomDe(k.saisi_par, c)) + ' à ' + hhmm(k.saisi_le) + (k.moment === 'apres' ? ' (après le lancement)' : '') : 'Carte non préparée') + '</div>' + assoc + '</div>' + (S ? stChip(st) : neutral('Non préparée')) + '</div>' + body + foot + '</div>';
     });
     el.innerHTML = html + '</div>';
   }
+  window.obxGoIface = function(role){ O.fcard = role; O.filter = null; O.tab = 'iface'; paintTabs(); paintIface(); };
 
-  /* Problèmes d'interface entre cartes */
+  /* ---------- Problèmes d'interface entre cartes ---------- */
   function effectText(o){
     var m = byRole()[o.fonction], who = m ? names(m) : ((O.sit && (O.sit.fonctions || []).indexOf(o.fonction) >= 0) ? 'vous' : 'le titulaire de la fonction « ' + label(o.fonction) + ' »');
     return 'Crée l’action « ' + o.action_libelle + ' » pour ' + who + ', dans ' + (o.delai_jours || 3) + ' jours';
   }
+  function findOpen(x){ return O.open[x.id] !== undefined ? O.open[x.id] : (x.gravite === 'bloquant' || x.etat === 'retenu'); }
   function paintIface(){
     var el = $('obxIface'); if (!el) return;
     if (O.c2missing){ el.innerHTML = '<div class="obx-sec"><h3>Problèmes d’interface entre cartes</h3><p>Analyse indisponible : exécutez obeya_brique2.sql dans Supabase.</p></div>'; return; }
     if (!prepared() || !O.c || !O.c.analyse){
       el.innerHTML = '<div class="obx-sec"><h3>Problèmes d’interface entre cartes</h3><p>L’analyse du plan d’action n’est pas encore lancée. L’animateur la déclenche avec « Préparer l’Obeya », avant la séance.</p></div>'; return;
     }
-    var a = O.c.analyse, all = O.c.constats || [], live = all.filter(function(x){ return x.etat !== 'ecarte' && x.etat !== 'decide'; });
+    var a = O.c.analyse, all = constatsAll(), live = constatsLive();
     var ecartes = all.filter(function(x){ return x.etat === 'ecarte'; }), decides = all.filter(function(x){ return x.etat === 'decide'; });
-    var shown = live.filter(function(x){ return !O.filter || (x.from_fn === O.filter.from && x.to_fn === O.filter.to); });
+    var shown = live.filter(function(x){ return (!O.filter || (x.from_fn === O.filter.from && x.to_fn === O.filter.to)) && (!O.fcard || x.from_fn === O.fcard || x.to_fn === O.fcard); });
     var bloq = live.filter(function(x){ return x.gravite === 'bloquant'; }).length, anim = isAnim();
     var html = '<div class="obx-sec"><h3>Problèmes d’interface entre cartes</h3><p>Analyse du plan d’action faite avant la séance : blocages, échéances incompatibles, sujets traités par deux cartes, actions sans porteur. Chaque problème cite les actions concernées.</p></div>'
-      + '<div class="obx-card" style="border-top-color:#c9a000;margin-bottom:14px;"><div class="obx-row"><b>' + live.length + ' problème' + (live.length > 1 ? 's' : '') + ' · ' + bloq + ' bloquant' + (bloq > 1 ? 's' : '') + ' · ' + (live.length - bloq) + ' à clarifier</b></div>'
-      + '<div class="sub-cell">Analyse du ' + esc(fts(a.genere_le)) + ' à ' + hhmm(a.genere_le) + ' sur ' + a.nb_actions + ' actions ouvertes (hors confidentielles) · ' + (a.ia ? 'IA (' + esc(a.modele || '') + ')' : 'règles simples, sans IA') + '</div>'
-      + (a.resume ? '<div style="font-size:14px;">' + esc(a.resume) + '</div>' : '') + (a.ia ? '' : '<div class="sub-cell">Sans IA, seuls les liens écrits « #numéro » dans les actions, les doublons évidents et les actions sans porteur sont détectés.</div>') + '</div>';
+      + '<div class="obx-card" style="border-top-color:#c9a000;margin-bottom:14px;"><div class="obx-row"><b style="font-size:16px;">' + live.length + ' problème' + plural(live.length, '', 's') + ' · ' + bloq + ' bloquant' + plural(bloq, '', 's') + ' · ' + (live.length - bloq) + ' à clarifier</b></div>'
+      + '<div class="obx-sub">Analyse du ' + esc(fts(a.genere_le)) + ' à ' + hhmm(a.genere_le) + ' sur ' + a.nb_actions + ' actions ouvertes (hors confidentielles) · ' + (a.ia ? 'IA (' + esc(a.modele || '') + ')' : 'règles simples, sans IA') + '</div>'
+      + (a.resume ? '<div style="font-size:14px;">' + esc(a.resume) + '</div>' : '') + (a.ia ? '' : '<div class="obx-sub">Sans IA, seuls les liens écrits « #numéro » dans les actions, les doublons évidents et les actions sans porteur sont détectés.</div>') + '</div>';
     var cs = cartes();
     if (cs.length > 1){
-      html += '<div class="obx-card" style="margin-bottom:14px;"><b>Où ça coince</b><div class="sub-cell">De la carte qui doit agir (ligne) vers celle qui attend (colonne). Cliquez une case pour filtrer.</div><div class="obx-mx" style="grid-template-columns:minmax(80px,1.2fr) repeat(' + cs.length + ',minmax(0,1fr));"><div></div>'
-        + cs.map(function(c){ return '<div class="sub-cell" style="text-align:center;align-self:end;font-weight:700;">' + esc(c.carte.replace('Marketing & Communication', 'Mkt & Com')) + '</div>'; }).join('')
-        + cs.map(function(r){ return '<div class="sub-cell" style="font-weight:700;display:flex;align-items:center;">' + esc(r.carte.replace('Marketing & Communication', 'Mkt & Com')) + '</div>' + cs.map(function(c){
+      html += '<details class="obx-help" style="margin-bottom:14px;"' + (O.filter ? ' open' : '') + '><summary>Où ça coince : matrice entre cartes</summary><div class="obx-card" style="margin-top:8px;"><div class="obx-sub">De la carte qui doit agir (ligne) vers celle qui attend (colonne). Cliquez une case pour filtrer.</div><div class="obx-mx" style="grid-template-columns:minmax(80px,1.2fr) repeat(' + cs.length + ',minmax(0,1fr));"><div></div>'
+        + cs.map(function(c){ return '<div class="obx-sub" style="text-align:center;align-self:end;font-weight:700;">' + esc(c.carte.replace('Marketing & Communication', 'Mkt & Com')) + '</div>'; }).join('')
+        + cs.map(function(r){ return '<div class="obx-sub" style="font-weight:700;display:flex;align-items:center;">' + esc(r.carte.replace('Marketing & Communication', 'Mkt & Com')) + '</div>' + cs.map(function(c){
             var l = live.filter(function(x){ return x.from_fn === r.role && x.to_fn === c.role; }), bl = l.filter(function(x){ return x.gravite === 'bloquant'; }).length, on = O.filter && O.filter.from === r.role && O.filter.to === c.role;
             return '<button type="button" ' + (l.length ? '' : 'disabled ') + 'aria-label="' + esc(r.carte + ' vers ' + c.carte + ' : ' + l.length + ' problème(s)') + '" onclick="obxFilter(\'' + esc(r.role) + '\',\'' + esc(c.role) + '\')" style="background:' + (on ? '#560A0F' : (bl ? SC.rouge.bg : (l.length ? SC.orange.bg : (r.role === c.role ? '#f3eee6' : '#fff')))) + ';color:' + (on ? '#fff' : 'inherit') + ';border-color:' + (bl ? SC.rouge.c : (l.length ? SC.orange.c : '#e0d6cf')) + ';">' + (l.length || (r.role === c.role ? '' : '·')) + '</button>'; }).join(''); }).join('')
-        + '</div>' + (O.filter ? '<div style="margin-top:8px;"><button type="button" class="add-btn sm ghost" onclick="obxFilter()">Filtre : ' + esc(codeLabel(O.filter.from) + ' vers ' + codeLabel(O.filter.to)) + ' · effacer</button></div>' : '') + '</div>';
+        + '</div></div></details>';
     }
+    if (O.filter || O.fcard) html += '<div class="obx-row" style="margin-bottom:10px;">' + (O.filter ? btn('sec sm', '', 'obxFilter()', 'Filtre : ' + esc(codeLabel(O.filter.from) + ' vers ' + codeLabel(O.filter.to)) + ' · effacer') : '') + (O.fcard ? btn('sec sm', '', 'obxGoIface()', 'Carte : ' + esc(codeLabel(O.fcard)) + ' · effacer') : '') + '</div>';
     if (!shown.length) html += '<div class="obx-card"><div>' + (live.length ? 'Aucun problème dans ce filtre.' : 'Aucun problème d’interface à traiter. Le Codir peut s’en tenir aux cartes.') + '</div></div>';
     shown.forEach(function(x){
       var bl = x.gravite === 'bloquant', kept = x.etat === 'retenu' || bl;
-      html += '<div class="obx-card" style="border-top-color:' + (bl ? SC.rouge.c : SC.orange.c) + ';margin-bottom:14px;"><div class="obx-row">' + chip(bl ? 'Bloquant' : 'À clarifier', bl ? SC.rouge.bg : SC.orange.bg, bl ? SC.rouge.fg : SC.orange.fg, bl ? SC.rouge.c : SC.orange.c)
-        + '<b style="font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#560A0F;">' + esc(TYPE_LBL[x.type] || x.type) + '</b><span class="sub-cell" style="font-weight:600;">' + esc(codeLabel(x.from_fn)) + (x.to_fn ? ' vers ' + esc(codeLabel(x.to_fn)) : '') + '</span></div>'
-        + '<div><div style="font-size:16px;font-weight:700;">' + esc(x.titre) + '</div><div style="font-size:14px;margin-top:2px;">' + esc(x.constat) + '</div></div>'
-        + '<div class="obx-row">' + (x.actions || []).map(function(n){ return neutral('#' + n); }).join('') + '<span class="sub-cell">Actions du plan d’action concernées</span></div>'
+      html += '<details class="obx-find' + (bl ? ' bl' : '') + '" id="obxF_' + esc(x.id) + '"' + (findOpen(x) ? ' open' : '') + ' ontoggle="obxFindToggle(\'' + esc(x.id) + '\',this.open)"><summary>' + chip(bl ? 'Bloquant' : 'À clarifier', bl ? SC.rouge.bg : SC.orange.bg, bl ? SC.rouge.fg : SC.orange.fg, bl ? SC.rouge.c : SC.orange.c)
+        + '<span class="ft">' + esc(x.titre) + '</span><span class="obx-sub" style="font-weight:600;">' + esc(codeLabel(x.from_fn)) + (x.to_fn ? ' vers ' + esc(codeLabel(x.to_fn)) : '') + '</span></summary><div class="in">'
+        + '<div class="obx-row"><b style="font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#560A0F;">' + esc(TYPE_LBL[x.type] || x.type) + '</b>' + (x.actions || []).map(function(n){ return neutral('#' + n); }).join('') + '<span class="obx-sub">Actions du plan d’action concernées</span></div>'
+        + '<div style="font-size:14px;line-height:1.5;">' + esc(x.constat) + '</div>'
         + (x.question ? '<div class="obx-box" style="background:#f8f1e8;"><div class="t" style="color:#560A0F;">Question au Codir</div>' + esc(x.question) + '</div>' : '');
       if (anim){
-        html += '<div class="obx-row"><button type="button" class="add-btn sm' + (kept ? '' : ' ghost') + '" ' + (bl ? 'disabled ' : '') + 'aria-pressed="' + (kept ? 'true' : 'false') + '" onclick="obxEtat(\'' + esc(x.id) + '\',\'' + (x.etat === 'retenu' ? 'ouvert' : 'retenu') + '\')">' + (bl ? 'À traiter : bloquant' : (x.etat === 'retenu' ? 'Retenu pour la séance' : 'Retenir pour la séance')) + '</button>'
-          + '<button type="button" class="add-btn sm ghost" onclick="obxEtat(\'' + esc(x.id) + '\',\'ecarte\')">Écarter</button></div>'
-          + '<div><div class="field-label">Décider : la décision crée l’action dans le plan d’action</div><div class="obx-row" style="align-items:stretch;">' + (x.options || []).map(function(o, i){
-              return '<button type="button" class="obx-opt" onclick="obxDecide(\'' + esc(x.id) + '\',' + i + ')"><b>' + esc(o.libelle) + '</b><span class="e">' + esc(effectText(o)) + '</span></button>'; }).join('') + '</div></div>';
-      } else if (x.etat === 'retenu') html += '<div class="sub-cell">Retenu pour la séance par l’animateur.</div>';
-      html += '</div>';
+        html += '<div class="obx-row">' + (bl ? chip('Inscrit d’office à l’ordre du jour', SC.rouge.bg, SC.rouge.fg, SC.rouge.c) : btn((kept ? 'pri' : 'sec') + ' sm', '', 'obxEtat(\'' + esc(x.id) + '\',\'' + (x.etat === 'retenu' ? 'ouvert' : 'retenu') + '\')', x.etat === 'retenu' ? 'Retenu pour la séance' : 'Retenir pour la séance', ' aria-pressed="' + (kept ? 'true' : 'false') + '"'))
+          + btn('sec sm', '', 'obxEtat(\'' + esc(x.id) + '\',\'ecarte\')', 'Écarter') + '</div>'
+          + '<div><div class="obx-lb">Décider : la décision crée l’action dans le plan d’action</div><div class="obx-opts">' + (x.options || []).map(function(o, i){ var conf = O.confirm === x.id + ':' + i;
+              return '<button type="button" class="obx-opt' + (conf ? ' conf' : '') + '" onclick="obxDecide(\'' + esc(x.id) + '\',' + i + ')"><b>' + esc(o.libelle) + '</b><span class="e">' + (conf ? 'Cliquez à nouveau pour confirmer · ' : '') + esc(effectText(o)) + '</span></button>'; }).join('') + '</div></div>';
+      } else if (x.etat === 'retenu') html += '<div class="obx-sub">Retenu pour la séance par l’animateur.</div>';
+      html += '</div></details>';
     });
     if (decides.length) html += '<div class="obx-card" style="border-top-color:#2e7d46;margin-bottom:14px;"><b>Décidés (' + decides.length + ')</b>' + decides.map(function(x){ var o = (x.options || [])[x.decide_option] || {};
-      return '<div class="obx-ol"><b>✓</b><div style="flex:1 1 240px;"><div style="font-size:13px;"><b>' + esc(x.titre) + '</b></div><div class="sub-cell">' + esc(o.libelle || '') + (x.action_numero ? ' · action #' + x.action_numero + ' créée' : '') + '</div></div></div>'; }).join('') + '</div>';
-    if (anim && ecartes.length) html += '<div class="obx-card" style="margin-bottom:14px;"><div class="obx-row"><b>Écartés (' + ecartes.length + ')</b><button type="button" class="add-btn sm ghost" onclick="obxToggleEcartes()">' + (O.showEcartes ? 'Masquer' : 'Afficher') + '</button></div>'
-      + (O.showEcartes ? ecartes.map(function(x){ return '<div class="obx-ol"><span style="flex:1 1 240px;font-size:13px;">' + esc(x.titre) + '</span><button type="button" class="add-btn sm ghost" onclick="obxEtat(\'' + esc(x.id) + '\',\'ouvert\')">Rouvrir</button></div>'; }).join('') : '') + '</div>';
-    el.innerHTML = html + '<div id="obxIfMsg" style="font-size:13px;min-height:18px;"></div>';
+      return '<div class="obx-ol"><b>✓</b><div style="flex:1 1 240px;"><div style="font-size:13px;"><b>' + esc(x.titre) + '</b></div><div class="obx-sub">' + esc(o.libelle || '') + (x.action_numero ? ' · action #' + x.action_numero + ' créée' : '') + '</div></div></div>'; }).join('') + '</div>';
+    if (anim && ecartes.length) html += '<div class="obx-card" style="margin-bottom:14px;"><div class="obx-row"><b>Écartés (' + ecartes.length + ')</b>' + btn('sec sm', '', 'obxToggleEcartes()', O.showEcartes ? 'Masquer' : 'Afficher') + '</div>'
+      + (O.showEcartes ? ecartes.map(function(x){ return '<div class="obx-ol"><span style="flex:1 1 240px;font-size:13px;">' + esc(x.titre) + '</span>' + btn('sec sm', '', 'obxEtat(\'' + esc(x.id) + '\',\'ouvert\')', 'Rouvrir') + '</div>'; }).join('') : '') + '</div>';
+    el.innerHTML = html + '<div id="obxIfMsg" class="obx-msg" role="status"></div>';
   }
+  window.obxFindToggle = function(id, o){ O.open[id] = !!o; };
   window.obxFilter = function(from, to){ O.filter = (from && !(O.filter && O.filter.from === from && O.filter.to === to)) ? { from:from, to:to } : null; paintIface(); };
   window.obxToggleEcartes = function(){ O.showEcartes = !O.showEcartes; paintIface(); };
   window.obxEtat = async function(id, etat){
-    try { await rpc('obeya_constat_etat', { p_id:id, p_etat:etat }); O.c = await rpc('obeya_constats_lire'); paintTour(); paintWall(); paintIface(); }
+    try { await rpc('obeya_constat_etat', { p_id:id, p_etat:etat }); O.c = await rpc('obeya_constats_lire'); paintTour(); paintWall(); paintIface(); paintTabs(); }
     catch(e){ flash('obxIfMsg', false, 'Refusé : ' + ((e && e.message) || e)); }
   };
+  /* Décider crée une action : on demande une confirmation (second clic), puis on avertit par une notification. */
   window.obxDecide = async function(id, i){
-    try { var r = await rpc('obeya_constat_decider', { p_id:id, p_option:i }); O.c = await rpc('obeya_constats_lire'); paintTour(); paintWall(); paintIface(); paintJournal();
-      flash('obxIfMsg', true, r && r.deja ? 'Déjà décidé : action #' + r.action_numero : '✓ Action #' + r.action_numero + ' créée' + (r.pilote_nom ? ' pour ' + r.pilote_nom : '') + (r.sans_pilote ? ' — SANS porteur : à compléter dans le plan d’action' : '') + ' · décision inscrite au journal'); }
-    catch(e){ flash('obxIfMsg', false, 'Refusé : ' + ((e && e.message) || e)); }
+    var key = id + ':' + i;
+    if (O.confirm !== key){ O.confirm = key; paintIface(); if (O.confirmT) clearTimeout(O.confirmT); O.confirmT = setTimeout(function(){ if (O.confirm === key){ O.confirm = null; paintIface(); } }, 8000); return; }
+    O.confirm = null; if (O.confirmT) clearTimeout(O.confirmT);
+    try { var r = await rpc('obeya_constat_decider', { p_id:id, p_option:i }); O.c = await rpc('obeya_constats_lire'); paintTour(); paintWall(); paintIface(); paintJournal(); paintTabs();
+      var m = r && r.deja ? 'Déjà décidé : action #' + r.action_numero : '✓ Action #' + r.action_numero + ' créée' + (r.pilote_nom ? ' pour ' + r.pilote_nom : '') + (r.sans_pilote ? ' — SANS porteur : à compléter dans le plan d’action' : '') + ' · décision inscrite au journal';
+      flash('obxIfMsg', true, m); toast(m, r && r.sans_pilote ? 'ko' : ''); }
+    catch(e){ paintIface(); flash('obxIfMsg', false, 'Refusé : ' + ((e && e.message) || e)); toast('Décision refusée : ' + ((e && e.message) || e), 'ko'); }
   };
 
   function paintJournal(){
     var el = $('obxJournal'); if (!el) return; var j = (O.c && O.c.decisions) || [];
     el.innerHTML = '<div class="obx-sec"><h3>Journal des décisions</h3><p>Chaque décision crée une action dans le plan d’action et reste consultable ici.</p></div><div class="obx-card">'
-      + (j.length ? j.map(function(d){ return '<div class="obx-ol"><b>' + esc(fts(d.decide_le)) + '</b><div style="flex:1 1 260px;min-width:0;"><div style="font-size:13px;"><b>' + esc(d.libelle) + '</b></div><div class="sub-cell">' + esc(d.option_libelle) + (d.fonction ? ' · ' + esc(codeLabel(d.fonction)) : '') + (d.pilote_nom ? ' · ' + esc(d.pilote_nom) : '') + '</div></div>' + (d.action_numero ? neutral('Action #' + d.action_numero) : '') + '</div>'; }).join('') : '<div class="sub-cell">Aucune décision pour le moment.</div>') + '</div>';
+      + (j.length ? j.map(function(d){ return '<div class="obx-ol"><b style="width:auto;border-radius:6px;padding:0 6px;">' + esc(fts(d.decide_le)) + '</b><div style="flex:1 1 260px;min-width:0;"><div style="font-size:14px;"><b>' + esc(d.libelle) + '</b></div><div class="obx-sub">' + esc(d.option_libelle) + (d.fonction ? ' · ' + esc(codeLabel(d.fonction)) : '') + (d.pilote_nom ? ' · ' + esc(d.pilote_nom) : '') + '</div></div>' + (d.action_numero ? neutral('Action #' + d.action_numero) : '') + '</div>'; }).join('') : '<div class="obx-sub">Aucune décision pour le moment.</div>') + '</div>';
   }
+
+  window.obxSetDate = async function(){
+    var v = inputVal('obxDate'); if (!v) return;
+    try { await rpc('obeya_seance_date', { p_date: v }); await load(); repaintLight(); flash('obxHdrMsg', true, '✓ Date enregistrée'); }
+    catch(e){ flash('obxHdrMsg', false, 'Refusé : ' + ((e && e.message) || e)); }
+  };
 
   /* ---------- Ordre du jour (contexte du compte-rendu) ---------- */
   function buildAgenda(){
@@ -386,21 +519,29 @@
     if (!res.ok) throw new Error((j && j.error) || ('Erreur ' + res.status));
     return j;
   }
+  function setProg(step){
+    var ol = $('obxProg'); if (!ol) return;
+    if (step < 0){ ol.hidden = true; ol.innerHTML = ''; return; }
+    var L = ['Compte-rendu de la séance', 'Analyse du plan d’action par l’IA (jusqu’à 30 secondes)', 'Ordre du jour'];
+    ol.hidden = false; ol.innerHTML = L.map(function(t, i){ return '<li class="' + (i < step ? 'done' : (i === step ? 'cur' : '')) + '"><span>' + (i < step ? '✓' : (i === step ? '…' : '○')) + '</span>' + esc(t) + '</li>'; }).join('');
+  }
+  function busy(on, id){ ['obxBtnPrep', 'obxBtnGo', 'obxBtnEnd'].forEach(function(x){ var b = $(x); if (b){ b.disabled = !!on; if (x === id) b.classList.toggle('is-busy', !!on); } }); }
   window.obxPrepare = async function(){
-    if (O.busy) return; O.busy = true; var b = $('obxBtnPrep'); if (b) b.disabled = true;
+    if (O.busy) return; O.busy = true; busy(true, 'obxBtnPrep');
     try {
-      flash('obxMsg', true, 'Préparation : compte-rendu…');
+      setProg(0); flash('obxMsg', true, 'Préparation : compte-rendu…');
       var crId = await rpc('obeya_cr_creer', { p_contexte: buildAgenda() }); O.crId = crId;
       await rpc('obeya_seance_prepare');
-      flash('obxMsg', true, '🧠 Analyse du plan d’action en cours…');
+      setProg(1); flash('obxMsg', true, '🧠 Analyse du plan d’action en cours…');
       var ia = null, iaErr = '';
       try { ia = await callIA(); } catch(e){ iaErr = (e && e.message) || String(e); }
-      await load();
+      setProg(2); await load();
       try { await rpc('obeya_cr_contexte', { p_contexte: buildAgenda() }); } catch(e){}
-      paintAll();
-      flash('obxMsg', !iaErr, iaErr ? 'Analyse impossible : ' + iaErr + ' — le reste de la préparation est fait.' : '✓ Obeya préparée : ' + (ia ? ia.nb_constats + ' problème(s) d’interface · ' + (ia.ia ? 'analyse IA' : 'règles simples' + (ia.raison ? ' (' + (ia.raison === 'plan_vide' ? 'plan d’action vide' : String(ia.raison).replace(/\s*:?\s*analyse par règles simples/i, '')) + ')' : '')) : ''));
-    } catch(e){ var m = (e && e.message) || String(e); flash('obxMsg', false, 'Refusé : ' + m + (missing(m) ? ' — exécutez obeya_brique3.sql.' : '')); }
-    finally { O.busy = false; var b2 = $('obxBtnPrep'); if (b2) b2.disabled = false; }
+      O.tab = 'ordre'; paintAll();
+      var msg = iaErr ? 'Analyse impossible : ' + iaErr + ' — le reste de la préparation est fait.' : '✓ Obeya préparée : ' + (ia ? ia.nb_constats + ' problème(s) d’interface · ' + (ia.ia ? 'analyse IA' : 'règles simples' + (ia.raison ? ' (' + (ia.raison === 'plan_vide' ? 'plan d’action vide' : String(ia.raison).replace(/\s*:?\s*analyse par règles simples/i, '')) + ')' : '')) : '');
+      flash('obxMsg', !iaErr, msg); toast(iaErr ? 'Obeya préparée, mais l’analyse a échoué.' : 'Obeya préparée : ordre du jour et problèmes d’interface prêts.', iaErr ? 'ko' : '');
+    } catch(e){ var m = (e && e.message) || String(e); setProg(-1); flash('obxMsg', false, 'Refusé : ' + m + (missing(m) ? ' — exécutez obeya_brique3.sql.' : '')); toast('Préparation refusée : ' + m, 'ko'); }
+    finally { O.busy = false; busy(false); }
   };
 
   /* ---------- Compte-rendu de la séance (Réunions & Rituels) : dictée vocale ---------- */
@@ -415,7 +556,7 @@
   function recording(){ var mic = $('crMic'); return !!(mic && /Arrêter/i.test(mic.textContent || '')); }
   window.obxTrMic = function(){ if (typeof window.crDictate === 'function' && $('crTranscript')) window.crDictate(); };
   window.obxTogglePane = function(){ O.pane = O.pane === 'cr' ? 'board' : 'cr'; applyPane(); paintLive(); };
-  function applyPane(){ var b = $('obxBoard'), c = $('obxCR'); if (!b || !c) return; var cr = O.pane === 'cr' && O.crMounted; b.style.display = cr ? 'none' : ''; c.style.display = cr ? '' : 'none'; }
+  function applyPane(){ var b = $('obxBoard'), c = $('obxCR'); if (!b || !c) return; var cr = O.pane === 'cr' && O.crMounted; b.style.display = cr ? 'none' : ''; c.style.display = cr ? '' : 'none'; var tb = $('obxTabs'); if (tb) tb.hidden = cr; }
 
   function paintTr(){
     var el = $('obxTr'); if (!el) return;
@@ -438,17 +579,17 @@
 
   /* ---------- Lancer / terminer (animateur) ---------- */
   window.obxLaunch = async function(){
-    if (O.busy) return; O.busy = true; var b = $('obxBtnGo'); if (b) b.disabled = true;
+    if (O.busy) return; O.busy = true; busy(true, 'obxBtnGo');
     try {
       flash('obxMsg', true, 'Lancement de l’Obeya…');
       if (!seance().cr_id){ await rpc('obeya_cr_creer', { p_contexte: buildAgenda() }); }
       var r = await rpc('obeya_seance_lancer'); setOffset(r.serveur);
-      await load(); paintAll(); startTimers();
+      O.tab = null; await load(); paintAll(); startTimers(); focusTop();
       var ok = await mountCR(); applyPane(); paintLive(); paintTr();
       if (ok){ setTimeout(function(){ try { if (!recording() && $('crTranscript') && typeof window.crDictate === 'function') window.crDictate(); } catch(e){} trTick(); }, 600); }   /* dictée lancée avec l'Obeya ; sinon, bouton « Démarrer la transcription » */
-      flash('obxMsg', true, '✓ Obeya lancé');
-    } catch(e){ var m = (e && e.message) || String(e); flash('obxMsg', false, 'Refusé : ' + m + (missing(m) ? ' — exécutez obeya_brique3.sql.' : '')); }
-    finally { O.busy = false; }
+      flash('obxMsg', true, '✓ Obeya lancé'); toast('Obeya lancé : l’horloge tourne.' + (ok ? '' : ' Compte-rendu non ouvert.'), ok ? '' : 'ko');
+    } catch(e){ var m = (e && e.message) || String(e); flash('obxMsg', false, 'Refusé : ' + m + (missing(m) ? ' — exécutez obeya_brique3.sql.' : '')); toast('Lancement refusé : ' + m, 'ko'); }
+    finally { O.busy = false; busy(false); }
   };
   window.obxEnd = async function(){
     if (O.busy) return; if (!window.confirm('Terminer l’Obeya ? L’horloge s’arrête et le bilan de préparation est enregistré.')) return; O.busy = true;
@@ -456,8 +597,8 @@
       try { if (recording() && typeof window.crDictate === 'function') window.crDictate(); } catch(e){}
       await saveCR();                                                       /* transcription enregistrée dans le compte-rendu AVANT de le fermer */
       var r = await rpc('obeya_seance_terminer'); setOffset(r.serveur); O.bilan = r.bilan; O.crMounted = false; O.pane = 'board'; O.dismissed = false;
-      await load(); paintAll(); startTimers();
-    } catch(e){ flash('obxMsg', false, 'Refusé : ' + ((e && e.message) || e)); }
+      O.tab = null; await load(); paintAll(); startTimers(); toast('Obeya terminée : bilan de préparation enregistré.');
+    } catch(e){ flash('obxMsg', false, 'Refusé : ' + ((e && e.message) || e)); toast('Fin refusée : ' + ((e && e.message) || e), 'ko'); }
     finally { O.busy = false; }
   };
   function paintBilan(){
@@ -483,5 +624,5 @@
   function leaveTimers(){ if (O.poll) clearInterval(O.poll); if (O.clock) clearInterval(O.clock); if (O.tr) clearInterval(O.tr); O.poll = O.clock = O.tr = null; }
 
   /* Pour les tests et la déconnexion : rien ne reste d'un utilisateur à l'autre. */
-  window.obeyaReset = function(){ leave(); _accP = null; _accEmail = ''; O.sit = null; O.d = null; O.c = null; O.drafts = {}; O.bilan = null; O.filter = null; O.crMounted = false; O.pane = 'board'; O.dismissed = false; O.busy = false; };
+  window.obeyaReset = function(){ leave(); _accP = null; _accEmail = ''; O.sit = null; O.d = null; O.c = null; O.drafts = {}; O.bilan = null; O.filter = null; O.fcard = null; O.tab = null; O.open = {}; O.formOpen = {}; O.confirm = null; O.crMounted = false; O.pane = 'board'; O.dismissed = false; O.busy = false; };
 })();
