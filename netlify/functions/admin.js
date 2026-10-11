@@ -3,6 +3,10 @@
 // Réservé aux rôles SI et direction. Ne renvoie JAMAIS de mot de passe existant :
 // les mots de passe sont hashés par Supabase et ne peuvent pas être lus — on ne
 // peut que les RÉINITIALISER.
+//
+// Obeya : « set_role » accepte en plus, FACULTATIVEMENT, `fonctions` (tableau de codes de fonction) = fonctions
+// supplémentaires d'une personne. Absent : la colonne n'est pas touchée. « list » renvoie `fonctions` (tableau vide
+// tant que obeya_admin.sql n'est pas exécuté : l'écran Admin continue alors de fonctionner comme avant).
 
 const { createClient } = require('@supabase/supabase-js');
 
@@ -26,6 +30,20 @@ async function requireAdmin(authHeader) {
   const autorise = access && (access.is_admin === true || role === 'direction' || role === 'eric' || role === 'si');
   if (!autorise) return { ok: false, code: 403, msg: 'Accès réservé au SI et à la direction' };
   return { ok: true, email };
+}
+
+// Fonctions supplémentaires : codes en minuscules (lettres et _), 2 à 30 caractères, 8 au plus, sans doublon.
+function cleanFonctions(v) {
+  if (!Array.isArray(v)) return { error: 'fonctions doit être un tableau' };
+  const out = [];
+  for (const x of v) {
+    const c = String(x == null ? '' : x).trim().toLowerCase();
+    if (!c) continue;
+    if (!/^[a-z_]{2,30}$/.test(c)) return { error: 'code de fonction invalide : ' + c };
+    if (out.indexOf(c) < 0) out.push(c);
+  }
+  if (out.length > 8) return { error: 'au plus 8 fonctions supplémentaires par personne' };
+  return { value: out };
 }
 
 function genPassword() {
@@ -57,7 +75,8 @@ exports.handler = async (event) => {
     // ---- LISTER les utilisateurs (jamais de mot de passe) ----
     if (action === 'list') {
       // rôles depuis user_access
-      const { data: accessRows } = await sb.from('user_access').select('email, is_admin, role');
+      let { data: accessRows, error: accErr } = await sb.from('user_access').select('email, is_admin, role, fonctions');
+      if (accErr) ({ data: accessRows } = await sb.from('user_access').select('email, is_admin, role'));   // colonne « fonctions » pas encore créée
       const accessByEmail = {};
       (accessRows || []).forEach(r => { accessByEmail[(r.email || '').toLowerCase()] = r; });
       // comptes d'auth (pour statut / dernière connexion)
@@ -70,6 +89,7 @@ exports.handler = async (event) => {
           email: u.email,
           role: a.role || '—',
           is_admin: a.is_admin === true,
+          fonctions: Array.isArray(a.fonctions) ? a.fonctions : [],
           confirme: Boolean(u.email_confirmed_at || u.confirmed_at),
           derniere_connexion: u.last_sign_in_at || null,
           desactive: Boolean(u.banned_until && new Date(u.banned_until) > new Date()),
@@ -84,9 +104,19 @@ exports.handler = async (event) => {
       if (!email) return { statusCode: 400, headers: cors, body: JSON.stringify({ error: 'email requis' }) };
       const role = body.role || '—';
       const is_admin = Boolean(body.is_admin);
-      const { error } = await sb.from('user_access')
-        .upsert({ email, role, is_admin }, { onConflict: 'email' });
-      if (error) throw error;
+      const row = { email, role, is_admin };
+      if (body.fonctions !== undefined) {                                    // facultatif : absent = colonne non touchée
+        const f = cleanFonctions(body.fonctions);
+        if (f.error) return { statusCode: 400, headers: cors, body: JSON.stringify({ error: f.error }) };
+        row.fonctions = f.value;
+      }
+      const { error } = await sb.from('user_access').upsert(row, { onConflict: 'email' });
+      if (error) {
+        if (row.fonctions !== undefined && /fonctions|column|schema cache/i.test(String(error.message || ''))) {
+          return { statusCode: 409, headers: cors, body: JSON.stringify({ error: 'Exécutez d’abord obeya_admin.sql (colonne « fonctions » absente).' }) };
+        }
+        throw error;
+      }
       return { statusCode: 200, headers: cors, body: JSON.stringify({ ok: true }) };
     }
 
