@@ -25,6 +25,7 @@ const TYPES = ['blocage', 'echeances', 'doublon', 'zone_grise', 'autre'], GRAVIT
 
 function json(statusCode, headers, obj) { return { statusCode, headers, body: JSON.stringify(obj) }; }
 function clean(s, max) { return String(s == null ? '' : s).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max); }
+function fr(d) { return String(d || '').split('-').reverse().join('/'); }
 function jours(a, b) { return Math.round((Date.parse(a + 'T00:00:00Z') - Date.parse(b + 'T00:00:00Z')) / 86400000); }
 
 async function requireAnimator(authHeader, mk) {
@@ -76,7 +77,7 @@ function repli(p, animateurFn) {
                     { libelle: 'Décaler l’action #' + b.numero, fonction: fb, action_libelle: 'Réviser l’échéance : ' + lib(b), delai_jours: 7 }] });
       } else if (b.echeance && a.echeance > b.echeance) {
         out.push({ type: 'echeances', gravite: jours(b.echeance, p.aujourdhui) <= 7 ? 'bloquant' : 'clarifier', from_fn: fa, to_fn: fb, actions: [a.numero, b.numero],
-          titre: 'Des échéances incompatibles entre deux cartes', constat: 'L’action #' + b.numero + ' « ' + lib(b) + ' » est prévue le ' + b.echeance + ', avant l’action #' + a.numero + ' « ' + lib(a) + ' » (' + a.echeance + ') dont elle dépend.',
+          titre: 'Des échéances incompatibles entre deux cartes', constat: 'L’action #' + b.numero + ' « ' + lib(b) + ' » est prévue le ' + fr(b.echeance) + ', avant l’action #' + a.numero + ' « ' + lib(a) + ' » (' + fr(a.echeance) + ') dont elle dépend.',
           question: 'Quelle date tient, et laquelle bouge ?',
           options: [{ libelle: 'Avancer l’action #' + a.numero, fonction: fa, action_libelle: 'Avancer : ' + lib(a), delai_jours: 3 },
                     { libelle: 'Décaler l’action #' + b.numero, fonction: fb, action_libelle: 'Replanifier : ' + lib(b), delai_jours: 3 }] });
