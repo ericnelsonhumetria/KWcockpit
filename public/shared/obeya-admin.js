@@ -7,6 +7,10 @@
      3. une case « Carte Obeya » et un « Nom de la carte » à côté de chaque fonction, dans le tableau
         « Accès aux fonctions par rôle » (table obeya_cartes). Deux fonctions qui portent le même nom partagent une carte :
         « Mktg et Produit » et « Communication » alimentent ensemble la carte « Marketing & Communication ».
+        Une carte partagée a UN responsable (colonne « Responsable de la carte ») : c'est lui qui la renseigne au Codir
+        (Mktg et Produit, pour Juliette). « Communication » reste une fonction à part entière, tenue par Solange.
+     4. correctif : le rôle « Communication » se résolvait en « Mktg et Produit » à la connexion (clé en double dans
+        roleFromAccess) ; il se résout maintenant en « communication », comme le prévoit le tableau des droits.
    Rien n'est supprimé. Sans obeya_admin.sql / admin.js à jour, l'écran Admin fonctionne comme avant et le dit. */
 (function(){
   if (typeof renderAdmin !== 'function' || typeof adminCall !== 'function') return;
@@ -26,11 +30,18 @@
       var i = ROLES_DISPO.indexOf('Commerce'); ROLES_DISPO.splice(i >= 0 ? i + 1 : ROLES_DISPO.length, 0, 'Transformation');
     }
   } catch(e){}
-  /* À la connexion : le libellé d'Admin « Transformation » donne le code « transformation » (sinon, retombée sur « paul »). */
+  /* À la connexion :
+     - « Transformation » donne le code « transformation » (sinon, retombée sur « paul ») ;
+     - « Communication » donne « communication » : la correspondance d'origine déclare cette clé deux fois et la seconde
+       (vers « juliette ») écrasait la première, si bien que la personne au rôle Communication recevait les droits de Mktg et Produit. */
   if (typeof roleFromAccess === 'function'){
     var _rfa = roleFromAccess;
     roleFromAccess = function(access, email){
-      if (access && access.is_admin !== true && String(access.role || '').toLowerCase().trim() === 'transformation') return 'transformation';
+      if (access && access.is_admin !== true){
+        var r = String(access.role || '').toLowerCase().trim();
+        if (r === 'transformation') return 'transformation';
+        if (r === 'communication') return 'communication';
+      }
       return _rfa.apply(this, arguments);
     };
   }
@@ -100,9 +111,36 @@
     body.insertBefore(tr, model.nextSibling);
   }
   async function loadCartes(){
-    var c = db(); OBY.ready = false; OBY.rows = {}; if (!c) return;
-    try { var r = await c.from('obeya_cartes').select('role,carte,libelle,ordre'); if (r && !r.error){ OBY.ready = true; (r.data || []).forEach(function(x){ OBY.rows[x.role] = x; }); } } catch(e){}
+    var c = db(); OBY.ready = false; OBY.hasResp = false; OBY.rows = {}; if (!c) return;
+    try {
+      var r = await c.from('obeya_cartes').select('*');
+      if (r && !r.error){ OBY.ready = true; (r.data || []).forEach(function(x){ OBY.rows[x.role] = x; }); OBY.hasResp = (r.data || []).length > 0 && 'responsable' in r.data[0]; }
+    } catch(e){}
   }
+  /* Règle : une carte (= un nom, parmi les fonctions cochées) a EXACTEMENT un responsable.
+     Seule dans sa carte, une fonction en est responsable d'office (case verrouillée). À plusieurs, on choisit : cocher l'une décoche l'autre.
+     Une fonction qui REJOINT une carte (nouveau nom, case cochée) n'en prend pas la responsabilité : le responsable déjà en place est conservé. */
+  function cardKey(inp){ return String(inp.value || '').replace(/\s+/g, ' ').trim().toLowerCase(); }
+  function syncResp(changed, chose){
+    if (!OBY.hasResp) return;
+    var rows = [].slice.call(document.querySelectorAll('#adminAccessZone tbody tr')).map(function(tr){
+      var code = roleOfRow(tr), c = document.getElementById('obc_' + code), n = document.getElementById('obn_' + code), r = document.getElementById('obr_' + code);
+      return (code && c && n && r) ? { code:code, c:c, n:n, r:r } : null;
+    }).filter(Boolean), groups = {};
+    rows.forEach(function(x){
+      var k = cardKey(x.n);
+      if (x.c.checked && k){ (groups[k] = groups[k] || []).push(x); } else { x.r.checked = false; x.r.disabled = true; }
+    });
+    Object.keys(groups).forEach(function(k){
+      var g = groups[k];
+      if (g.length === 1){ g[0].r.checked = true; g[0].r.disabled = true; return; }
+      var keep = chose
+        ? (g.filter(function(x){ return x.code === changed && x.r.checked; })[0] || g[0])                                   /* clic sur la case « Responsable » : le choix de l'administrateur */
+        : (g.filter(function(x){ return x.code !== changed && x.r.checked; })[0] || g.filter(function(x){ return x.r.checked; })[0] || g[0]);   /* autre changement : on garde le responsable en place */
+      g.forEach(function(x){ x.r.disabled = false; x.r.checked = (x === keep); });
+    });
+  }
+
   async function augmentAccess(){
     var zone = document.getElementById('adminAccessZone'); if (!zone) return;
     var table = zone.querySelector('table'); if (!table || table.getAttribute('data-obeya')) return; table.setAttribute('data-obeya', '1');
@@ -115,7 +153,9 @@
       note.textContent = 'Cartes de l’Obeya indisponibles : exécutez d’abord obeya_admin.sql dans Supabase.'; panel.appendChild(note); return;
     }
     var hr = table.querySelector('thead tr');
-    [['Carte Obeya', 'Cochez les fonctions qui ont une carte dans l’Obeya du Codir'], ['Nom de la carte', 'Deux fonctions avec le même nom partagent une seule carte']].forEach(function(h){
+    var heads = [['Carte Obeya', 'Cochez les fonctions qui ont une carte dans l’Obeya du Codir'], ['Nom de la carte', 'Deux fonctions avec le même nom partagent une seule carte']];
+    if (OBY.hasResp) heads.push(['Responsable carte', 'Responsable de la carte : une seule fonction par carte la renseigne au Codir']);
+    heads.forEach(function(h){
       var th = document.createElement('th'); th.style.cssText = 'padding:6px 8px;font-size:12px;'; th.textContent = h[0]; th.title = h[1]; hr.appendChild(th);
     });
     [].slice.call(table.querySelectorAll('tbody tr')).forEach(function(tr){
@@ -123,12 +163,21 @@
       var td1 = document.createElement('td'); td1.style.cssText = 'text-align:center;padding:6px 8px;';
       td1.innerHTML = '<input type="checkbox" id="obc_' + code + '" aria-label="Carte Obeya pour ' + esc(label(code)) + '"' + (row.carte ? ' checked' : '') + '>';
       var td2 = document.createElement('td'); td2.style.cssText = 'padding:6px 8px;';
-      td2.innerHTML = '<input type="text" id="obn_' + code + '" value="' + esc(row.libelle || '') + '" placeholder="' + esc(defaultCard(code)) + '" maxlength="60" aria-label="Nom de la carte pour ' + esc(label(code)) + '"' + (row.carte ? '' : ' disabled') + ' style="min-width:190px;">';
+      td2.innerHTML = '<input type="text" id="obn_' + code + '" value="' + esc(row.libelle || '') + '" placeholder="' + esc(defaultCard(code)) + '" maxlength="60" aria-label="Nom de la carte pour ' + esc(label(code)) + '"' + (row.carte ? '' : ' disabled') + ' style="width:128px;min-width:128px;font-size:12px;padding:4px 6px;">';
       tr.appendChild(td1); tr.appendChild(td2);
-      td1.firstChild.addEventListener('change', function(){ var inp = document.getElementById('obn_' + code); inp.disabled = !this.checked; if (this.checked && !inp.value.trim()) inp.value = defaultCard(code); });
+      td1.firstChild.addEventListener('change', function(){ var inp = document.getElementById('obn_' + code); inp.disabled = !this.checked; if (this.checked && !inp.value.trim()) inp.value = defaultCard(code); syncResp(code); });
+      td2.firstChild.addEventListener('input', function(){ syncResp(code); });
+      if (OBY.hasResp){
+        var td3 = document.createElement('td'); td3.style.cssText = 'text-align:center;padding:6px 8px;';
+        td3.innerHTML = '<input type="checkbox" id="obr_' + code + '" aria-label="Responsable de la carte : ' + esc(label(code)) + '"' + (row.carte && row.responsable !== false ? ' checked' : '') + '>';
+        tr.appendChild(td3);
+        td3.firstChild.addEventListener('change', function(){ if (!this.checked) this.checked = true; syncResp(code, true); });   /* on ne retire pas un responsable : on en choisit un autre */
+      }
     });
+    syncResp();
     var help = document.createElement('div'); help.className = 'sec-note'; help.style.marginTop = '8px';
-    help.textContent = 'Carte Obeya : cochez les fonctions qui ont une carte dans l’Obeya du Codir. Deux fonctions qui portent le même nom de carte partagent une seule carte (par exemple Mktg et Produit et Communication).';
+    help.textContent = 'Carte Obeya : cochez les fonctions qui ont une carte dans l’Obeya du Codir. Deux fonctions qui portent le même nom de carte partagent une seule carte (par exemple Mktg et Produit et Communication). ' +
+      (OBY.hasResp ? 'Une carte partagée a un seul responsable : c’est lui qui la renseigne au Codir.' : 'Pour choisir le responsable d’une carte partagée, relancez d’abord obeya_admin.sql.');
     panel.insertBefore(help, panel.querySelector('div[style*="margin-top:10px;display:flex"]') || null);
   }
 
@@ -149,10 +198,17 @@
         var libelle = (nm.value || '').replace(/\s+/g, ' ').trim();
         if (cb.checked && !libelle) bad = bad || label(code);
         if (cb.checked && libelle && seen[libelle.toLowerCase()] === undefined) seen[libelle.toLowerCase()] = (OBY.rows[code] && OBY.rows[code].ordre) || (idx + 1) * 10;
-        cartes.push({ role:code, carte:cb.checked, libelle: cb.checked ? libelle : (libelle || null), key: libelle.toLowerCase() });
+        var rb = document.getElementById('obr_' + code);
+        cartes.push({ role:code, carte:cb.checked, libelle: cb.checked ? libelle : (libelle || null), key: libelle.toLowerCase(), resp: (cb.checked && rb) ? rb.checked : true });
       });
       if (bad){ msg(false, 'Donnez un nom à la carte de la fonction « ' + bad + ' », ou décochez-la.'); return; }
-      cartes.forEach(function(x){ x.ordre = x.carte ? seen[x.key] : ((OBY.rows[x.role] && OBY.rows[x.role].ordre) || 100); delete x.key; });
+      if (OBY.hasResp){                                                  /* exactement un responsable par carte, vérifié AVANT toute écriture */
+        var cnt = {}, shown = {};
+        cartes.forEach(function(x){ if (x.carte){ cnt[x.key] = (cnt[x.key] || 0) + (x.resp ? 1 : 0); shown[x.key] = x.libelle; } });
+        var wrong = Object.keys(cnt).filter(function(k){ return cnt[k] !== 1; })[0];
+        if (wrong){ msg(false, 'Choisissez UN responsable pour la carte « ' + shown[wrong] + ' ».'); return; }
+      }
+      cartes.forEach(function(x){ x.ordre = x.carte ? seen[x.key] : ((OBY.rows[x.role] && OBY.rows[x.role].ordre) || 100); if (OBY.hasResp) x.responsable = x.resp; delete x.key; delete x.resp; });
     }
     msg(null, 'Enregistrement…');
     try {
