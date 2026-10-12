@@ -787,7 +787,7 @@
       var j=null; try{ j=await res.json(); }catch(x){}
       if(!res.ok) throw new Error((j&&j.error)?j.error:('HTTP '+res.status));
       CR_CUR.synthese=j.compte_rendu||'';
-      CR_CUR.actions_draft=(Array.isArray(j.actions_decidees)?j.actions_decidees:[]).map(function(a){ return { libelle:a.libelle||'', pilote_id:(a.pilote_nom?piloteId(a.pilote_nom):null), thematique:a.thematique||'autre', echeance:a.echeance||'', priorite:a.priorite||2, include:true }; });
+      CR_CUR.actions_draft=(Array.isArray(j.actions_decidees)?j.actions_decidees:[]).map(function(a){ return { libelle:a.libelle||'', pilote_id:(a.pilote_nom?piloteId(a.pilote_nom):null), thematique:a.thematique||'autre', echeance:a.echeance||'', priorite:a.priorite||2, include:true, confidentiel:false }; });
       CR_CUR.statut='tenue';
       await crSaveSilent();
       try{ clearTimeout(toS); }catch(x){}
@@ -911,10 +911,13 @@
         +'<select onchange="crDraftField('+i+',\'thematique\',this.value)" style="min-width:120px;'+sel()+'width:auto;">'+themeOpts(a.thematique)+'</select>'
         +'<input type="date" value="'+(a.echeance||'')+'" onchange="crDraftField('+i+',\'echeance\',this.value)" style="'+sel()+'width:auto;">'
         +'<select onchange="crDraftField('+i+',\'priorite\',this.value)" style="'+sel()+'width:auto;">'+prioOpts(a.priorite)+'</select>'
+        +'<label title="Confidentiel : visible seulement de l\u2019émetteur, du pilote et de la direction" style="display:flex;align-items:center;gap:4px;font-size:12px;color:#560A0F;cursor:pointer;white-space:nowrap;"><input type="checkbox" class="crDraftConf" aria-label="Action confidentielle" onchange="crDraftConf('+i+')"'+(a.confidentiel?' checked':'')+'>\ud83d\udd12</label>'
         +'<button class="add-btn sm" onclick="crDraftRemove('+i+')" type="button" style="background:#fff;color:#560A0F;">✕</button></div>';
     }).join('');
+    var allConf=d.actions_draft.length>0 && d.actions_draft.every(function(a){ return !!a.confidentiel; });
     return '<div style="margin-top:12px;background:rgba(239,184,16,.10);border:1px solid rgba(239,184,16,.45);border-radius:8px;padding:10px 12px;">'
       +'<div style="font-weight:700;color:#560A0F;margin-bottom:4px;">Actions décidées à créer <span class="edit-hint" style="font-weight:400;">— modifie, coche, supprime ou ajoute, puis crée-les</span></div>'
+      +'<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:#560A0F;margin:2px 0 6px;cursor:pointer;"><input id="crConfAll" type="checkbox" onchange="crDraftConfAll(this.checked)"'+(allConf?' checked':'')+'> \ud83d\udd12 Tout rendre confidentiel <span class="edit-hint" style="font-weight:400;">(visible seulement de l\u2019émetteur, du pilote et de la direction)</span></label>'
       +rows
       +'<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"><button class="add-btn sm" onclick="crDraftAdd()" type="button" style="background:#fff;color:#560A0F;">+ Ajouter une action</button><button class="add-btn" onclick="crCreateActions()" type="button"'+(CR_BUSY?' disabled':'')+'>'+(CR_BUSY?'… création':'✓ Créer les actions cochées')+'</button></div></div>';
   }
@@ -927,23 +930,30 @@
 
   window.crDraftField=function(i,f,v){ var a=CR_CUR&&CR_CUR.actions_draft&&CR_CUR.actions_draft[i]; if(!a) return; if(f==='priorite') a[f]=parseInt(v,10)||2; else if(f==='pilote_id') a[f]=v||null; else a[f]=v; };
   window.crDraftToggle=function(i){ var a=CR_CUR&&CR_CUR.actions_draft&&CR_CUR.actions_draft[i]; if(a){ a.include=!a.include; crRepaint(); } };
+  window.crDraftConf=function(i){ var a=CR_CUR&&CR_CUR.actions_draft&&CR_CUR.actions_draft[i]; if(a){ a.confidentiel=!a.confidentiel; crRepaint(); } };
+  window.crDraftConfAll=function(on){ ((CR_CUR&&CR_CUR.actions_draft)||[]).forEach(function(a){ a.confidentiel=!!on; }); crRepaint(); };
   window.crDraftRemove=function(i){ if(CR_CUR&&CR_CUR.actions_draft){ CR_CUR.actions_draft.splice(i,1); crRepaint(); } };
-  window.crDraftAdd=function(){ if(!CR_CUR.actions_draft) CR_CUR.actions_draft=[]; CR_CUR.actions_draft.push({libelle:'',pilote_id:null,thematique:'autre',echeance:'',priorite:2,include:true}); crRepaint(); };
+  window.crDraftAdd=function(){ if(!CR_CUR.actions_draft) CR_CUR.actions_draft=[]; CR_CUR.actions_draft.push({libelle:'',pilote_id:null,thematique:'autre',echeance:'',priorite:2,include:true,confidentiel:false}); crRepaint(); };
   window.crCreateActions=async function(){
     if(CR_BUSY) return; crReadHeader();
     var drafts=(CR_CUR.actions_draft||[]).filter(function(a){return a.include && a.libelle && a.libelle.trim();});
     if(!drafts.length){ CR_MSG='Aucune action cochée à créer.'; crRepaint(); return; }
     CR_BUSY=true; CR_MSG=''; crRepaint();
-    var nums=CR_CUR.actions_numeros?CR_CUR.actions_numeros.slice():[], recap=[];
+    var nums=CR_CUR.actions_numeros?CR_CUR.actions_numeros.slice():[], recap=[], nConf=0, failed=0;
     for(var i=0;i<drafts.length;i++){ var a=drafts[i];
       var row={ texte_brut:'[CR] '+a.libelle.trim(), libelle:a.libelle.trim(), thematique:a.thematique||'autre', pilote_id:a.pilote_id||null, echeance:a.echeance||null, priorite:a.priorite||2, statut:'a_faire', tags:[], source:('CR'+((CR_CUR&&CR_CUR.titre)?(' : '+CR_CUR.titre):'')), routine:((CR_CUR&&CR_CUR.est_routine&&CR_CUR.titre)?CR_CUR.titre:null) };
+      if(a.confidentiel) row.confidentiel=true;
       try { var r=await SB.from('actions').insert(row).select('numero,pilote_id,priorite,echeance').single();
-        if(!r.error&&r.data){ nums.push(r.data.numero); recap.push('- #'+r.data.numero+' — '+a.libelle.trim()+(piloteNom(a.pilote_id)?(' — '+piloteNom(a.pilote_id)):'')+' — '+crQuad(r.data.priorite,r.data.echeance)); } } catch(x){}
+        if(!r.error&&r.data){ nums.push(r.data.numero);
+          /* action confidentielle : ni libellé ni pilote dans le texte du CR (lisible par tous ceux qui voient ce CR) */
+          if(a.confidentiel){ nConf++; recap.push('- #'+r.data.numero+' — \ud83d\udd12 Action confidentielle (visible seulement de l\u2019émetteur, du pilote et de la direction)'); }
+          else recap.push('- #'+r.data.numero+' — '+a.libelle.trim()+(piloteNom(a.pilote_id)?(' — '+piloteNom(a.pilote_id)):'')+' — '+crQuad(r.data.priorite,r.data.echeance));
+        } else failed++; } catch(x){ failed++; }
     }
     if(recap.length){ CR_CUR.synthese=(CR_CUR.synthese||'')+'\n\n## Actions décidées\n'+recap.join('\n'); }
     CR_CUR.actions_numeros=nums; CR_CUR.actions_draft=[];
     try{ await crSaveSilent(); }catch(x){}
-    CR_BUSY=false; CR_MSG=recap.length+' action(s) créée(s) dans la feuille Actions.'; crRepaint();
+    CR_BUSY=false; CR_MSG=recap.length+' action(s) créée(s) dans la feuille Actions'+(nConf?(' (dont '+nConf+' confidentielle'+(nConf>1?'s':'')+')'):'')+'.'+(failed?(' '+failed+' en échec : vérifie tes droits ou réessaie.'):''); crRepaint();
   };
 
   window.crAddImage=function(target){
