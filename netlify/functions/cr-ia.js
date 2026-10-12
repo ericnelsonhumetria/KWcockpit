@@ -197,3 +197,7 @@ exports.handler = async (event) => {
 
   return { statusCode: 400, headers, body: JSON.stringify({ error: 'Mode inconnu (prep | synthese)' }) };
 };
+
+// Consignes réutilisées par cr-ia-background.js (même IA, mêmes consignes, sans la limite de durée d'une fonction synchrone).
+// Ajout sans effet sur le handler ci-dessus.
+exports.helpers = { prepPrompt, synthPrompt, langDirective, detectLang, parseJSON };
