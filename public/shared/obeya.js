@@ -72,6 +72,9 @@
   }
   var _rtX = renderTab;
   renderTab = function(){
+    /* Quitter l'Obeya par N'IMPORTE QUEL chemin (bouton Accueil, ré-affichage, autre onglet) : le compte-rendu du Codir doit être refermé AVANT que la vue
+       soit remplacée. Sinon le module Réunions & Rituels garde ce CR ouvert et s'ouvre ensuite sur son éditeur au lieu de la liste. */
+    if (typeof CURRENT_TAB !== 'undefined' && CURRENT_TAB !== 'obeya' && O.crMounted && $('obxCR')) saveCR();
     _rtX.apply(this, arguments);
     if (typeof CURRENT_TAB === 'undefined') return;
     if (CURRENT_TAB === 'obeya'){ if (O.crMounted && $('obxCR') && $('obxBoard')) refreshOnly(); else main(); } else leave();
@@ -85,7 +88,16 @@
     }
     return _swX.apply(this, arguments);
   };
-  function saveCR(){ try { if (O.crMounted && typeof window.crBack === 'function') return Promise.resolve(window.crBack()).catch(function(){}); } catch(e){} return Promise.resolve(); }
+  function saveCR(){
+    try {
+      if (O.crMounted && typeof window.crBack === 'function'){
+        if (O.closing) return O.closing;                                      /* une fermeture est déjà en cours : on ne ferme pas deux fois */
+        O.closing = Promise.resolve(window.crBack()).catch(function(){}).then(function(){ O.closing = null; });
+        return O.closing;
+      }
+    } catch(e){}
+    return Promise.resolve();
+  }
   function leave(){ if (O.poll) clearInterval(O.poll); if (O.clock) clearInterval(O.clock); if (O.tr) clearInterval(O.tr); O.poll = O.clock = O.tr = null; O.crMounted = false; O.lastTr = null; }
 
   /* ---------- Chargement ---------- */
