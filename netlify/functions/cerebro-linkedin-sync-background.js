@@ -101,7 +101,7 @@ async function mergeContacts(sb, userId, incoming) {
     if (r && r.error) throw new Error('lecture contacts : ' + r.error.message);
     const row = r && r.data, cur = row && Array.isArray(row.value) ? row.value : [];
     const map = new Map(cur.map(c => [lc(c.name + '|' + c.company), c]));
-    for (const c of incoming) map.set(lc(c.name + '|' + c.company), c);
+    for (const c of incoming) { const k = lc(c.name + '|' + c.company); map.set(k, Object.assign({}, map.get(k) || {}, c)); }   // fusion : l'URL du profil (issue d'un CSV) n'est pas perdue
     const merged = [...map.values()];
     const added = merged.length - cur.length;
     if (JSON.stringify(merged) === JSON.stringify(cur)) return { added: 0, total: cur.length, written: false };
