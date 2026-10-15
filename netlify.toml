@@ -99,6 +99,11 @@
 [functions."cerebro-events-watch"]
   schedule = "0 5 * * 1"
  
-# Cerebro People : synchronisation LinkedIn de tous les utilisateurs connectés, chaque lundi 05:15 UTC
+# Cerebro Events : veille + e-mail chaque lundi 05:00 UTC (06h-07h Paris)
+[functions."cerebro-events-watch"]
+  schedule = "0 5 * * 1"
+
+# Cerebro People : synchronisation LinkedIn, tous les jours 05:15 UTC. Le lundi : tout le monde. Les autres jours : seulement les connexions
+# « en attente » (LinkedIn prépare les données) ou « en erreur » (nouvel essai rapide).
 [functions."cerebro-linkedin-weekly"]
-  schedule = "15 5 * * 1"
+  schedule = "15 5 * * *"
