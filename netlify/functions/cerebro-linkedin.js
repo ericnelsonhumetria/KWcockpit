@@ -33,8 +33,10 @@ function readState(C, st) {
 const redirectUri = C => process.env.LINKEDIN_REDIRECT_URI || (C.SITE + '/.netlify/functions/cerebro-linkedin');
 
 async function triggerSync(C, doFetch, userId) {
-  const r = await doFetch(C.SITE + '/.netlify/functions/cerebro-linkedin-sync-background', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-cerebro-secret': C.SECRET }, body: JSON.stringify({ user_id: userId }) });
-  return r.status === 202 || r.ok;
+  try {
+    const r = await doFetch(C.SITE + '/.netlify/functions/cerebro-linkedin-sync-background', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-cerebro-secret': C.SECRET }, body: JSON.stringify({ user_id: userId }) });
+    return { ok: r.status === 202 || !!r.ok, status: r.status };
+  } catch (e) { return { ok: false, status: 0, error: (e && e.message) || 'réseau' }; }
 }
 
 exports.handler = async (event, context, deps) => {
@@ -64,7 +66,7 @@ exports.handler = async (event, context, deps) => {
       connected_at: now.toISOString(), last_status: 'pending', last_error: null, expired_notified: false, updated_at: now.toISOString() };
     const w = await sb.from('cerebro_linkedin').upsert(row, { onConflict: 'user_id' });
     if (w && w.error) return page(false, 'Enregistrement impossible', LIB_esc(w.error.message), C);
-    try { await triggerSync(C, doFetch, st.uid); } catch (_) {}
+    await triggerSync(C, doFetch, st.uid);
     return page(true, 'LinkedIn connecté', 'Vos relations vont être synchronisées automatiquement, puis chaque lundi. La première synchronisation démarre maintenant ; LinkedIn peut mettre une vingtaine de minutes à préparer vos données.', C);
   }
 
@@ -89,8 +91,8 @@ exports.handler = async (event, context, deps) => {
   if (action === 'sync') {
     const r = await sb.from('cerebro_linkedin').select('user_id').eq('user_id', user.id).maybeSingle();
     if (!(r && r.data)) return json(409, { error: 'LinkedIn n’est pas connecté' });
-    const ok = await triggerSync(C, doFetch, user.id).catch(() => false);
-    return ok ? json(202, { ok: true }) : json(502, { error: 'lancement de la synchronisation impossible' });
+    const t = await triggerSync(C, doFetch, user.id);
+    return t.ok ? json(202, { ok: true }) : json(502, { error: 'lancement de la synchronisation impossible (' + (t.status ? 'HTTP ' + t.status + ' de la fonction cerebro-linkedin-sync-background : vérifiez qu’elle est déployée et que CEREBRO_WATCH_SECRET est identique' : 'erreur réseau : ' + t.error) + ')' });
   }
   if (action === 'disconnect') {
     const r = await sb.from('cerebro_linkedin').select('access_token').eq('user_id', user.id).maybeSingle();
