@@ -654,6 +654,11 @@ function RadarComptes() {
   const [tab, setTab] = useState(CEREBRO_ALLOWED[0] || "comptes");
   const [exportText, setExportText] = useState("");
   const [importText, setImportText] = useState("");
+  const [liStatus, setLiStatus] = useState(null);
+  const [liBusy, setLiBusy] = useState(false);
+  const [liMsg, setLiMsg] = useState("");
+  const [liLink, setLiLink] = useState("");
+  useEffect(() => { if (tab === "talents") liRefresh(); }, [tab]);
 
   useEffect(() => {
     (async () => {
@@ -1174,6 +1179,67 @@ ${talentMaterial.trim()}`;
     };
     reader.readAsText(file);
     e.target.value = "";
+  }
+
+  // ── Synchronisation LinkedIn automatique (API officielle de portabilité des données ; voir cerebro-linkedin.js) ──
+  const LI_FN = "/.netlify/functions/cerebro-linkedin";
+  const liPoll = () => (typeof window !== "undefined" && window.CEREBRO_LI_POLL_MS) || 3000;
+  const liSleep = ms => new Promise(r => setTimeout(r, ms));
+  async function liCall(action) {
+    const s = await CEREBRO_SB.auth.getSession(); const tok = s && s.data && s.data.session && s.data.session.access_token;
+    if (!tok) throw new Error("session Cockpit requise");
+    const r = await fetch(LI_FN + "?action=" + action, { method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + tok }, body: "{}" });
+    let j = {}; try { j = await r.json(); } catch (e) {}
+    if (!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+    return j;
+  }
+  async function liRefresh() { try { const r = await CEREBRO_SB.rpc("cerebro_linkedin_status"); if (r.error) throw r.error; setLiStatus(r.data || { connected: false }); } catch (e) { setLiStatus({ connected: false, unavailable: true }); } }
+  async function liReloadContacts() { try { const r = await window.storage.get(CONTACTS_KEY); if (r && r.value) setContacts(JSON.parse(r.value)); } catch (e) {} }
+  function liStatusLine(s) {
+    const d = s.last_sync_at ? new Date(s.last_sync_at).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : null;
+    const exp = s.expires_at ? new Date(s.expires_at).toLocaleDateString("fr-FR") : null;
+    if (s.expired || s.last_status === "expired") return "⚠ Autorisation LinkedIn expirée" + (exp ? " (échéance : " + exp + ")" : "") + " — reconnecte-la pour reprendre la synchronisation.";
+    if (s.last_status === "error") return "⚠ LinkedIn connecté, mais la dernière synchronisation a échoué" + (d ? " (" + d + ")" : "") + " : " + (s.last_error || "erreur");
+    if (s.last_status === "pending" || !d) return "✓ LinkedIn connecté · LinkedIn prépare encore vos données (comptez une vingtaine de minutes) ; prochaine synchronisation automatique lundi.";
+    return "✓ LinkedIn connecté · dernière synchronisation le " + d + " · " + (s.last_count || 0) + " relations" + (exp ? " · autorisation valable jusqu'au " + exp : "") + " · prochaine synchronisation lundi.";
+  }
+  async function liWait(before) {
+    for (let i = 0; i < 60; i++) {
+      await liSleep(liPoll());
+      const r = await CEREBRO_SB.rpc("cerebro_linkedin_status"); const s = r && r.data;
+      if (s && s.connected && s.last_sync_at && s.last_sync_at !== before) { setLiStatus(s); await liReloadContacts(); setLiMsg(""); return; }
+    }
+    setLiMsg("La synchronisation prend plus de temps que prévu (LinkedIn peut mettre une vingtaine de minutes à préparer vos données) : elle se poursuit en arrière-plan.");
+  }
+  async function liConnect() {
+    const w = window.open("", "_blank");            // ouvert tout de suite, sur le clic, pour ne pas être bloqué par le navigateur
+    const before = (liStatus && liStatus.last_sync_at) || null;   // référence relevée AVANT l'autorisation : la synchronisation peut se terminer avant que la page ne remarque la connexion
+    setLiBusy(true); setLiMsg(""); setLiLink("");
+    try {
+      const j = await liCall("start");
+      if (w) { w.location.href = j.url; } else { setLiLink(j.url); }
+      setLiMsg("Autorise l'accès dans l'onglet LinkedIn qui vient de s'ouvrir : cette page se met à jour toute seule.");
+      for (let i = 0; i < 60; i++) {
+        await liSleep(liPoll());
+        const r = await CEREBRO_SB.rpc("cerebro_linkedin_status"); const s = r && r.data;
+        if (s && s.connected && !s.expired) { setLiStatus(s); setLiLink(""); setLiMsg("LinkedIn connecté ✓ — première synchronisation en cours…"); await liWait(before); return; }
+      }
+      setLiMsg("Connexion non détectée au bout de 3 minutes : recommence, ou vérifie l'autorisation sur LinkedIn.");
+    } catch (e) { if (w) { try { w.close(); } catch (_) {} } setLiMsg("Connexion impossible — " + ((e && e.message) || "erreur")); }
+    finally { setLiBusy(false); }
+  }
+  async function liSync() {
+    setLiBusy(true); setLiMsg("");
+    try { const before = (liStatus && liStatus.last_sync_at) || null; await liCall("sync"); setLiMsg("Synchronisation en cours…"); await liWait(before); }
+    catch (e) { setLiMsg("Synchronisation impossible — " + ((e && e.message) || "erreur")); }
+    finally { setLiBusy(false); }
+  }
+  async function liDisconnect() {
+    if (!window.confirm("Déconnecter LinkedIn ? Les contacts déjà synchronisés sont conservés.")) return;
+    setLiBusy(true);
+    try { await liCall("disconnect"); setLiMsg("LinkedIn déconnecté."); await liRefresh(); }
+    catch (e) { setLiMsg("Déconnexion impossible — " + ((e && e.message) || "erreur")); }
+    finally { setLiBusy(false); }
   }
 
   function addToNetwork(c) {
@@ -1759,6 +1825,25 @@ Signaux : ${(result.signals || []).join(" ; ") || "—"}`;
 
         {tab === "talents" && (<>
 
+        {/* Synchronisation LinkedIn automatique (masquée tant que cerebro_linkedin.sql n'est pas installé) */}
+        {liStatus && !liStatus.unavailable && (
+          <div className="hr-card cerebro">
+            <p className="hr-cerebro-title">◎ SYNCHRONISATION LINKEDIN AUTOMATIQUE</p>
+            <p className="hr-cerebro-sub">Plus de fichier à importer : tes relations LinkedIn sont synchronisées chaque lundi. Source : l'API officielle de portabilité des données de LinkedIn (membres de l'UE/EEE), avec ton accord ; seuls le nom, le poste et l'entreprise sont lus, et enregistrés dans ton espace privé.</p>
+            {liStatus.connected ? (<>
+              <p className="hr-caption" style={{ color: (liStatus.expired || liStatus.last_status === "expired" || liStatus.last_status === "error") ? "var(--amber)" : "var(--cyan)", marginBottom: 10 }}>{liStatusLine(liStatus)}</p>
+              <button className="hr-btn" onClick={(liStatus.expired || liStatus.last_status === "expired") ? liConnect : liSync} disabled={liBusy}>
+                {liBusy ? <><span className="hr-spin" />En cours…</> : ((liStatus.expired || liStatus.last_status === "expired") ? "Reconnecter LinkedIn ▸" : "Synchroniser maintenant ▸")}
+              </button>
+              <span style={{ marginLeft: 14 }}><button className="hr-link" onClick={liDisconnect} disabled={liBusy}>déconnecter</button></span>
+            </>) : (
+              <button className="hr-btn" onClick={liConnect} disabled={liBusy}>{liBusy ? <><span className="hr-spin" />Connexion…</> : "Connecter LinkedIn ▸"}</button>
+            )}
+            {liLink && <p className="hr-caption" style={{ marginTop: 10 }}>Fenêtre bloquée par le navigateur : <a href={liLink} target="_blank" rel="noreferrer" style={{ color: "var(--cyan)" }}>ouvre l'autorisation LinkedIn ↗</a></p>}
+            {liMsg && <p className="hr-caption" style={{ marginTop: 10 }}>{liMsg}</p>}
+          </div>
+        )}
+
         {/* Import réseau */}
         <div className="hr-card cerebro">
           <p className="hr-cerebro-title">◎ CEREBRO PEOPLE</p>
@@ -1772,7 +1857,7 @@ Signaux : ${(result.signals || []).join(" ; ") || "—"}`;
           {showKw && <textarea className="hr-textarea" style={{ minHeight: 80 }} value={netKeywords} onChange={e => persistNetKw(e.target.value)} placeholder="mots-clés de poste (un par ligne ou séparés par des virgules)" />}
           {netErr && <p className="hr-err">{netErr}</p>}
           {importMsg && <p className="hr-caption" style={{ color: "var(--cyan)", marginTop: 10 }}>{importMsg}</p>}
-          <p className="hr-caption" style={{ marginTop: 10 }}>LinkedIn : Réglages → Confidentialité des données → Obtenir une copie de vos données → Connexions. Le CSV est lu sur ton appareil et sauvegardé localement (rien n'est envoyé en ligne). Réimporte d'autres fichiers pour les fusionner.</p>
+          <p className="hr-caption" style={{ marginTop: 10 }}>LinkedIn : Réglages → Confidentialité des données → Obtenir une copie de vos données → Connexions. Le CSV est lu dans ton navigateur, puis enregistré dans ton espace privé Supabase : toi seul y accèdes, ni l'équipe ni les autres utilisateurs. Seul le contact pour lequel tu demandes un brouillon de message est transmis à l'IA (nom, poste, entreprise). Réimporte d'autres fichiers pour les fusionner.</p>
         </div>
 
         {/* Contacts filtrés */}
