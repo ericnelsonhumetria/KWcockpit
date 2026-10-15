@@ -4717,7 +4717,7 @@ async function saveQPMScore(candId){
       if(typeof CURRENT_TAB !== 'undefined' && CURRENT_TAB === 'cerebro'){
         var role = (typeof CURRENT_ROLE !== 'undefined') ? CURRENT_ROLE : '';
         var subs=[]; if(tabAllowed(role,'cerebro_business'))subs.push('comptes'); if(tabAllowed(role,'cerebro_events'))subs.push('evenements'); if(tabAllowed(role,'cerebro_talents'))subs.push('talents');
-        var src = '/cerebro/?role=' + encodeURIComponent(role) + '&cerebro=' + encodeURIComponent(subs.join(',')) + '&v=2';
+        var src = '/cerebro/?role=' + encodeURIComponent(role) + '&cerebro=' + encodeURIComponent(subs.join(',')) + '&v=5';
         document.getElementById('view').innerHTML =
           '<div class="sec-eyebrow">Prospection &amp; signaux</div>'+
           '<div class="sec-title">Cerebro</div>'+
