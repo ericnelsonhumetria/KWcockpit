@@ -70,19 +70,26 @@ function toContact(row) {
   return { name, position: pick(row, 'position', 'jobtitle', 'title'), company: pick(row, 'company', 'companyname', 'organization') };
 }
 async function fetchConnections(doFetch, token) {
-  const rows = []; let prevFirst = null;
+  // Pagination SÛRE : LinkedIn avertit que le total renvoyé n'est pas fiable (certaines données sont assemblées hors ligne) et qu'un
+  // arrêt fondé sur lui, ou sur « moins de lignes que demandé », tronque l'export en silence. On avance donc du nombre de lignes
+  // RÉELLEMENT reçues et on ne s'arrête que sur une page vide, une page déjà vue ou la fin des données (404).
+  const rows = [], seen = new Set(); let start = 0, prevFirst = null;
   for (let page = 0; page < MAX_PAGES; page++) {
-    const r = await doFetch('https://api.linkedin.com/rest/memberSnapshotData?q=criteria&domain=CONNECTIONS&start=' + (page * COUNT) + '&count=' + COUNT, {
+    const r = await doFetch('https://api.linkedin.com/rest/memberSnapshotData?q=criteria&domain=CONNECTIONS&start=' + start + '&count=' + COUNT, {
       headers: { Authorization: 'Bearer ' + token, 'LinkedIn-Version': '202312', 'X-Restli-Protocol-Version': '2.0.0' } });
+    if (r.status === 404) { if (page === 0) throw fail('nodata', 'LinkedIn répond « 404 No data found » : l’instantané de vos relations n’est pas encore préparé (comptez une vingtaine de minutes après la connexion)'); break; }
     if (r.status === 401) throw fail('expired', 'autorisation LinkedIn expirée ou révoquée (401)');
     if (r.status === 403) throw fail('forbidden', 'LinkedIn refuse l’accès (403) : profil hors UE/EEE/Suisse, ou produit « Member Data Portability API (Member) » non activé sur l’application LinkedIn');
     if (r.status === 429) throw fail('rate', 'limite de requêtes LinkedIn atteinte (429) : nouvel essai au prochain passage');
     if (!r.ok) throw fail('http', 'LinkedIn HTTP ' + r.status);
     const got = extractRows(await r.json());
-    const first = got.length ? JSON.stringify(got[0]) : null;
-    if (page > 0 && first && first === prevFirst) break;          // l'API ne pagine pas : mêmes lignes renvoyées
-    rows.push(...got); prevFirst = first;
-    if (got.length < COUNT) break;                                // dernière page
+    if (!got.length) break;                                         // page vide : fin des données
+    const first = JSON.stringify(got[0]);
+    if (page > 0 && first === prevFirst) break;                     // l'API ne pagine pas : mêmes lignes renvoyées
+    let added = 0;
+    for (const g of got) { const k = JSON.stringify(g); if (!seen.has(k)) { seen.add(k); rows.push(g); added++; } }
+    if (!added) break;
+    prevFirst = first; start += got.length;                         // on avance du nombre de lignes reçues, jamais d'un pas supposé
   }
   return rows;
 }
@@ -152,6 +159,12 @@ async function syncUser(C, sb, doFetch, userId) {
     return { status: 'ok', read: contacts.length, added: m.added, total: m.total, written: m.written };
   } catch (e) {
     if (e && e.kind === 'expired') return expired(e.message);
+    if (e && e.kind === 'nodata') {
+      const old = row.connected_at && Date.now() - new Date(row.connected_at).getTime() > 3 * 864e5;
+      if (!old) { await patch({ last_status: 'pending', last_error: e.message }); return { status: 'pending', note: e.message }; }
+      await patch({ last_status: 'error', last_error: 'LinkedIn répond toujours « 404 No data found » plus de 3 jours après la connexion : reconnectez LinkedIn, ou vérifiez que l’application a bien le produit « Member Data Portability API (Member) »' });
+      return { status: 'error', error: 'toujours aucune donnée après 3 jours' };
+    }
     await patch({ last_status: 'error', last_error: (e && e.message) || 'erreur' });
     return { status: 'error', error: (e && e.message) || 'erreur' };
   }
@@ -175,7 +188,13 @@ exports.handler = async (event, context, deps) => {
   const who = await authorize(C, sb, event, body); if (!who) return { statusCode: 401 };
   let ids = [];
   if (who.userId) ids = [who.userId];
-  else { const r = await sb.from('cerebro_linkedin').select('user_id'); ids = ((r && r.data) || []).map(x => x.user_id); }
+  else {
+    const now = deps.now ? deps.now() : new Date();
+    const r = await sb.from('cerebro_linkedin').select('user_id,last_status');
+    // Tâche quotidienne : le lundi, tout le monde (synchronisation hebdomadaire) ; les autres jours, seulement les connexions dont
+    // la dernière synchronisation est « en attente » (LinkedIn prépare les données) ou « en erreur » : nouvel essai rapide.
+    ids = ((r && r.data) || []).filter(x => body.force === true || now.getUTCDay() === 1 || x.last_status === 'pending' || x.last_status === 'error' || !x.last_status).map(x => x.user_id);
+  }
   const results = {};
   for (const id of ids) { try { results[id] = await syncUser(C, sb, doFetch, id); } catch (e) { results[id] = { status: 'error', error: (e && e.message) || 'erreur' }; } }
   console.log('[cerebro-linkedin-sync]', who.mode, ids.length + ' utilisateur(s)', JSON.stringify(Object.values(results).map(r => r.status)));
