@@ -95,3 +95,10 @@
   
 [functions."cerebro-watch"]
   schedule = "45 4 * * 1"
+# Cerebro Events : veille + e-mail chaque lundi 05:00 UTC (06h-07h Paris)
+[functions."cerebro-events-watch"]
+  schedule = "0 5 * * 1"
+ 
+# Cerebro People : synchronisation LinkedIn de tous les utilisateurs connectés, chaque lundi 05:15 UTC
+[functions."cerebro-linkedin-weekly"]
+  schedule = "15 5 * * 1"
