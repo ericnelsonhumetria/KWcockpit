@@ -1,417 +1,336 @@
-// netlify/functions/cerebro-watch-background.js  (v1)
-// VEILLE CEREBRO CÔTÉ SERVEUR — tourne en arrière-plan (jusqu'à 15 min), sans navigateur ouvert.
-// Déclenchée (a) chaque lundi par cerebro-watch.js (tâche planifiée), ou (b) à la demande depuis la page
-// (bouton « Veille complète »), par un utilisateur qui a accès à Cerebro Business.
+// netlify/functions/cerebro-events-watch-background.js  (v1)
+// VEILLE CEREBRO EVENTS CÔTÉ SERVEUR — chaque lundi, en arrière-plan (jusqu'à 15 min), sans navigateur ouvert.
+// Déclenchée (a) par cerebro-events-watch.js (tâche planifiée, voir netlify.toml), ou (b) à la main :
+// Netlify → Functions → cerebro-events-watch → « Run now », ou par un utilisateur qui a accès à Cerebro Events.
 //
-// Pipeline :
-//  1. Sources structurées : France Travail (offres d'encadrement de proximité des 30 derniers jours,
-//     agrégées par entreprise → signal « recrutement en volume », daté et sourcé, sans IA).
-//  2. 4 agents capteurs IA (même logique que la page) + fusion par entreprise.
-//  3. Indice INSEE (API Recherche d'entreprises, gratuite) : établissements ouverts, en minimum « ≥ N ».
-//  4. Consolidation IA par lots de 4 : fit ICP, multi-sites, besoin, signaux complémentaires,
-//     interlocuteur lié au signal.
-//  5. Score (identique à la page), dépôt dans la « boîte de réception » Supabase
-//     (clé humetria:radar:inbox) que la page fusionne à l'ouverture, journal des veilles,
-//     alerte email Brevo pour chaque compte qui passe en FRAPPER.
+// Même principe que la veille Business (cerebro-watch-background.js) :
+//  1. Chasse : mêmes consignes que le bouton « Chasser les opportunités » de la page, AVEC recherche web obligatoire
+//     (si aucune recherche n'est effectuée, la veille s'arrête : jamais d'événements « de mémoire »).
+//  2. Vérification (dates, lieu, deadline, coût, lien officiel) des 3 meilleurs NOUVEAUX événements (score ≥ 60).
+//  3. Fusion dans la liste partagée humetria:radar:events (cerebro_team_store). Écriture « compare-and-set » : si quelqu'un
+//     modifie la liste pendant la veille, rien n'est écrasé (relecture et nouvelle fusion). Les événements existants, vérifiés
+//     ou enrichis, ne sont jamais modifiés.
+//  4. Mémoire des événements déjà proposés (humetria:radar:eventswatch) : un événement que vous avez écarté (×) n'est pas reproposé.
+//  5. E-mail Brevo chaque lundi à : Resp marketing, Communication et CEO (même s'il n'y a rien de nouveau).
+//     En cas d'échec de la veille, un e-mail d'erreur part au CEO : un échec n'est jamais silencieux.
 //
-// ⚠ Prompts et règles de score DUPLIQUÉS depuis cerebro/index.html : toute modification
-//   de l'un doit être reportée dans l'autre (repère : « SYNC-PAGE »).
+// ⚠ Consignes et règles DUPLIQUÉES depuis cerebro/index.html : copiées mot pour mot (repère : « SYNC-PAGE »).
 //
-// Variables d'environnement (Netlify) :
-//   existantes : SUPABASE_SERVICE_ROLE_KEY, ANTHROPIC_API_KEY, CEREBRO_MODEL, CEREBRO_WEB_SEARCH
-//   nouvelles  : CEREBRO_WATCH_SECRET   (obligatoire : secret partagé avec cerebro-watch.js)
-//                FRANCE_TRAVAIL_CLIENT_ID, FRANCE_TRAVAIL_CLIENT_SECRET   (optionnelles : sans elles,
-//                l'étape France Travail est sautée et signalée dans le journal)
-//                CEREBRO_ALERT_TO (emails séparés par des virgules) — seule nouvelle variable pour l'alerte :
-//                la clé Brevo (BREVO_API_KEY) et l'expéditeur (MAIL_FROM) déjà utilisés par /api/action-relance
-//                sont réutilisés ; CEREBRO_ALERT_FROM permet de surcharger l'expéditeur si besoin.
+// Variables d'environnement (Netlify) — AUCUNE nouvelle obligatoire :
+//   existantes : SUPABASE_SERVICE_ROLE_KEY, ANTHROPIC_API_KEY, CEREBRO_MODEL, CEREBRO_WEB_SEARCH (doit valoir « on »),
+//                CEREBRO_WATCH_SECRET (déjà utilisée par la veille Business), BREVO_API_KEY, MAIL_FROM
+//   optionnelle : CEREBRO_EVENTS_ALERT_TO (e-mails séparés par des virgules) : impose les destinataires. Sans elle, ils sont
+//                déduits de l'Admin (user_access) : rôle/fonction « Mktg et Produit » (Resp marketing), « Communication », « CEO ».
 
-const { createClient } = require('@supabase/supabase-js');
+const K = { events: 'humetria:radar:events', watch: 'humetria:radar:eventswatch' };
+const MAX_NEW = 8;                 // comme la page : 8 événements retenus par chasse
+const VERIFY_MIN_SCORE = 60;       // seuls les nouveaux événements prometteurs sont vérifiés
+const VERIFY_MAX = 3;
+const SEEN_MAX = 300, EXCLUDE_MAX = 120, LOG_MAX = 20;
 
-const SUPABASE_URL  = process.env.SUPABASE_URL || 'https://omftqlvkmjlxoinruayr.supabase.co';
-const SUPABASE_PUBLISHABLE = process.env.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_RgKYatx7zHx_SJvrvoyt2w_fXhLKQ1w';
-const SERVICE_KEY   = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
-const MODEL         = process.env.CEREBRO_MODEL || 'claude-sonnet-5';
-const WEB_SEARCH_ON = (process.env.CEREBRO_WEB_SEARCH || '').toLowerCase() === 'on';
-const WATCH_SECRET  = process.env.CEREBRO_WATCH_SECRET || '';
-const FT_ID = process.env.FRANCE_TRAVAIL_CLIENT_ID, FT_SECRET = process.env.FRANCE_TRAVAIL_CLIENT_SECRET;
-// Brevo : réutilise la configuration déjà en place pour /api/action-relance (clé API + MAIL_FROM).
-const BREVO_KEY = process.env.BREVO_API_KEY || process.env.BREVO_KEY || process.env.SENDINBLUE_API_KEY;
-const ALERT_TO = process.env.CEREBRO_ALERT_TO || '';
-const ALERT_FROM = process.env.CEREBRO_ALERT_FROM || process.env.MAIL_FROM || '';
+function config() {
+  return {
+    SUPABASE_URL: process.env.SUPABASE_URL || 'https://omftqlvkmjlxoinruayr.supabase.co',
+    PUB: process.env.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_RgKYatx7zHx_SJvrvoyt2w_fXhLKQ1w',
+    SERVICE: process.env.SUPABASE_SERVICE_ROLE_KEY,
+    ANTHROPIC: process.env.ANTHROPIC_API_KEY,
+    MODEL: process.env.CEREBRO_MODEL || 'claude-sonnet-5',
+    SEARCH: (process.env.CEREBRO_WEB_SEARCH || '').toLowerCase() === 'on',
+    SECRET: process.env.CEREBRO_WATCH_SECRET || '',
+    BREVO: process.env.BREVO_API_KEY || process.env.BREVO_KEY || process.env.SENDINBLUE_API_KEY,
+    FROM: process.env.CEREBRO_ALERT_FROM || process.env.MAIL_FROM || '',
+    TO: process.env.CEREBRO_EVENTS_ALERT_TO || '',
+    SITE: process.env.URL || 'https://kwcockpit.netlify.app',
+  };
+}
 
-const K = { siglib: 'humetria:radar:siglib', icp: 'humetria:radar:icp', known: 'humetria:radar:known', accounts: 'humetria:radar:accounts',
-            feedback: 'humetria:radar:feedback', signals: 'humetria:radar:signals', inbox: 'humetria:radar:inbox', log: 'humetria:radar:watchlog' };
-const MAX_PROSPECTS = 16;          // entreprises consolidées par veille (4 lots de 4)
-const FT_DAYS = 30;                // fenêtre France Travail
-const FT_MIN_OFFERS = 3;           // seuil : au moins 3 offres d'encadrement…
-const FT_MIN_SITES = 2;            // …ou au moins 2 communes différentes
-
-// ── Référentiels par défaut (SYNC-PAGE : DEFAULT_SIGLIB, DEFAULT_ICP, DEFAULT_KNOWN) ──
-const SIGNAL_FAMILIES = [
-  { key: 'rh', label: 'RH & encadrement' }, { key: 'direction', label: 'Direction' },
-  { key: 'strategie', label: 'Stratégie & structure' }, { key: 'operations', label: 'Opérations & risques' },
-];
-const DEFAULT_SIGLIB = [
-  { id: 'recrut_managers', family: 'rh', name: 'Recrutement en volume de managers de proximité', weight: 30, hint: "plusieurs offres simultanées chef d'équipe / superviseur / responsable d'atelier / chef de quart, sur un ou plusieurs sites" },
-  { id: 'turnover_encadrement', family: 'rh', name: "Turnover d'encadrement", weight: 22, hint: "mêmes postes d'encadrement republiés, départs de directeurs de site, avis salariés dégradés sur le management" },
-  { id: 'nomination', family: 'direction', name: 'Nouveau dirigeant ops / RH', weight: 26, hint: 'nomination < 12 mois : DG, directeur industriel / des opérations / excellence op., DRH groupe' },
-  { id: 'fonction_eo', family: 'direction', name: "Création d'une fonction excellence op. / transformation", weight: 20, hint: "création d'un poste ou d'une direction excellence opérationnelle, lean, transformation, performance industrielle" },
-  { id: 'm_and_a', family: 'strategie', name: 'Acquisition / intégration de sites', weight: 24, hint: "rachat, fusion, intégration post-acquisition, entrée d'un fonds (LBO)" },
-  { id: 'site_ouverture', family: 'strategie', name: 'Ouverture / extension de site', weight: 20, hint: 'nouvelle usine, extension, investissement capacitaire, lauréat France 2030' },
-  { id: 'reorg', family: 'strategie', name: 'Réorganisation / plan de transformation', weight: 22, hint: 'plan de compétitivité, PSE, réorganisation, programme de transformation annoncé' },
-  { id: 'marges', family: 'strategie', name: 'Pression sur les marges', weight: 12, hint: "avertissement sur résultats, baisse de marge, plan d'économies" },
-  { id: 'incident', family: 'operations', name: 'Incidents sécurité / qualité / social', weight: 18, hint: 'accident grave, rappel produit, mise en demeure ICPE, grève ou conflit social sur site' },
-  { id: 'programme_ci', family: 'operations', name: 'Lancement programme lean / amélioration continue', weight: 20, hint: "offres responsable amélioration continue / lean, déploiement d'un système de management de la performance, prise de parole dirigeant" },
-];
-const DEFAULT_ICP = [
-  { name: 'Multi-site industriel', weight: 22, note: 'Plusieurs sites de production (idéalement 5+)' },
-  { name: 'Masse critique de managers terrain', weight: 20, note: '≥ 50–100 managers de proximité mesurables' },
-  { name: 'Secteur à culture excellence op.', weight: 16, note: 'Agro, cosmétique, pharma, chimie, auto, aéro, matériaux' },
-  { name: 'Taille du groupe', weight: 12, note: 'ETI / grand groupe, CA élevé' },
-  { name: 'Signaux déclencheurs', weight: 18, note: 'Fonction excellence op./performance, lean/CI, restructuration, enjeux qualité/sécurité' },
-  { name: 'Empreinte FR / francophone', weight: 12, note: "France d'abord, puis multinationale à ancrage FR" },
-];
-const DEFAULT_KNOWN = ["L'Oréal", 'Michelin', 'Andros', 'Pierre Fabre', 'Havea', 'Saipol', 'Avril', 'SOCOTEC', 'LVMH', 'Carrefour', 'Siemens', 'Teisseire', 'Carlsberg'];
-// Mots-clés France Travail : postes d'encadrement de proximité en production / logistique industrielle
-const FT_KEYWORDS = ["chef d'équipe production", 'superviseur production', "responsable d'atelier", 'chef de quart', 'team leader production', 'manager de proximité', 'responsable de ligne', 'chef de secteur production'];
-
-// ── Scoring (SYNC-PAGE : normCo, recency, signalScoreOf, priorityOf) ──
+// ── Repris de cerebro/index.html (SYNC-PAGE) ────────────────────────────────────────────────────
 const clamp = n => Math.max(0, Math.min(100, Math.round(Number(n) || 0)));
-const normCo = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
-  .replace(/\b(groupe|group|sa|sas|se|ag|gmbh|holding)\b/g, '').replace(/[^a-z0-9]/g, '');
-const libIndex = lib => Object.fromEntries(lib.map(s => [s.id, s]));
-function recency(dateStr) {
-  const t = Date.parse(dateStr || '');
-  if (!dateStr || isNaN(t)) return 0.3;
-  const d = (Date.now() - t) / 86400000;
-  if (d < -31) return 0.3;
-  return d <= 92 ? 1 : d <= 183 ? 0.7 : d <= 366 ? 0.4 : 0.15;
+const EV = { P: { label: "PRIORISER", color: "#3FB68B" }, O: { label: "OPPORT.", color: "#E0A63C" }, X: { label: "PASSER", color: "#C15B57" } };
+const eventVerdict = s => (s >= 70 ? EV.P : s >= 45 ? EV.O : EV.X);
+function parseObject(text) {
+  let t = text.replace(/```json/gi, "").replace(/```/g, "").trim();
+  const s = t.indexOf("{");
+  if (s < 0) throw new Error("JSON introuvable dans la réponse");
+  t = t.slice(s);
+  const e = t.lastIndexOf("}");
+  if (e > 0) { try { return JSON.parse(t.slice(0, e + 1)); } catch (_) {} }
+  return JSON.parse(closeTruncatedJSON(t)); // JSON tronqué : on répare
 }
-function signalScoreOf(signals, libMap) {
-  const best = {};
-  for (const s of signals || []) {
-    const w = Number(libMap[s.type] && libMap[s.type].weight) || 0;
-    best[s.type] = Math.max(best[s.type] || 0, w * recency(s.date) * (s.url ? 1 : 0.5));
+function closeTruncatedJSON(t) {
+  // dernier séparateur/fermeture hors chaîne = point de coupe sûr
+  let inStr = false, esc = false, cut = -1;
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i];
+    if (inStr) { if (esc) esc = false; else if (c === "\\") esc = true; else if (c === '"') inStr = false; continue; }
+    if (c === '"') inStr = true;
+    else if (c === "," || c === "}" || c === "]") cut = i;
   }
-  const sum = Object.values(best).reduce((a, b) => a + b, 0);
-  return clamp(100 * (1 - Math.exp(-sum / 35)));
-}
-const priorityOf = (p, libMap) => Math.round(0.6 * signalScoreOf(p.signals, libMap) + 0.4 * (p.fit == null ? 50 : p.fit));
-function cleanSignal(s, libMap, via) {
-  if (!s || !libMap[s.type]) return null;
-  const fact = String(s.fact || '').trim(); if (!fact) return null;
-  const out = { type: s.type, fact, date: String(s.date || ''), site: String(s.site || ''), url: /^https?:\/\//.test(s.url || '') ? s.url : '' };
-  if (via) out.via = via;
+  if (cut < 0) throw new Error("JSON irrécupérable");
+  let out = t.slice(0, t[cut] === "," ? cut : cut + 1); // si virgule, on la retire
+  const st = []; inStr = false; esc = false;
+  for (let i = 0; i < out.length; i++) {
+    const c = out[i];
+    if (inStr) { if (esc) esc = false; else if (c === "\\") esc = true; else if (c === '"') inStr = false; continue; }
+    if (c === '"') inStr = true;
+    else if (c === "{") st.push("}");
+    else if (c === "[") st.push("]");
+    else if (c === "}" || c === "]") st.pop();
+  }
+  while (st.length) out += st.pop(); // ferme les structures ouvertes
   return out;
 }
-function addSignal(list, s) {
-  if (!s) return list;
-  if (list.some(x => x.type === s.type && x.fact.slice(0, 40) === s.fact.slice(0, 40))) return list;
-  list.push(s); return list;
-}
-function parseArray(text) {
-  let t = String(text || '').replace(/```json/gi, '').replace(/```/g, '').trim();
-  const s = t.indexOf('['), e = t.lastIndexOf(']');
+function parseObjects(text) {
+  let t = text.replace(/```json/gi, "").replace(/```/g, "").trim();
+  const s = t.indexOf("["), e = t.lastIndexOf("]");
   if (s >= 0 && e > s) { try { const a = JSON.parse(t.slice(s, e + 1)); if (Array.isArray(a)) return a; } catch (_) {} }
   const objs = []; let depth = 0, start = -1;
   for (let i = 0; i < t.length; i++) {
-    if (t[i] === '{') { if (depth === 0) start = i; depth++; }
-    else if (t[i] === '}') { depth--; if (depth === 0 && start >= 0) { try { objs.push(JSON.parse(t.slice(start, i + 1))); } catch (_) {} start = -1; } }
+    const ch = t[i];
+    if (ch === "{") { if (depth === 0) start = i; depth++; }
+    else if (ch === "}") { depth--; if (depth === 0 && start >= 0) { try { objs.push(JSON.parse(t.slice(start, i + 1))); } catch (_) {} start = -1; } }
   }
-  if (!objs.length) throw new Error('aucune fiche exploitable');
+  if (objs.length === 0) throw new Error("aucune fiche exploitable dans la réponse");
   return objs;
 }
+function eventsSystemPrompt(excludeList) {
+  return `Tu es le stratège marketing / réseautage de Humetria (SaaS B2B, excellence managériale industrielle, ICM® r=0.83, cabinet Kaizen Way, basé à Grenoble / Auvergne-Rhône-Alpes). Eric bootstrappe — il a abandonné la levée de fonds : les événements orientés INVESTISSEURS sont donc à déprioriser ; priment ceux qui mettent des DÉCIDEURS INDUSTRIELS (directeurs industriels, excellence op., DRH industriels, dirigeants d'ETI / groupes) en face de lui.
 
-// ── Prompts (SYNC-PAGE : sensorPrompt, consolidatorPrompt) ──
-const gridText = icp => icp.map(c => `- ${c.name} (poids ${c.weight}) : ${c.note}`).join('\n');
-function sensorPrompt(family, siglib, excludeList) {
-  const types = siglib.filter(s => s.family === family.key && Number(s.weight) > 0);
-  const today = new Date().toISOString().slice(0, 10);
-  return `Tu es un agent CAPTEUR de signaux faibles pour Kaizen Way (cabinet de transformation industrielle, Go Gemba®) et Humetria (mesure des comportements managériaux, ICM® r=0.83). Famille surveillée : ${family.label}.
+UTILISE LA RECHERCHE WEB pour trouver 6 concours, salons, prix et événements RÉELS et À VENIR (édition en cours ou prochaine), y compris récents ou régionaux. Attribue un score d'IMPACT 0-100 selon :
+- Densité de décideurs industriels cibles dans l'audience (facteur n°1).
+- Effet de levier du format : prise de parole ou prix/finaliste > stand > simple présence. Un prix confère une crédibilité tierce précieuse face aux grands comptes.
+- Prestige aligné avec une marque sobre (instances sectorielles, filière industrie, Bercy).
+- ROI vs coût/temps pour un fondateur bootstrappé (un prix gratuit très visible bat un stand cher).
+- Ancrage AURA / réseau chaud.
+DÉPRIORISER franchement : événements purement startup/investisseurs, salons sans acheteurs industriels, et la vanité (collectionner des badges de finaliste sans acheteurs présents = 0 conversion). Sois prêt à mettre un score "Passer".
 
-MISSION : via la recherche web, trouver des ÉVÉNEMENTS RÉCENTS (moins de 12 mois ; nous sommes le ${today}) chez des entreprises industrielles MULTI-SITES (au moins 3 sites de production ou d'exploitation avec de l'encadrement terrain), françaises ou à fort ancrage en France / pays francophones, qui laissent prévoir un BESOIN D'ACCOMPAGNEMENT MANAGÉRIAL de leurs équipes terrain.
+Si la recherche te donne une date, une édition ou une deadline FIABLE, mets-la dans "check" ; sinon marque « à vérifier ». N'invente jamais de date. Ne propose que des événements réels et vérifiables.${excludeList.length ? "\nÉvite de reproposer : " + excludeList.join(", ") + "." : ""}
 
-TYPES DE SIGNAUX À CHASSER (utilise l'id EXACT dans "type") :
-${types.map(t => `- ${t.id} — ${t.name} : ${t.hint}`).join('\n')}
-
-MÉTHODE : multiplie les requêtes (presse économique et régionale, communiqués, offres d'emploi, nominations). Pars des événements, pas d'une liste de groupes connus. Varie secteurs et régions.
-
-RÈGLES ABSOLUES :
-- Chaque signal = UN fait précis, daté, rattaché à UNE entreprise réelle.
-- "url" = une URL réellement présente dans tes résultats de recherche, sinon "". N'invente JAMAIS d'URL, de date, de fait ni d'entreprise.
-- "date" au format AAAA-MM-JJ ou AAAA-MM ; "" si inconnue.
-- Mieux vaut 3 signaux sûrs que 8 douteux. Écarte les mono-sites et les sociétés de services sans plancher industriel.
-${excludeList.length ? '- À EXCLURE : ' + excludeList.join(', ') + '.' : ''}
-
-Réponds UNIQUEMENT avec un tableau JSON valide (8 éléments max), sans texte ni Markdown autour :
-[{"company":"nom","type":"id exact","fact":"≤20 mots, factuel","date":"AAAA-MM-JJ","site":"site ou région concerné, ou ''","url":"https://… ou ''"}]`;
+Réponds UNIQUEMENT avec un tableau JSON valide (trié par score décroissant), sans texte ni Markdown autour :
+[{"name":"nom réel","type":"Salon|Concours|Prix|Événement","desc":"≤16 mots : ce qu'est l'événement et son envergure","score":<0-100>,"format":"levier visé (stand / speaker / prix / networking)","region":"ville, région, national ou international","why":"≤14 mots : impact/pertinence pour Humetria","check":"date / édition / candidature à vérifier"}]`;
 }
-function consolidatorPrompt(siglib, icp) {
-  return `Tu es l'agent CONSOLIDATEUR de Cerebro (Kaizen Way × Humetria). Tu reçois des entreprises accompagnées de signaux faibles captés par d'autres agents. Pour CHACUNE, vérifie via la recherche web sa structure multi-sites, estime son FIT et formule l'hypothèse de besoin managérial.
+function eventVerifyPrompt() {
+  return `Tu constitues, via la recherche web, un DOSSIER DE DÉCISION détaillé sur un événement / salon / concours / prix, pour un fondateur (Humetria — SaaS d'excellence managériale industrielle, ICM® r=0.83, cabinet Kaizen Way) qui veut décider s'il s'y engage, candidate ou s'inscrit.
 
-FIT (0-100) selon la grille ICP :
-${gridText(icp)}
+Distingue deux natures d'information :
+1) FAITS DATÉS (dates, lieu, deadline, coût, URL officielle) : renseigne-les UNIQUEMENT si la recherche web les confirme. Sinon chaîne vide "" et explique dans note. Ne devine JAMAIS une date ni une URL ; l'URL doit être réellement présente dans les résultats.
+2) CARACTÉRISATION (audience, opportunité pour Humetria, format à jouer, recommandation) : sois RICHE, CONCRET et spécifique — ces champs n'ont pas besoin d'être "vérifiés" mais d'être utiles à une décision.
 
-- multisite = true si au moins 3 sites de production / d'exploitation avec encadrement terrain ; false si mono-site, holding sans plancher industriel ou services purs ; null si incertain.
-- need = le besoin d'accompagnement managérial que CES signaux suggèrent, ≤ 20 mots, formulé comme une HYPOTHÈSE reliée aux signaux (ex. « intégrer les chefs d'équipe recrutés sur 3 sites sans culture managériale commune »).
-- offer = "KW" si le besoin est d'abord d'accompagner / former les managers (séminaires, Go Gemba®, coaching) ; "Humetria" s'il est d'abord de mesurer et piloter les comportements managériaux à l'échelle multi-sites (ICM®) ; "KW+Humetria" si les deux.
-- extra_signals = les AUTRES signaux faibles (moins de 12 mois) que tes recherches sur CETTE entreprise font apparaître, parmi ces types (id EXACT dans "type") :
-${siglib.filter(s => Number(s.weight) > 0).map(t => `  ${t.id} — ${t.name}`).join('\n')}
-  Mêmes règles que pour les capteurs : un fait précis, daté (AAAA-MM-JJ ou AAAA-MM), "url" réellement présente dans tes résultats sinon "". Ne répète pas les signaux fournis. [] si rien de fiable.
-- signal_person = la personne NOMMÉE PUBLIQUEMENT dans une source liée à un signal (ex. le directeur industriel dont la nomination est annoncée, le DRH qui porte le plan de recrutement) : {"name","title","url"} avec l'URL de la source. null si aucune personne n'est nommée dans une source publique. N'invente JAMAIS un nom. Aucune coordonnée personnelle.
-- N'invente rien : "n/d" si inconnu. Reprends le nom d'entreprise EXACTEMENT comme fourni.
+Concret attendu : quel profil d'acheteurs est présent (des décideurs industriels cibles, ou surtout des startups/investisseurs ?), quelle catégorie de prix viser, s'il existe un créneau de prise de parole, l'ordre de grandeur du coût d'un stand ou d'une inscription, et l'action à mener.
 
-Réponds UNIQUEMENT avec un tableau JSON valide, un objet par entreprise reçue, sans texte ni Markdown autour :
-[{"company":"nom exact fourni","multisite":true,"sites":"~N ou n/d","sector":"court","region":"court","fit":<0-100>,"need":"hypothèse ≤20 mots","offer":"KW | Humetria | KW+Humetria","entry_persona":"titre du point d'entrée","extra_signals":[{"type":"id exact","fact":"≤20 mots","date":"AAAA-MM-JJ","url":"https://… ou ''"}],"signal_person":{"name":"Prénom Nom","title":"poste","url":"https://…"}}]`;
+Réponds UNIQUEMENT en JSON valide, sans texte ni Markdown. Champs FACTUELS courts ; champs de CARACTÉRISATION en 1-2 phrases utiles :
+{"edition":"prochaine édition (année) ou ''","dates":"dates ou ''","location":"ville / lieu ou ''","deadline":"date limite candidature/inscription, 'n/a', ou ''","cost":"ordre de grandeur (stand / entrée / gratuit) ou ''","audience":"profil dominant des participants et présence (ou non) de décideurs industriels cibles","opportunity":"opportunité concrète pour Humetria : catégorie à viser, slot de prise de parole, type de RDV à décrocher","format_leverage":"le meilleur format à jouer ici et pourquoi","url":"URL officielle trouvée dans la recherche ou ''","recommendation":"action recommandée, datée si possible (candidater à X avant Y / assister / passer)","note":"niveau de confiance sur les faits datés / ce qui reste à confirmer"}`;
 }
 
-// ── Anthropic (mêmes règles que cerebro-claude-background.js v2) ──
-async function callClaude(system, user, opts) {
+// ── Fin des extraits de la page ─────────────────────────────────────────────────────────────────
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const lc = s => String(s == null ? '' : s).toLowerCase();
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const safeUrl = u => (/^https?:\/\/[^\s"'<>]+$/i.test(String(u || '').trim()) ? String(u).trim() : '');
+
+// Appel IA : recherche web OBLIGATOIRE (même garde-fou que la veille Business : aucune recherche = échec)
+async function callClaude(C, doFetch, system, user, opts) {
   opts = opts || {};
-  const payload = { model: MODEL, max_tokens: 12000, system, messages: [{ role: 'user', content: user }] };
-  if (WEB_SEARCH_ON) payload.tools = [{ type: 'web_search_20250305', name: 'web_search', max_uses: opts.maxUses || 5, user_location: { type: 'approximate', country: 'FR' } }];
-  else { payload.thinking = { type: 'disabled' }; payload.max_tokens = 4096; }
+  if (!C.ANTHROPIC) throw new Error('ANTHROPIC_API_KEY manquante côté serveur');
+  if (!C.SEARCH) throw new Error('recherche web désactivée côté serveur (CEREBRO_WEB_SEARCH doit valoir « on ») : veille interrompue pour ne pas proposer d’événements de mémoire');
+  const payload = { model: C.MODEL, max_tokens: 12000, system, messages: [{ role: 'user', content: user }],
+    tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: opts.maxUses || 6, user_location: { type: 'approximate', country: 'FR' } }] };
+  const ctrl = new AbortController(); const tm = setTimeout(() => ctrl.abort(), opts.timeoutMs || 9 * 60 * 1000);
   let data = null, searches = 0;
-  for (let turn = 0; turn <= 4; turn++) {
-    const r = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify(payload),
-    });
-    const txt = await r.text();
-    if (!r.ok) { let m = 'API ' + r.status; try { const j = JSON.parse(txt); if (j.error && j.error.message) m += ' : ' + j.error.message; } catch (_) {} throw new Error(m); }
-    data = JSON.parse(txt);
-    searches += (data.usage && data.usage.server_tool_use && data.usage.server_tool_use.web_search_requests) || 0;
-    if (data.stop_reason !== 'pause_turn') break;
-    payload.messages = payload.messages.concat([{ role: 'assistant', content: data.content }]);
-  }
-  const text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
-  if (!text) throw new Error(data.stop_reason === 'max_tokens' ? 'réponse coupée (max_tokens)' : 'réponse sans texte (' + data.stop_reason + ')');
-  if (opts.requireSearch && !searches) throw new Error('aucune recherche web effectuée');
-  return text;
-}
-
-// ── France Travail : offres d'encadrement de proximité → signal « recrutement en volume » ──
-async function ftToken() {
-  const body = new URLSearchParams({ grant_type: 'client_credentials', client_id: FT_ID, client_secret: FT_SECRET, scope: 'api_offresdemploiv2 o2dsoffre' });
-  const r = await fetch('https://entreprise.francetravail.fr/connexion/oauth2/access_token?realm=%2Fpartenaire', {
-    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body,
-  });
-  if (!r.ok) throw new Error('France Travail auth ' + r.status);
-  const j = await r.json();
-  if (!j.access_token) throw new Error('France Travail : jeton absent');
-  return j.access_token;
-}
-async function ftSearch(token, motsCles, minDate, maxDate) {
-  const out = [];
-  for (let start = 0; start <= 1000; start += 150) {
-    const qs = new URLSearchParams({ motsCles, minCreationDate: minDate, maxCreationDate: maxDate, range: `${start}-${start + 149}` });
-    const r = await fetch('https://api.francetravail.io/partenaire/offresdemploi/v2/offres/search?' + qs, { headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' } });
-    if (r.status === 204) break;                       // aucun résultat
-    if (!r.ok && r.status !== 206) throw new Error('France Travail recherche ' + r.status);
-    const j = await r.json();
-    const res = Array.isArray(j.resultats) ? j.resultats : [];
-    out.push(...res);
-    if (res.length < 150) break;
-    await new Promise(res2 => setTimeout(res2, 150));   // < 10 appels / s
-  }
-  return out;
-}
-// Agrège les offres par entreprise (nom renseigné) ; pur, testable.
-function ftAggregate(offers, libMap) {
-  const by = new Map(), seen = new Set();
-  for (const o of offers) {
-    if (!o || seen.has(o.id)) continue; seen.add(o.id);
-    const name = o.entreprise && String(o.entreprise.nom || '').trim();
-    if (!name) continue;                                // offre anonyme : inexploitable
-    const k = normCo(name); if (!k) continue;
-    if (!by.has(k)) by.set(k, { company: name, offers: [], lieux: new Set() });
-    const e = by.get(k);
-    e.offers.push(o);
-    const lieu = o.lieuTravail || {};
-    const where = String(lieu.libelle || lieu.commune || '').trim();
-    if (where) e.lieux.add(where);
-  }
-  const signals = [];
-  for (const e of by.values()) {
-    if (e.offers.length < FT_MIN_OFFERS && e.lieux.size < FT_MIN_SITES) continue;
-    const latest = e.offers.slice().sort((a, b) => String(b.dateCreation || '').localeCompare(String(a.dateCreation || '')))[0];
-    const s = cleanSignal({
-      company: e.company, type: 'recrut_managers',
-      fact: `${e.offers.length} offre(s) d'encadrement de proximité en ${FT_DAYS} j sur ${Math.max(1, e.lieux.size)} site(s) — France Travail`,
-      date: String(latest.dateCreation || '').slice(0, 10),
-      site: [...e.lieux].slice(0, 3).join(', '),
-      url: (latest.origineOffre && latest.origineOffre.urlOrigine) || ('https://candidat.francetravail.fr/offres/recherche/detail/' + latest.id),
-    }, libMap, 'france_travail');
-    if (s) signals.push({ company: e.company, ...s });
-  }
-  return signals;
-}
-async function ftScan(libMap, log) {
-  if (!FT_ID || !FT_SECRET) { log.push('France Travail : identifiants absents, étape sautée'); return []; }
-  const token = await ftToken();
-  const max = new Date(), min = new Date(Date.now() - FT_DAYS * 864e5);
-  const iso = d => d.toISOString().slice(0, 19) + 'Z';
-  const all = [];
-  for (const kw of FT_KEYWORDS) {
-    try { all.push(...await ftSearch(token, kw, iso(min), iso(max))); }
-    catch (e) { log.push(`France Travail « ${kw} » : ${e.message}`); }
-  }
-  const sig = ftAggregate(all, libMap);
-  log.push(`France Travail : ${all.length} offres lues, ${sig.length} entreprise(s) au-dessus du seuil`);
-  return sig;
-}
-
-// ── INSEE (API Recherche d'entreprises) : indice d'établissements ouverts, en minimum ──
-async function inseeSites(company) {
   try {
-    const r = await fetch('https://recherche-entreprises.api.gouv.fr/search?per_page=10&q=' + encodeURIComponent(company));
-    if (!r.ok) return null;
-    const j = await r.json();
-    const k = normCo(company);
-    const hits = (j.results || []).filter(x => normCo(x.nom_complet).startsWith(k) || normCo(x.nom_complet).includes(k));
-    if (!hits.length) return null;
-    return Math.max(...hits.map(x => Number(x.nombre_etablissements_ouverts) || 0));
-  } catch (_) { return null; }
+    for (let turn = 0; turn <= 4; turn++) {
+      const r = await doFetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': C.ANTHROPIC, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify(payload), signal: ctrl.signal,
+      });
+      const txt = await r.text();
+      if (!r.ok) { let m = 'API ' + r.status; try { const j = JSON.parse(txt); if (j.error && j.error.message) m += ' : ' + j.error.message; } catch (_) {} throw new Error(m); }
+      data = JSON.parse(txt);
+      searches += (data.usage && data.usage.server_tool_use && data.usage.server_tool_use.web_search_requests) || 0;
+      if (data.stop_reason !== 'pause_turn') break;
+      payload.messages = payload.messages.concat([{ role: 'assistant', content: data.content }]);
+    }
+  } catch (e) { if (e && e.name === 'AbortError') throw new Error('délai IA dépassé'); throw e; }
+  finally { clearTimeout(tm); }
+  const text = ((data && data.content) || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
+  if (!text) throw new Error(data && data.stop_reason === 'max_tokens' ? 'réponse coupée (max_tokens)' : 'réponse sans texte (' + (data && data.stop_reason) + ')');
+  if (!searches) throw new Error('aucune recherche web effectuée');
+  return { text, searches };
 }
 
-// ── Supabase (clé service) ──
-async function readKey(sb, key) {
-  const r = await sb.from('cerebro_team_store').select('value').eq('key', key).maybeSingle();
-  return r && r.data ? r.data.value : null;
-}
-async function writeKey(sb, key, value) {
-  const r = await sb.from('cerebro_team_store').upsert({ key, value }, { onConflict: 'key' });
-  if (r && r.error) throw new Error('écriture ' + key + ' : ' + r.error.message);
+async function readRow(sb, key) {
+  const r = await sb.from('cerebro_team_store').select('value,updated_at').eq('key', key).maybeSingle();
+  if (r && r.error) throw new Error('lecture ' + key + ' : ' + r.error.message);
+  return (r && r.data) ? { value: r.data.value, updated_at: r.data.updated_at } : { value: null, updated_at: null };
 }
 
-// ── Accès : secret de la tâche planifiée, ou utilisateur ayant Cerebro Business ──
-async function authorize(event) {
+// Fusion « compare-and-set » : on n'écrase jamais une modification faite entre la lecture et l'écriture
+async function mergeEvents(sb, fresh) {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const row = await readRow(sb, K.events);
+    const cur = Array.isArray(row.value) ? row.value : [];
+    const have = new Set(cur.map(e => lc(e && e.name)));
+    const toAdd = fresh.filter(e => !have.has(lc(e.name)));
+    if (!toAdd.length) return [];
+    const merged = [...cur, ...toAdd].sort((a, b) => (b.score || 0) - (a.score || 0));
+    if (row.updated_at) {
+      const r = await sb.from('cerebro_team_store').update({ value: merged }).eq('key', K.events).eq('updated_at', row.updated_at).select('key');
+      if (r.error) throw new Error('écriture événements : ' + r.error.message);
+      if (r.data && r.data.length) return toAdd.map(e => e.name);
+    } else {
+      const r = await sb.from('cerebro_team_store').insert({ key: K.events, value: merged });
+      if (!r.error) return toAdd.map(e => e.name);
+    }
+    await sleep(300 * (attempt + 1));
+  }
+  throw new Error('conflit d’écriture persistant sur la liste des événements (4 essais) : rien n’a été modifié');
+}
+
+// ── Destinataires : Resp marketing, Communication, CEO (déduits de l'Admin ; surchargeables par env) ──
+const GROUPS = {
+  marketing: { labels: ['mktg et produit', 'marketing', 'marketing & communication', 'juliette'], codes: ['juliette'] },
+  communication: { labels: ['communication', 'comm'], codes: ['communication'] },
+  ceo: { labels: ['ceo', 'direction', 'eric'], codes: ['eric', 'ceo'] },
+};
+const splitMails = s => String(s || '').split(',').map(e => e.trim()).filter(e => /^[^@\s]+@[^@\s]+$/.test(e));
+async function resolveRecipients(C, sb) {
+  let rows = null;
+  let r = await sb.from('user_access').select('email,role,is_admin,fonctions');
+  if (r && r.error) r = await sb.from('user_access').select('email,role,is_admin');     // colonne « fonctions » absente : Admin d'avant
+  rows = (r && r.data) || [];
+  const pick = g => rows.filter(u => u && u.email && (GROUPS[g].labels.includes(lc(u.role).trim()) || (Array.isArray(u.fonctions) ? u.fonctions : []).some(f => GROUPS[g].codes.includes(lc(f).trim())))).map(u => lc(u.email).trim());
+  const ceo = [...new Set(pick('ceo'))];
+  const forced = splitMails(C.TO);
+  const all = forced.length ? [...new Set(forced.map(lc))] : [...new Set([...pick('marketing'), ...pick('communication'), ...ceo])];
+  return { all, ceo: ceo.length ? ceo : all };
+}
+
+// ── E-mail ──────────────────────────────────────────────────────────────────────────────────────
+const dateFr = d => new Date(d).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+function eventBlock(ev, i) {
+  const v = eventVerdict(ev.score || 0);
+  const facts = [ev.dates && ('Dates : ' + ev.dates + (ev.edition ? ' (' + ev.edition + ')' : '')), ev.location && ('Lieu : ' + ev.location), ev.deadline && ('Deadline : ' + ev.deadline), ev.cost && ('Coût : ' + ev.cost)].filter(Boolean);
+  const url = safeUrl(ev.url);
+  return `<tr><td style="padding:10px 12px;border-bottom:1px solid #e5ddd5;vertical-align:top">
+    <div style="font-size:15px"><b>${i + 1}. ${esc(ev.name)}</b> <span style="display:inline-block;margin-left:6px;padding:1px 8px;border-radius:10px;background:${v.color};color:#fff;font-size:12px;font-weight:bold">${esc(v.label)} · ${esc(ev.score)}</span></div>
+    <div style="color:#777;font-size:12.5px;margin:2px 0 6px">${esc([ev.type, ev.region, ev.format].filter(Boolean).join(' · '))}</div>
+    ${ev.desc ? `<div>${esc(ev.desc)}</div>` : ''}
+    ${ev.why ? `<div style="margin-top:4px"><b>Impact :</b> ${esc(ev.why)}</div>` : ''}
+    ${ev.verified ? `<div style="margin-top:6px;padding:6px 8px;background:#f6f1ea;border-radius:6px">${facts.length ? esc(facts.join(' — ')) : 'Aucun fait daté confirmé.'}
+      ${ev.opportunity ? `<div style="margin-top:4px"><b>Opportunité :</b> ${esc(ev.opportunity)}</div>` : ''}${ev.recommendation ? `<div><b>Reco :</b> ${esc(ev.recommendation)}</div>` : ''}
+      ${url ? `<div><a href="${esc(url)}">${esc(url)}</a></div>` : '<div style="color:#a06000">Lien officiel non confirmé : à chercher sur le site de l’événement.</div>'}</div>`
+      : (ev.check ? `<div style="margin-top:4px;color:#a06000">À vérifier : ${esc(ev.check)}</div>` : '')}
+  </td></tr>`;
+}
+function buildMail(C, info) {
+  const n = info.added.length, d = dateFr(info.at);
+  const nouv = n > 1 ? 'nouveaux' : 'nouvel';
+  const subject = n ? `Cerebro Events — veille du ${d} : ${n} ${nouv} événement${n > 1 ? 's' : ''}` : `Cerebro Events — veille du ${d} : aucun nouvel événement`;
+  const byName = new Map(info.fresh.map(e => [lc(e.name), e]));
+  const blocks = info.added.map(nm => byName.get(lc(nm))).filter(Boolean).map(eventBlock).join('');
+  const html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222;max-width:720px">
+    <p style="margin:0 0 6px;font-size:12px;letter-spacing:.08em;color:#8a6d00;font-weight:bold">CEREBRO EVENTS · VEILLE DU LUNDI</p>
+    <p>${n ? `La veille a trouvé <b>${n} ${nouv} événement${n > 1 ? 's' : ''}</b>${info.verified.length ? ` (dont ${info.verified.length} vérifié${info.verified.length > 1 ? 's' : ''} : dates, lieu, deadline, lien officiel)` : ''}, classé${n > 1 ? 's' : ''} par impact pour Humetria.`
+      : 'La veille n’a trouvé <b>aucun nouvel événement</b> cette semaine : les résultats de la recherche étaient déjà au radar ou déjà écartés.'}</p>
+    ${n ? `<table style="border-collapse:collapse;width:100%;border:1px solid #e5ddd5">${blocks}</table>` : ''}
+    <p style="color:#555">Le radar compte désormais <b>${info.total}</b> événement${info.total > 1 ? 's' : ''}. Détail, vérification des dates et liens dans le Cockpit → Cerebro → Events (<a href="${esc(C.SITE)}">${esc(C.SITE.replace(/^https?:\/\//, ''))}</a>).</p>
+    <p style="color:#999;font-size:12px">Résultats issus de la recherche web (${info.searches} recherche${info.searches > 1 ? 's' : ''}) ; l’impact est une estimation de cadrage. Reconfirmez toute date ou deadline sur le site officiel avant de vous engager.</p></div>`;
+  return { subject, html };
+}
+function buildErrorMail(C, info) {
+  const d = dateFr(info.at);
+  return { subject: `Cerebro Events — veille du ${d} : ÉCHEC`, html: `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222;max-width:720px">
+    <p><b>La veille Cerebro Events de ce lundi n’a pas abouti.</b> La liste des événements n’a pas été modifiée.</p>
+    <p style="padding:8px 10px;background:#fbe6e3;border-radius:6px"><b>Cause :</b> ${esc(info.error)}</p>
+    <p style="color:#555">Corrigez la cause puis relancez : Netlify → Functions → cerebro-events-watch → « Run now ». Le détail des veilles est conservé dans la clé humetria:radar:eventswatch.</p></div>` };
+}
+async function sendMail(C, doFetch, to, mail) {
+  if (!C.BREVO || !C.FROM || !to.length) return 'non envoyé : Brevo ou destinataires non configurés';
+  try {
+    const r = await doFetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST', headers: { 'api-key': C.BREVO, 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ sender: { email: C.FROM, name: 'Cerebro · Kaizen Way' }, to: to.map(email => ({ email })), subject: mail.subject, htmlContent: mail.html }),
+    });
+    return r.status === 201 ? 'envoyé à ' + to.length + ' destinataire' + (to.length > 1 ? 's' : '') : 'échec Brevo : HTTP ' + r.status;
+  } catch (e) { return 'échec Brevo : ' + ((e && e.message) || 'réseau'); }
+}
+
+// ── Pipeline ────────────────────────────────────────────────────────────────────────────────────
+async function runWatch(C, sb, doFetch, mode) {
+  const t0 = Date.now(), log = [];
+  let searches = 0;
+  const cur = await readRow(sb, K.events);
+  const events = Array.isArray(cur.value) ? cur.value : [];
+  const state = (await readRow(sb, K.watch)).value || {};
+  const seen = Array.isArray(state.seen) ? state.seen : [];
+  const excludeNames = [...new Set([...events.map(e => e && e.name), ...seen].filter(Boolean))];
+
+  const hunt = await callClaude(C, doFetch, eventsSystemPrompt(excludeNames.slice(-EXCLUDE_MAX)), 'Sélection générale, priorité AURA et décideurs industriels.', { maxUses: 8 });
+  searches += hunt.searches;
+  const ranked = parseObjects(hunt.text).filter(e => e && e.name).map(e => ({ ...e, score: clamp(e.score) })).sort((a, b) => b.score - a.score).slice(0, MAX_NEW);
+  const known = new Set(excludeNames.map(lc));
+  const fresh = ranked.filter(e => !known.has(lc(e.name)));
+
+  // Vérification des meilleurs nouveaux (en parallèle, si le temps le permet : la limite d'une fonction d'arrière-plan est de 15 min)
+  const verified = [];
+  const cand = fresh.filter(e => e.score >= VERIFY_MIN_SCORE).slice(0, VERIFY_MAX);
+  if (cand.length && Date.now() - t0 < 10 * 60 * 1000) {
+    const res = await Promise.allSettled(cand.map(e => callClaude(C, doFetch, eventVerifyPrompt(), `Événement : ${e.name}`, { maxUses: 5, timeoutMs: Math.max(60000, 13 * 60 * 1000 - (Date.now() - t0)) })));
+    res.forEach((r, i) => {
+      if (r.status !== 'fulfilled') { log.push(`Vérification « ${cand[i].name} » : ${r.reason && r.reason.message}`); return; }
+      try {
+        const v = parseObject(r.value.text); searches += r.value.searches;
+        Object.assign(cand[i], { verified: true, edition: v.edition || '', dates: v.dates || '', location: v.location || '', deadline: v.deadline || '', cost: v.cost || '', audience: v.audience || '', opportunity: v.opportunity || '', format_leverage: v.format_leverage || '', url: safeUrl(v.url), recommendation: v.recommendation || '', vnote: v.note || '' });
+        verified.push(cand[i].name);
+      } catch (e) { log.push(`Vérification « ${cand[i].name} » : réponse illisible`); }
+    });
+  } else if (cand.length) log.push('Vérifications sautées : temps insuffisant');
+
+  const added = await mergeEvents(sb, fresh);
+  const total = (await readRow(sb, K.events)).value;
+  return { at: new Date().toISOString(), mode, ms: Date.now() - t0, searches, hunted: ranked.length, fresh, added, verified, total: Array.isArray(total) ? total.length : events.length + added.length, seen, log };
+}
+
+async function saveState(sb, prevSeen, prevLog, entry, freshNames) {
+  const seen = [...new Set([...(prevSeen || []), ...(freshNames || [])])].slice(-SEEN_MAX);
+  const log = [entry, ...(prevLog || [])].slice(0, LOG_MAX);
+  await sb.from('cerebro_team_store').upsert({ key: K.watch, value: { seen, log } }, { onConflict: 'key' });
+}
+
+async function authorize(C, doFetch, event) {
   const h = event.headers || {};
   const secret = h['x-cerebro-secret'] || h['X-Cerebro-Secret'];
-  if (WATCH_SECRET && secret && secret === WATCH_SECRET) return 'planifiée';
+  if (C.SECRET && secret && secret === C.SECRET) return 'planifiée';
   const token = String(h.authorization || h.Authorization || '').replace(/^Bearer\s+/i, '').trim();
   if (!token) return null;
   try {
-    const r = await fetch(SUPABASE_URL + '/rest/v1/rpc/cerebro_can', {
-      method: 'POST', headers: { apikey: SUPABASE_PUBLISHABLE, Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ section: 'cerebro_business' }),
-    });
+    const r = await doFetch(C.SUPABASE_URL + '/rest/v1/rpc/cerebro_can', { method: 'POST', headers: { apikey: C.PUB, Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ section: 'cerebro_events' }) });
     return r.ok && (await r.json()) === true ? 'manuelle' : null;
   } catch (_) { return null; }
 }
 
-// ── Alerte Brevo ──
-async function sendAlert(hot, log) {
-  if (!hot.length) return;
-  if (!BREVO_KEY || !ALERT_TO || !ALERT_FROM) { log.push('Alerte : Brevo non configuré, ' + hot.length + ' compte(s) FRAPPER non notifié(s)'); return; }
-  const esc = s => String(s || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const rows = hot.map(p => `<tr><td style="padding:6px 10px"><b>${esc(p.company)}</b><br><span style="color:#777">${esc([p.sector, p.sites, p.region].filter(Boolean).join(' · '))}</span></td>
-    <td style="padding:6px 10px;font-weight:bold">${p.prio}</td>
-    <td style="padding:6px 10px">${esc(p.need)}${p.signal_person && p.signal_person.name ? '<br><i>Interlocuteur lié au signal : ' + esc(p.signal_person.name) + ' — ' + esc(p.signal_person.title) + '</i>' : ''}
-    <ul style="margin:4px 0 0 16px;padding:0">${p.signals.slice(0, 4).map(s => `<li>${esc(s.fact)} (${esc(s.date || 'date ?')})${s.url ? ` <a href="${esc(s.url)}">source</a>` : ''}</li>`).join('')}</ul></td></tr>`).join('');
-  const html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222">
-    <p>Cerebro a repéré <b>${hot.length} compte(s)</b> qui passent en <b>FRAPPER</b> cette semaine (signaux récents cumulés + bon fit ICP).</p>
-    <table style="border-collapse:collapse" border="1" bordercolor="#ddd">${rows}</table>
-    <p style="color:#777">Reconfirmez chaque fait sur sa source avant toute approche. Détail et carto des décideurs dans le Cockpit → Cerebro → Business.</p></div>`;
-  const r = await fetch('https://api.brevo.com/v3/smtp/email', {
-    method: 'POST', headers: { 'api-key': BREVO_KEY, 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ sender: { email: ALERT_FROM, name: 'Cerebro · Kaizen Way' }, to: ALERT_TO.split(',').map(e => ({ email: e.trim() })).filter(x => x.email),
-      subject: `Cerebro — ${hot.length} compte(s) à contacter cette semaine`, htmlContent: html }),
-  });
-  log.push(r.status === 201 ? `Alerte envoyée (${hot.length} compte(s))` : 'Alerte Brevo en échec : HTTP ' + r.status);
-}
+exports.handler = async (event, context, deps) => {
+  deps = deps || {};
+  const C = config(), doFetch = deps.fetch || fetch;
+  if (!event || event.httpMethod !== 'POST' || !C.SERVICE) return { statusCode: 400 };
+  const mode = await authorize(C, doFetch, event); if (!mode) return { statusCode: 401 };
+  const sb = (deps.createClient || require('@supabase/supabase-js').createClient)(C.SUPABASE_URL, C.SERVICE, { auth: { persistSession: false } });
 
-// ── Pipeline ──
-async function runWatch(sb, mode) {
-  const t0 = Date.now(), log = [];
-  const siglib = (await readKey(sb, K.siglib)) || DEFAULT_SIGLIB;
-  const icp = (await readKey(sb, K.icp)) || DEFAULT_ICP;
-  const known = (await readKey(sb, K.known)) || DEFAULT_KNOWN;
-  const accounts = (await readKey(sb, K.accounts)) || [];
-  const feedback = (await readKey(sb, K.feedback)) || [];
-  const previous = (await readKey(sb, K.signals)) || [];
-  const libMap = libIndex(siglib);
-  const exclude = [...new Set([...known, ...accounts.map(a => a.company), ...feedback.filter(f => f.verdict === 'noise').map(f => f.company)])];
-  const excl = new Set(exclude.map(normCo));
+  let info, error = null;
+  try { info = await runWatch(C, sb, doFetch, mode); }
+  catch (e) { error = (e && e.message) || 'erreur'; info = { at: new Date().toISOString(), mode, ms: 0, searches: 0, hunted: 0, fresh: [], added: [], verified: [], total: 0, seen: null, log: [] }; }
 
-  // 1) France Travail
-  let raw = [];
-  try { raw.push(...await ftScan(libMap, log)); } catch (e) { log.push('France Travail : ' + e.message); }
+  let to = { all: [], ceo: [] }, mailStatus;
+  try { to = await resolveRecipients(C, sb); } catch (e) { info.log.push('Destinataires : ' + e.message); }
+  if (error) mailStatus = await sendMail(C, doFetch, to.ceo, buildErrorMail(C, { ...info, error }));
+  else mailStatus = await sendMail(C, doFetch, to.all, buildMail(C, info));
 
-  // 2) Capteurs IA en parallèle
-  const fams = SIGNAL_FAMILIES.filter(f => siglib.some(s => s.family === f.key && Number(s.weight) > 0));
-  const res = await Promise.allSettled(fams.map(f =>
-    callClaude(sensorPrompt(f, siglib, exclude), 'Balaye large : groupes industriels multi-sites en France et pays francophones.', { requireSearch: true, maxUses: 5 }).then(parseArray)));
-  res.forEach((r, i) => { if (r.status === 'fulfilled') raw.push(...r.value); else log.push(`Capteur ${fams[i].label} : ${r.reason && r.reason.message}`); });
-
-  // Fusion par entreprise
-  const by = new Map();
-  for (const s of raw) {
-    if (!s || !s.company || excl.has(normCo(s.company))) continue;
-    const clean = cleanSignal(s, libMap, s.via); if (!clean) continue;
-    const k = normCo(s.company); if (!k) continue;
-    if (!by.has(k)) by.set(k, { company: String(s.company).trim(), signals: [] });
-    addSignal(by.get(k).signals, clean);
-  }
-  const merged = [...by.values()].map(m => ({ ...m, s: signalScoreOf(m.signals, libMap) })).sort((a, b) => b.s - a.s).slice(0, MAX_PROSPECTS);
-  log.push(`${raw.length} signaux bruts → ${by.size} entreprises, ${merged.length} consolidées`);
-  if (!merged.length) return { log, prospects: [], hot: [], ms: Date.now() - t0 };
-
-  // 3) INSEE (indice) + 4) consolidation par lots de 4
-  const insee = await Promise.all(merged.map(m => inseeSites(m.company)));
-  const ctxLine = m => `- ${m.company} : ${m.signals.map(s => `${libMap[s.type].name} (${s.date || 'date ?'}) — ${s.fact}`).join(' | ')}`;
-  const batches = []; for (let i = 0; i < merged.length; i += 4) batches.push(merged.slice(i, i + 4));
-  const fitMap = new Map();
-  const cres = await Promise.allSettled(batches.map(b => callClaude(consolidatorPrompt(siglib, icp), b.map(ctxLine).join('\n'), { requireSearch: true, maxUses: 6 }).then(parseArray)));
-  cres.forEach((r, i) => { if (r.status === 'fulfilled') r.value.filter(f => f && f.company).forEach(f => fitMap.set(normCo(f.company), f)); else log.push(`Consolidation lot ${i + 1} : ${r.reason && r.reason.message}`); });
-
-  // 5) Fiches, score, comparaison avec l'existant
-  const prevMap = new Map(previous.map(p => [normCo(p.company), p]));
-  const prospects = [], hot = [];
-  merged.forEach((m, i) => {
-    const f = fitMap.get(normCo(m.company)) || {};
-    if (f.multisite === false) return;
-    const signals = m.signals.slice();
-    (Array.isArray(f.extra_signals) ? f.extra_signals : []).forEach(x => addSignal(signals, cleanSignal({ ...x, company: m.company }, libMap, 'consolidation')));
-    const sp = f.signal_person && f.signal_person.name && /^https?:\/\//.test(f.signal_person.url || '') ? { name: String(f.signal_person.name), title: String(f.signal_person.title || ''), url: f.signal_person.url } : null;
-    const p = {
-      company: m.company, signals, fit: f.fit == null || f.fit === '' ? null : clamp(f.fit),
-      multisite: f.multisite === true ? true : null, sites: f.sites || (insee[i] ? `≥ ${insee[i]} étab. (INSEE)` : ''), insee_sites: insee[i],
-      sector: f.sector || '', region: f.region || '', need: f.need || '', offer: f.offer || '', entry_persona: f.entry_persona || '',
-      signal_person: sp, origin: 'veille-auto', ts: Date.now(),
-    };
-    p.prio = priorityOf(p, libMap);
-    const old = prevMap.get(normCo(p.company));
-    const wasHot = old && priorityOf({ signals: old.signals || [], fit: old.fit }, libMap) >= 65;
-    if (p.prio >= 65 && !wasHot) hot.push(p);
-    prospects.push(p);
-  });
-  return { log, prospects, hot, ms: Date.now() - t0 };
-}
-
-exports.handler = async (event) => {
-  if (event.httpMethod !== 'POST' || !SERVICE_KEY || !ANTHROPIC_KEY) return;
-  const mode = await authorize(event);
-  if (!mode) return;
-  const sb = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
-  const started = new Date().toISOString();
-  let result;
-  try { result = await runWatch(sb, mode); }
-  catch (e) { result = { log: ['Veille interrompue : ' + ((e && e.message) || 'erreur')], prospects: [], hot: [], ms: 0 }; }
-  try { await sendAlert(result.hot, result.log); } catch (e) { result.log.push('Alerte : ' + e.message); }
-  // Boîte de réception : la page la fusionne dans la liste à l'ouverture, puis la vide.
   try {
-    const inbox = (await readKey(sb, K.inbox)) || { prospects: [] };
-    const map = new Map((inbox.prospects || []).map(p => [normCo(p.company), p]));
-    result.prospects.forEach(p => map.set(normCo(p.company), p));
-    await writeKey(sb, K.inbox, { at: started, prospects: [...map.values()] });
-    const logList = (await readKey(sb, K.log)) || [];
-    logList.unshift({ at: started, mode, prospects: result.prospects.length, hot: result.hot.map(p => p.company), ms: result.ms, log: result.log });
-    await writeKey(sb, K.log, logList.slice(0, 12));
-  } catch (e) { console.error('[cerebro-watch]', e); }
+    const st = (await readRow(sb, K.watch)).value || {};
+    await saveState(sb, st.seen, st.log, { ts: info.at, mode, ms: info.ms, searches: info.searches, hunted: info.hunted, added: info.added, verified: info.verified, mail: mailStatus, error, notes: info.log }, error ? [] : info.fresh.map(e => e.name));
+  } catch (e) { console.error('[cerebro-events-watch] journal :', e.message); }
+  console.log('[cerebro-events-watch]', mode, error ? 'ÉCHEC : ' + error : info.added.length + ' nouveau(x), ' + info.verified.length + ' vérifié(s)', '| mail :', mailStatus);
+  return { statusCode: 202, body: JSON.stringify({ error, added: info.added, verified: info.verified, mail: mailStatus }) };
 };
-
-// Exports pour les tests
-exports._test = { ftAggregate, signalScoreOf, priorityOf, libIndex, DEFAULT_SIGLIB, normCo, cleanSignal, consolidatorPrompt, sensorPrompt, runWatch, inseeSites };
+exports._t = { eventsSystemPrompt, eventVerifyPrompt, resolveRecipients, buildMail, mergeEvents, config };
