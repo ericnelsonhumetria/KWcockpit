@@ -106,13 +106,18 @@
     try { O.c = await rpc('obeya_constats_lire'); O.c2missing = false; }
     catch(e){ if (!missing(e && e.message)) throw e; O.c = null; O.c2missing = true; }
   }
+  /* L'Obeya se charge en arrière-plan (accès, puis données). Si l'utilisateur a changé d'onglet entre-temps, on n'écrit RIEN dans la vue :
+     sinon l'écran de l'Obeya écraserait celui de l'onglet qu'il vient d'ouvrir (ex. le Tableau de bord). */
+  function here(){ return typeof CURRENT_TAB === 'undefined' || CURRENT_TAB === 'obeya'; }
   async function main(){
     var v = view(); if (!v) return; leave();
     v.innerHTML = css() + head0() + '<div class="panel" style="padding:16px;">Chargement de l’Obeya Codir…</div>';
     var ok = await access();
+    if (!here()) return;
     if (!ok){ v.innerHTML = css() + head0() + '<div class="panel" style="padding:16px;">' + (O.err && missing(O.err) ? 'L’Obeya Codir n’est pas encore installé : exécutez obeya_brique1.sql dans Supabase.' : 'Accès réservé aux membres de l’Obeya Codir : titulaires d’une fonction responsable d’une carte, et animateur. Les fonctions se définissent dans Admin.') + '</div>'; return; }
     try { await load(); }
-    catch(e){ var m = (e && e.message) || String(e); v.innerHTML = css() + head0() + '<div class="panel" style="padding:16px;color:var(--signal);">Obeya indisponible : ' + esc(m) + (missing(m) ? ' — exécutez obeya_brique1.sql (puis 2 et 3).' : '') + '</div>'; return; }
+    catch(e){ if (!here()) return; var m = (e && e.message) || String(e); v.innerHTML = css() + head0() + '<div class="panel" style="padding:16px;color:var(--signal);">Obeya indisponible : ' + esc(m) + (missing(m) ? ' — exécutez obeya_brique1.sql (puis 2 et 3).' : '') + '</div>'; return; }
+    if (!here()) return;
     paintAll(); startTimers(); focusTop(); loadFin(false);
     if (isAnim() && liveSeance()){ mountCR().then(function(ok){ if (ok){ applyPane(); paintLive(); paintTr(); } }); }
   }
