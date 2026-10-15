@@ -799,12 +799,15 @@
     else {
       h += '<div class="aicx-board">' + thems.map(function(t){ return tileHtml(IX, IXV, t, e, ids, sel && t.id === sel.id); }).join('') + '</div>' + transcriptHtml(e);
       if (!leaf) h += '<div class="field-label">Vue d\u2019ensemble des sites · ' + (SP.month === curMonth() ? 'aujourd\u2019hui' : 'dernier relevé du mois') + '</div>' + sitesMatrixHtml(IX, thems, leaves(e));
-      h += icmHtml(e, ids);
+      /* ICM® rattaché à la lettre Q (Qualité) : affiché dans le détail de Q. S'il n'existe aucune lettre Q active, affichage inchangé (sous la vue d'ensemble). */
+      var qT = thems.filter(function(t){ return String(t.code || '').toUpperCase() === 'Q'; })[0] || null;
+      if (!qT) h += icmHtml(e, ids);
       if (sel){
         var rd = refDay(IX, sel.id, ids) || chartEnd();
         h += '<div class="field-label" style="margin-top:18px;">' + esc(sel.code) + ' · ' + esc(sel.libelle) + '</div>' + zonesHtml(IX, IXV, sel, e, ids)
           + '<div class="aicx-two"><div><div class="field-label">Relevés de ' + MOIS[b.mo - 1] + '</div>' + calendarHtml(IX, sel, e, ids, leaf) + (leaf ? editorHtml(IX, IXV, sel, e) : '<div class="sub-cell" style="margin-top:10px;">Consolidation en lecture seule. Ouvrez un site pour saisir ou corriger un relevé.</div>') + '</div>'
           + '<div><div class="field-label">Indicateurs de suivi</div>' + indicatorsHtml(IXV, sel, e, ids, rd) + consultantsFieldHtml(sel, e) + '<div class="field-label" style="margin-top:14px;">Derniers commentaires</div>' + timelineHtml(sel, ids) + '</div></div>';
+        if (qT && sel.id === qT.id) h += icmHtml(e, ids);
       }
     }
 
