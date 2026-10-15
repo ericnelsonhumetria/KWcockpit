@@ -242,7 +242,16 @@ const CSS = `
   font-family:'Inter',system-ui,sans-serif; padding:20px 16px 64px;
   -webkit-font-smoothing:antialiased;
 }
-.hr-wrap { max-width:760px; margin:0 auto; }
+.hr-wrap { max-width:none; margin:0; }   /* pleine largeur de l'écran (c'était 760px centré) */
+/* Lisibilité : les paragraphes et brouillons ne s'étirent pas sur toute la largeur */
+.hr-cerebro-sub, .hr-caption { max-width:120ch; }
+.hr-variant-body { max-width:110ch; }
+/* Écran large : les listes de cartes (prospects, événements, vivier, contacts) passent sur plusieurs colonnes ;
+   tout autre élément du même bloc (titre, légende, message) reste sur toute la largeur. */
+@media (min-width:1100px) {
+  div:has(> .hr-cb), div:has(> .hr-item) { display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, 520px), 1fr)); gap:0 16px; align-items:start; }
+  div:has(> .hr-cb) > :not(.hr-cb), div:has(> .hr-item) > :not(.hr-item) { grid-column:1 / -1; }
+}
 .hr-head { display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:22px; }
 .hr-brand { font-family:'Space Grotesk',sans-serif; font-weight:800; font-size:20px; letter-spacing:0.03em; background:linear-gradient(92deg,var(--cyan),var(--orange)); -webkit-background-clip:text; background-clip:text; color:transparent; }
 .hr-brand span { color:var(--orange); }
@@ -1200,7 +1209,7 @@ ${talentMaterial.trim()}`;
     const exp = s.expires_at ? new Date(s.expires_at).toLocaleDateString("fr-FR") : null;
     if (s.expired || s.last_status === "expired") return "⚠ Autorisation LinkedIn expirée" + (exp ? " (échéance : " + exp + ")" : "") + " — reconnecte-la pour reprendre la synchronisation.";
     if (s.last_status === "error") return "⚠ LinkedIn connecté, mais la dernière synchronisation a échoué" + (d ? " (" + d + ")" : "") + " : " + (s.last_error || "erreur");
-    if (s.last_status === "pending" || !d) return "✓ LinkedIn connecté · LinkedIn prépare encore vos données (comptez une vingtaine de minutes) ; prochaine synchronisation automatique lundi.";
+    if (s.last_status === "pending" || !d) return "✓ LinkedIn connecté · LinkedIn prépare encore vos données (comptez une vingtaine de minutes) ; nouvel essai automatique chaque matin, ou clique sur « Synchroniser maintenant ».";
     return "✓ LinkedIn connecté · dernière synchronisation le " + d + " · " + (s.last_count || 0) + " relations" + (exp ? " · autorisation valable jusqu'au " + exp : "") + " · prochaine synchronisation lundi.";
   }
   async function liWait(before) {
