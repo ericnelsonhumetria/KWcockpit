@@ -28,7 +28,7 @@
   // Données People (relations LinkedIn, vivier…) → cerebro_user_store, privées à chacun.
   // Une copie locale est gardée en secours ; si Supabase échoue, un bandeau le signale.
   (function(){
-    var PRIVATE = ['humetria:radar:talents','humetria:radar:playbook','humetria:radar:network','humetria:radar:netkw','humetria:radar:contacts'];
+    var PRIVATE = ['humetria:radar:talents','humetria:radar:playbook','humetria:radar:network','humetria:radar:netkw','humetria:radar:contacts','humetria:radar:netcrit','humetria:radar:netmarks'];
     var isPrivate = function(k){ return PRIVATE.indexOf(k) >= 0; };
     var sb = function(){ return window.CEREBRO_SB; };
     function lsGet(k){ try{ var v = localStorage.getItem(k); return v === null ? null : { key:k, value:v }; }catch(e){ return null; } }
@@ -123,7 +123,7 @@
 <body>
 <div id="root"></div>
 <script type="text/babel" data-presets="kwreact">
-const { useState, useEffect } = React;
+const { useState, useEffect, useRef } = React;
 const CEREBRO_SB = window.CEREBRO_SB;
 const CEREBRO_ALLOWED = window.CEREBRO_ALLOWED || ['comptes','evenements'];
 
@@ -226,6 +226,67 @@ function affinityScore(position) {
   return Math.min(100, best + Math.min(15, (hits - 1) * 5));
 }
 
+// ── Critères d'évaluation : réglables dans l'interface, enregistrés dans l'espace privé de l'utilisateur ──
+const CRIT_KEY = "humetria:radar:netcrit";
+const MARKS_KEY = "humetria:radar:netmarks";
+const clampW = n => Math.max(0, Math.min(100, Math.round(Number(n) || 0)));
+const profileId = c => (((c && c.name) || "") + "|" + ((c && c.company) || "")).toLowerCase();
+// Lien LinkedIn d'un profil : l'URL de l'export CSV si elle existe (acceptée UNIQUEMENT si c'est bien linkedin.com : jamais de lien arbitraire),
+// sinon la recherche LinkedIn sur nom + entreprise (l'API de portabilité ne fournit pas l'URL). S'ouvre dans le navigateur de l'utilisateur, déjà connecté.
+const safeLinkedIn = u => {
+  let t = String(u || "").trim(); if (!t) return "";
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(t)) t = "https://" + t;
+  try { const x = new URL(t); return (x.protocol === "https:" || x.protocol === "http:") && /(^|\.)linkedin\.com$/i.test(x.hostname) ? x.href.replace(/^http:/, "https:") : ""; } catch (e) { return ""; }
+};
+const liLinkFor = c => { const u = safeLinkedIn(c && c.url); return u ? { href: u, direct: true } : { href: "https://www.linkedin.com/search/results/people/?keywords=" + encodeURIComponent([c && c.name, c && c.company].filter(Boolean).join(" ")), direct: false }; };
+function defaultCrit() {
+  return {
+    v: 1,
+    // Évaluation initiale : l'intitulé du poste (calcul d'origine) + critères ajoutés. « Open to work » : poids positif, réglable.
+    initial: { baseW: 100, crits: [{ id: "open", label: "Open to work", type: "flag", w: 30, kw: "", builtin: true }] },
+    // Fit du vivier : les 4 critères d'origine, mêmes poids et mêmes valeurs qu'avant (donc mêmes scores par défaut).
+    fit: NET_FIELDS.map(f => ({ key: f.key, label: f.label, w: Math.round(NET_W[f.key] * 100), opts: f.opts.map(o => ({ l: o, v: NET_V[f.key][o] })), builtin: true })),
+  };
+}
+function normalizeCrit(raw) {   // toute forme inattendue retombe sur les valeurs par défaut : jamais d'écran cassé
+  const d = defaultCrit();
+  if (!raw || typeof raw !== "object") return d;
+  const ini = raw.initial && typeof raw.initial === "object" ? raw.initial : {};
+  const crits = Array.isArray(ini.crits)
+    ? ini.crits.filter(k => k && typeof k.id === "string" && k.id).map(k => ({ id: k.id, label: String(k.label == null ? "" : k.label), type: k.type === "kw" ? "kw" : "flag", w: clampW(k.w), kw: typeof k.kw === "string" ? k.kw : (Array.isArray(k.kw) ? k.kw.join(", ") : ""), builtin: !!k.builtin }))
+    : d.initial.crits;
+  if (!crits.some(k => k.id === "open")) crits.unshift(d.initial.crits[0]);   // « Open to work » existe toujours (poids 0 = désactivé)
+  const fit = Array.isArray(raw.fit)
+    ? raw.fit.filter(f => f && typeof f.key === "string" && f.key && Array.isArray(f.opts)).map(f => ({ key: f.key, label: String(f.label == null ? "" : f.label), w: clampW(f.w), opts: f.opts.filter(o => o && o.l != null).map(o => ({ l: String(o.l), v: clampW(o.v) })), builtin: !!f.builtin }))
+    : d.fit;
+  return { v: 1, initial: { baseW: ini.baseW == null ? 100 : clampW(ini.baseW), crits }, fit: fit.length ? fit : d.fit };
+}
+// Évaluation initiale = moyenne pondérée : l'intitulé du poste (poids « baseW ») + chaque critère QUI S'APPLIQUE au profil (marque cochée, ou mot-clé trouvé), valant 100.
+// Un profil auquel aucun critère ne s'applique garde exactement son score d'intitulé ; un critère qui s'applique le tire vers le haut, d'autant plus que son poids est fort.
+function initialScore(c, ic, marks) {
+  const base = affinityScore(c.position), baseW = clampW(ic.baseW);
+  const m = (marks && marks[profileId(c)]) || {};
+  const hay = ((c.position || "") + " " + (c.company || "")).toLowerCase();
+  let num = baseW * base, den = baseW; const parts = [];
+  for (const k of ic.crits) {
+    const w = clampW(k.w); if (!w) continue;
+    const on = k.type === "flag" ? !!m[k.id] : String(k.kw || "").split(/[\n,]/).map(x => x.trim().toLowerCase()).filter(Boolean).some(x => hay.includes(x));
+    parts.push({ id: k.id, label: k.label, type: k.type, w, on });
+    if (on) { num += w * 100; den += w; }
+  }
+  return { score: den ? Math.round(num / den) : 0, base, parts };
+}
+// Fit du vivier = moyenne pondérée des valeurs d'option choisies (50 si pas encore noté), poids normalisés : mêmes scores qu'avant avec les poids par défaut.
+function fitScore(tags, fit) {
+  let sw = 0, s = 0;
+  for (const f of fit) {
+    const w = clampW(f.w); if (!w) continue;
+    const o = (f.opts || []).find(x => x.l === (tags || {})[f.key]);
+    sw += w; s += w * (o ? o.v : 50);
+  }
+  return sw ? Math.round(s / sw) : 0;
+}
+
 const CHANNELS = [
   { k: "linkedin_connect", l: "Connexion LinkedIn" },
   { k: "linkedin_message", l: "Message LinkedIn" },
@@ -290,6 +351,42 @@ const CSS = `
 
 .hr-link { background:none; border:none; color:var(--cyan); font-size:12px; cursor:pointer; font-family:'IBM Plex Mono',monospace; padding:0; letter-spacing:0.04em; }
 .hr-link:hover { text-decoration:underline; }
+/* Critères d'évaluation */
+.hr-crit-head { display:flex; justify-content:space-between; align-items:baseline; gap:12px; flex-wrap:wrap; }
+.hr-crit-grid { display:grid; grid-template-columns:minmax(0,1.5fr) minmax(0,1fr); gap:26px; align-items:start; }
+@media (max-width:900px) { .hr-crit-grid { grid-template-columns:1fr; } }
+.hr-crit-row { display:grid; grid-template-columns:minmax(0,1.25fr) minmax(110px,1fr) auto 26px; gap:10px 14px; align-items:center; padding:11px 0; border-bottom:1px solid var(--line); }
+.hr-crit-name { font-family:'Space Grotesk',sans-serif; font-size:14.5px; font-weight:600; display:block; }
+.hr-crit-sub { display:block; font-size:11.5px; color:var(--mute); line-height:1.4; margin-top:2px; }
+.hr-crit-inp { margin:0 0 6px; padding:8px 10px; font-size:14px; }
+.hr-crit-sel { margin:0; padding:7px 10px; font-size:12px; }
+.hr-crit-kw { margin:6px 0 4px; padding:8px 10px; font-size:13px; }
+.hr-range { width:100%; height:30px; accent-color:var(--cyan); cursor:pointer; margin:0; }
+.hr-crit-val { font-family:'IBM Plex Mono',monospace; font-size:15px; font-weight:600; color:var(--cyan); text-align:right; white-space:nowrap; min-width:30px; }
+.hr-crit-val small { font-size:10.5px; font-weight:400; color:var(--mute); }
+.hr-crit-opts { margin:2px 0 6px; font-size:12.5px; color:var(--mute); }
+.hr-crit-opts summary { cursor:pointer; padding:4px 0; }
+.hr-crit-opt { display:grid; grid-template-columns:minmax(0,1fr) 78px 26px; gap:8px; margin:5px 0; }
+.hr-crit-opt .hr-input { margin:0; padding:6px 9px; font-size:13px; }
+.hr-crit-rank { position:sticky; top:8px; background:var(--panel2); border:1px solid var(--line); border-radius:10px; padding:14px; }
+.hr-rank-row { display:grid; grid-template-columns:22px minmax(0,1fr) 34px 38px; gap:8px; align-items:center; padding:7px 0; border-bottom:1px solid var(--line); }
+.hr-rank-row:last-child { border-bottom:none; }
+.hr-rank-n { font-family:'IBM Plex Mono',monospace; font-size:12px; color:#4E5B67; text-align:right; }
+.hr-rank-name { font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:13.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.hr-rank-sub { font-size:11px; color:var(--mute); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.hr-rank-bar { height:4px; border-radius:3px; background:var(--line); margin-top:4px; overflow:hidden; }
+.hr-rank-bar i { display:block; height:100%; border-radius:3px; transition:width .12s linear; }
+.hr-rank-sc { font-family:'IBM Plex Mono',monospace; font-size:14px; font-weight:600; text-align:right; }
+.hr-rank-d { font-family:'IBM Plex Mono',monospace; font-size:11px; font-weight:600; min-height:14px; }
+.hr-flags { display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; }
+.hr-flag { background:var(--panel2); border:1px solid var(--line); color:var(--mute); border-radius:999px; padding:3px 10px; font-size:11.5px; cursor:pointer; font-family:'Inter',sans-serif; }
+.hr-flag:hover { border-color:var(--cyan); color:var(--paper); }
+.hr-flag.on { border-color:var(--green); color:var(--green); background:rgba(63,182,139,.12); }
+.hr-lilink { font-size:11.5px; color:var(--cyan); text-decoration:none; padding:3px 4px 3px 0; font-family:'IBM Plex Mono',monospace; letter-spacing:0.02em; }
+.hr-lilink:hover { text-decoration:underline; }
+.hr-flagdate { font-size:11px; color:var(--mute); padding:3px 2px; }
+.hr-flagdate.old { color:#E0A63C; }
+.hr-flag.auto { cursor:default; border-color:var(--green); color:var(--green); background:rgba(63,182,139,.12); }
 
 .hr-gauge-score { font-family:'IBM Plex Mono',monospace; font-weight:600; font-size:46px; line-height:1; }
 .hr-gauge-verdict { font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:14px; letter-spacing:0.14em; }
@@ -667,6 +764,12 @@ function RadarComptes() {
   const [liBusy, setLiBusy] = useState(false);
   const [liMsg, setLiMsg] = useState("");
   const [liLink, setLiLink] = useState("");
+  const [crit, setCrit] = useState(defaultCrit);
+  const [marks, setMarks] = useState({});
+  const [critOpen, setCritOpen] = useState(true);
+  const [critTab, setCritTab] = useState("initial");
+  const [refRanks, setRefRanks] = useState(null);
+  const adjTimer = useRef(null);
   useEffect(() => { if (tab === "talents") liRefresh(); }, [tab]);
 
   useEffect(() => {
@@ -683,6 +786,8 @@ function RadarComptes() {
       await load(NETWORK_KEY, setNetwork);
       await load(NETKW_KEY, setNetKeywords);
       await load(CONTACTS_KEY, setContacts);
+      await load(CRIT_KEY, v => setCrit(normalizeCrit(v)));
+      await load(MARKS_KEY, v => setMarks(v && typeof v === "object" && !Array.isArray(v) ? v : {}));
       await load(SIGNALS_KEY, v => { storedSignals = Array.isArray(v) ? v : []; });
       await load(SIGLIB_KEY, setSiglib);
       await load(FEEDBACK_KEY, setFeedback);
@@ -704,6 +809,8 @@ function RadarComptes() {
   const persistNetwork = v => { setNetwork(v); save(NETWORK_KEY, v); };
   const persistNetKw = v => { setNetKeywords(v); save(NETKW_KEY, v); };
   const persistContacts = v => { setContacts(v); save(CONTACTS_KEY, v); };
+    const persistCrit = v => { const n = normalizeCrit(v); setCrit(n); save(CRIT_KEY, n); };
+    const persistMarks = v => { setMarks(v); save(MARKS_KEY, v); };
   const persistIcp = v => { setIcp(v); save(ICP_KEY, v); };
   const persistKnown = v => { setKnown(v); save(KNOWN_KEY, v); };
   const persistSigProspects = v => { setSigProspects(v); save(SIGNALS_KEY, v); };
@@ -1170,20 +1277,27 @@ ${talentMaterial.trim()}`;
         if (hIdx < 0) hIdx = 0;
         const header = rows[hIdx].map(h => h.trim().toLowerCase());
         const col = (...names) => header.findIndex(h => names.some(n => h === n || h.includes(n)));
-        const iFirst = col("first name", "prénom"), iLast = col("last name", "nom de famille"), iName = col("full name", "name", "nom complet"), iPos = col("position", "job title", "intitulé", "poste", "titre"), iComp = col("company", "entreprise", "organisation", "société");
+        const iFirst = col("first name", "prénom"), iLast = col("last name", "nom de famille"), iName = (col("first name", "prénom") >= 0 && col("last name", "nom de famille") >= 0) ? -1 : col("full name", "name", "nom complet"), iPos = col("position", "job title", "intitulé", "poste", "titre"), iComp = col("company", "entreprise", "organisation", "société");
+        const iUrl = (() => { let i = header.findIndex(h => h === "url" || h === "profile url" || h === "linkedin url" || h === "linkedin profile url" || h === "profil linkedin"); if (i < 0) i = header.findIndex(h => h.includes("linkedin") && (h.includes("url") || h.includes("profil"))); return i; })();
+        const iOpen = col("open to work", "opentowork", "open_to_work", "disponible", "en recherche d"); const openPatch = {};
         const out = [];
         for (let r = hIdx + 1; r < rows.length; r++) {
           const row = rows[r];
           const name = (iName >= 0 ? (row[iName] || "") : [row[iFirst], row[iLast]].filter(Boolean).join(" ")).trim();
           if (!name) continue;
-          out.push({ name, position: (iPos >= 0 ? (row[iPos] || "") : "").trim(), company: (iComp >= 0 ? (row[iComp] || "") : "").trim() });
+          const co = { name, position: (iPos >= 0 ? (row[iPos] || "") : "").trim(), company: (iComp >= 0 ? (row[iComp] || "") : "").trim() };
+          if (iUrl >= 0) { const lu = safeLinkedIn(row[iUrl]); if (lu) co.url = lu; }
+          out.push(co);
+          if (iOpen >= 0 && /^(1|true|yes|oui|y|x|open|open to work|opentowork|actif|disponible)$/i.test(String(row[iOpen] || "").trim())) openPatch[profileId(co)] = true;
         }
         if (!out.length) throw new Error("aucun contact lisible (colonnes nom/poste introuvables)");
         const map = new Map(contacts.map(c => [(c.name + "|" + c.company).toLowerCase(), c]));
-        for (const c of out) map.set((c.name + "|" + c.company).toLowerCase(), c);
+        for (const c of out) { const k = (c.name + "|" + c.company).toLowerCase(); map.set(k, { ...(map.get(k) || {}), ...c }); }   // fusion : l'URL déjà connue n'est pas perdue
         const merged = [...map.values()];
         persistContacts(merged); setNetErr("");
-        setImportMsg(out.length + " lus · " + merged.length + " contacts au total (sauvegardés).");
+        const nOpen = Object.keys(openPatch).length;
+        if (nOpen) { const all = { ...marks }; for (const id in openPatch) all[id] = { ...(all[id] || {}), open: true, _t: new Date().toISOString().slice(0, 10) }; persistMarks(all); }
+        setImportMsg(out.length + " lus · " + merged.length + " contacts au total (sauvegardés)." + (nOpen ? " " + nOpen + " profil(s) « Open to work » repris du fichier." : ""));
       } catch (err) { setNetErr("Import impossible — " + (err?.message || "format non reconnu")); }
     };
     reader.readAsText(file);
@@ -1250,6 +1364,50 @@ ${talentMaterial.trim()}`;
     catch (e) { setLiMsg("Déconnexion impossible — " + ((e && e.message) || "erreur")); }
     finally { setLiBusy(false); }
   }
+
+  // ── Critères d'évaluation : classement, réglages, marques ──
+  const kwsList = netKeywords.split(/[\n,]/).map(s => s.trim().toLowerCase()).filter(Boolean);
+  function getMatches() {   // contacts au profil ciblé, classés par évaluation initiale (même liste que celle affichée plus bas)
+    const inNet = new Set(network.map(n => n.id));
+    return contacts
+      .filter(c => c.position && kwsList.some(k => c.position.toLowerCase().includes(k)) && !inNet.has(profileId(c)))
+      .map(c => { const r = initialScore(c, crit.initial, marks); return { ...c, aff: r.score, base: r.base, parts: r.parts, pid: profileId(c) }; })
+      .sort((a, b) => b.aff - a.aff);
+  }
+  function fitRanked() { return [...network].map(n => ({ n, sc: fitScore(n.tags, crit.fit) })).sort((a, b) => b.sc - a.sc); }
+  function rankIds(tabName) { return tabName === "fit" ? fitRanked().map(x => x.n.id) : getMatches().map(c => c.pid); }
+  function startAdjust() {   // mémorise le classement AVANT le réglage pour afficher les places gagnées / perdues (oublié 5 s après le dernier geste)
+    clearTimeout(adjTimer.current);
+    if (!refRanks) { const m = {}; rankIds(critTab).forEach((id, i) => { m[id] = i + 1; }); setRefRanks(m); }
+    adjTimer.current = setTimeout(() => setRefRanks(null), 5000);
+  }
+  function toggleMark(pid, cid) {
+    const cur = { ...(marks[pid] || {}) }; if (cur[cid]) delete cur[cid]; else cur[cid] = true;
+    const any = Object.keys(cur).some(k => k !== "_t");
+    if (any) cur._t = new Date().toISOString().slice(0, 10); else delete cur._t;   // date de la dernière marque : le statut LinkedIn évolue vite
+    const all = { ...marks }; if (any) all[pid] = cur; else delete all[pid];
+    persistMarks(all);
+  }
+  function updInit(patch) { persistCrit({ ...crit, initial: { ...crit.initial, ...patch } }); }
+  function updInitCrit(id, patch) { updInit({ crits: crit.initial.crits.map(k => k.id === id ? { ...k, ...patch } : k) }); }
+  function addInitCrit() { const id = "c" + Date.now().toString(36); updInit({ crits: [...crit.initial.crits, { id, label: "Nouveau critère", type: "flag", w: 20, kw: "", builtin: false }] }); }
+  function delInitCrit(id) {
+    if (!window.confirm("Supprimer ce critère ? Les marques posées sur les profils pour ce critère sont effacées.")) return;
+    updInit({ crits: crit.initial.crits.filter(k => k.id !== id) });
+    const all = {}; for (const pid in marks) { const m = { ...marks[pid] }; delete m[id]; if (Object.keys(m).some(k => k !== "_t")) all[pid] = m; } persistMarks(all);
+  }
+  function updFit(key, patch) { persistCrit({ ...crit, fit: crit.fit.map(f => f.key === key ? { ...f, ...patch } : f) }); }
+  function addFit() { const key = "c" + Date.now().toString(36); persistCrit({ ...crit, fit: [...crit.fit, { key, label: "Nouveau critère", w: 20, opts: [{ l: "oui", v: 100 }, { l: "partiel", v: 55 }, { l: "non", v: 15 }], builtin: false }] }); }
+  function delFit(key) { if (!window.confirm("Supprimer ce critère ? Il disparaît de la notation du vivier.")) return; persistCrit({ ...crit, fit: crit.fit.filter(f => f.key !== key) }); }
+  function updOpt(key, idx, patch) {
+    const f = crit.fit.find(x => x.key === key); if (!f) return;
+    const old = f.opts[idx];
+    updFit(key, { opts: f.opts.map((o, i) => i === idx ? { ...o, ...patch } : o) });
+    if (patch.l !== undefined && old && patch.l !== old.l) persistNetwork(network.map(n => n.tags && n.tags[key] === old.l ? { ...n, tags: { ...n.tags, [key]: patch.l } } : n));   // les profils déjà notés suivent le renommage
+  }
+  function addOpt(key) { const f = crit.fit.find(x => x.key === key); if (f) updFit(key, { opts: [...f.opts, { l: "option " + (f.opts.length + 1), v: 50 }] }); }
+  function delOpt(key, idx) { const f = crit.fit.find(x => x.key === key); if (f && f.opts.length > 2) updFit(key, { opts: f.opts.filter((_, i) => i !== idx) }); }
+  function resetCrit() { if (window.confirm("Remettre tous les critères et leurs poids par défaut ? Les critères ajoutés sont supprimés (les marques posées sur les profils sont conservées).")) { setRefRanks(null); persistCrit(defaultCrit()); } }
 
   function addToNetwork(c) {
     const id = (c.name + "|" + c.company).toLowerCase();
@@ -1366,6 +1524,8 @@ Signaux : ${(result.signals || []).join(" ; ") || "—"}`;
     if (Array.isArray(data.network)) persistNetwork(data.network);
     if (typeof data.netKeywords === "string") persistNetKw(data.netKeywords);
     if (Array.isArray(data.contacts)) persistContacts(data.contacts);
+    if (data.netCrit && typeof data.netCrit === "object") persistCrit(data.netCrit);
+    if (data.netMarks && typeof data.netMarks === "object" && !Array.isArray(data.netMarks)) persistMarks(data.netMarks);
     if (Array.isArray(data.icp)) persistIcp(data.icp);
     if (Array.isArray(data.known)) persistKnown(data.known);
     setResult(null);
@@ -1373,7 +1533,7 @@ Signaux : ${(result.signals || []).join(" ; ") || "—"}`;
 
   function exportData() {
     try {
-      const payload = { app: "cerebro", version: 7, exportedAt: new Date().toISOString(), accounts, candidates, events, talents, playbook, network, netKeywords, contacts, icp, known, signals: sigProspects, siglib, feedback };
+      const payload = { app: "cerebro", version: 7, exportedAt: new Date().toISOString(), accounts, candidates, events, talents, playbook, network, netKeywords, contacts, netCrit: crit, netMarks: marks, icp, known, signals: sigProspects, siglib, feedback };
       const json = JSON.stringify(payload, null, 2);
       setExportText(json); // toujours affiché et copiable, même si le téléchargement est bloqué
       try {
@@ -1869,26 +2029,127 @@ Signaux : ${(result.signals || []).join(" ; ") || "—"}`;
           <p className="hr-caption" style={{ marginTop: 10 }}>LinkedIn : Réglages → Confidentialité des données → Obtenir une copie de vos données → Connexions. Le CSV est lu dans ton navigateur, puis enregistré dans ton espace privé Supabase : toi seul y accèdes, ni l'équipe ni les autres utilisateurs. Seul le contact pour lequel tu demandes un brouillon de message est transmis à l'IA (nom, poste, entreprise). Réimporte d'autres fichiers pour les fusionner.</p>
         </div>
 
+        {/* Critères d'évaluation : curseurs, classement en direct, ajout et modification des critères */}
+        <div className="hr-card cerebro hr-crit-card">
+          <div className="hr-crit-head">
+            <p className="hr-cerebro-title">◎ CRITÈRES D'ÉVALUATION</p>
+            <span><button className="hr-link" onClick={resetCrit}>valeurs par défaut</button><button className="hr-link" style={{ marginLeft: 14 }} onClick={() => setCritOpen(v => !v)}>{critOpen ? "masquer" : "afficher ▸"}</button></span>
+          </div>
+          {critOpen && (<>
+            <p className="hr-cerebro-sub">Déplace un curseur : le classement des profils se recalcule en direct (les flèches indiquent les places gagnées ou perdues depuis le début de ton réglage). Le poids d'un critère est son influence sur le score ; 0 l'ignore.</p>
+            <div className="hr-seg" style={{ marginBottom: 8 }}>
+              <button className={critTab === "initial" ? "on" : ""} onClick={() => { setCritTab("initial"); setRefRanks(null); }}>1 · Évaluation initiale (contacts)</button>
+              <button className={critTab === "fit" ? "on" : ""} onClick={() => { setCritTab("fit"); setRefRanks(null); }}>2 · Fit du vivier</button>
+            </div>
+            <div className="hr-crit-grid">
+              <div>
+                {critTab === "initial" ? (<>
+                  <div className="hr-crit-row">
+                    <div><b className="hr-crit-name">Intitulé du poste</b><span className="hr-crit-sub">affinité lean / transformation / excellence op, calculée automatiquement sur l'intitulé</span></div>
+                    <input type="range" className="hr-range" min="0" max="100" value={crit.initial.baseW} aria-label="Poids de l'intitulé du poste" onChange={e => { startAdjust(); updInit({ baseW: clampW(e.target.value) }); }} />
+                    <span className="hr-crit-val">{crit.initial.baseW}</span>
+                    <span />
+                  </div>
+                  {crit.initial.crits.map(k => (
+                    <div key={k.id}>
+                      <div className="hr-crit-row">
+                        <div>
+                          <input className="hr-input hr-crit-inp" value={k.label} placeholder="Nom du critère" aria-label="Nom du critère" onChange={e => updInitCrit(k.id, { label: e.target.value })} />
+                          <select className="hr-select hr-crit-sel" value={k.type} disabled={!!k.builtin} aria-label="Type de critère" onChange={e => updInitCrit(k.id, { type: e.target.value })}>
+                            <option value="flag">Case à cocher : marque posée à la main sur chaque profil</option>
+                            <option value="kw">Mots-clés : cherchés dans l'intitulé du poste et l'entreprise</option>
+                          </select>
+                        </div>
+                        <input type="range" className="hr-range" min="0" max="100" value={k.w} aria-label={"Poids : " + (k.label || "critère")} onChange={e => { startAdjust(); updInitCrit(k.id, { w: clampW(e.target.value) }); }} />
+                        <span className="hr-crit-val">{k.w}</span>
+                        {k.builtin ? <span /> : <button className="hr-del" onClick={() => delInitCrit(k.id)} title="Supprimer ce critère">×</button>}
+                      </div>
+                      {k.type === "kw" && <input className="hr-input hr-crit-kw" value={k.kw} placeholder="mots-clés séparés par des virgules (ex. danone, agroalimentaire)" aria-label="Mots-clés du critère" onChange={e => updInitCrit(k.id, { kw: e.target.value })} />}
+                    </div>
+                  ))}
+                  <div style={{ marginTop: 12 }}><button className="hr-mini" onClick={addInitCrit}>+ Ajouter un critère</button></div>
+                  <p className="hr-caption" style={{ margin: "10px 0 0" }}>« Case à cocher » : le poids s'ajoute aux profils où tu coches le critère (boutons sous chaque profil). « Mots-clés » : il s'ajoute automatiquement aux profils dont l'intitulé ou l'entreprise contient un mot-clé. « Open to work » ne figure ni dans l'export LinkedIn ni dans son API : clique « Voir le profil ↗ » sous un contact (la page s'ouvre dans ton navigateur, où tu es connecté à LinkedIn) et regarde la photo, puis coche la puce ; la date de ta marque s'affiche. Si la personne a réservé ce statut aux recruteurs, il reste invisible. Une colonne « Open to work » dans ton CSV est reprise automatiquement. Un profil sans le critère garde son score.</p>
+                </>) : (<>
+                  {crit.fit.map(f => {
+                    const tot = crit.fit.reduce((acc, x) => acc + clampW(x.w), 0) || 1;
+                    return (
+                      <div key={f.key}>
+                        <div className="hr-crit-row">
+                          <div><input className="hr-input hr-crit-inp" value={f.label} placeholder="Nom du critère" aria-label="Nom du critère" onChange={e => updFit(f.key, { label: e.target.value })} /></div>
+                          <input type="range" className="hr-range" min="0" max="100" value={f.w} aria-label={"Poids : " + (f.label || "critère")} onChange={e => { startAdjust(); updFit(f.key, { w: clampW(e.target.value) }); }} />
+                          <span className="hr-crit-val">{f.w}<small> · {Math.round(clampW(f.w) / tot * 100)} %</small></span>
+                          {f.builtin ? <span /> : <button className="hr-del" onClick={() => delFit(f.key)} title="Supprimer ce critère">×</button>}
+                        </div>
+                        <details className="hr-crit-opts">
+                          <summary>Options et valeurs ({f.opts.length})</summary>
+                          {f.opts.map((o, i) => (
+                            <div key={i} className="hr-crit-opt">
+                              <input className="hr-input" value={o.l} aria-label="Libellé de l'option" onChange={e => updOpt(f.key, i, { l: e.target.value })} />
+                              <input className="hr-input" type="number" min="0" max="100" value={o.v} aria-label={"Valeur de l'option " + o.l} onChange={e => { startAdjust(); updOpt(f.key, i, { v: clampW(e.target.value) }); }} />
+                              <button className="hr-del" onClick={() => delOpt(f.key, i)} disabled={f.opts.length <= 2} title="Retirer cette option">×</button>
+                            </div>
+                          ))}
+                          <button className="hr-link" onClick={() => addOpt(f.key)}>+ option</button>
+                        </details>
+                      </div>
+                    );
+                  })}
+                  <div style={{ marginTop: 12 }}><button className="hr-mini" onClick={addFit}>+ Ajouter un critère</button></div>
+                  <p className="hr-caption" style={{ margin: "10px 0 0" }}>Le score d'un profil du vivier est la moyenne pondérée des valeurs (0 à 100) des options que tu as choisies pour chaque critère ; un critère non encore noté compte pour 50. Avec les réglages par défaut, les scores sont ceux d'avant.</p>
+                </>)}
+              </div>
+              <div className="hr-crit-rank">
+                <p className="hr-section-title" style={{ marginBottom: 8 }}>Classement en direct · {critTab === "fit" ? "vivier" : "contacts"}</p>
+                {(() => {
+                  const rows = critTab === "fit"
+                    ? fitRanked().map(x => ({ id: x.n.id, name: x.n.name, sub: [x.n.position, x.n.company].filter(Boolean).join(" · "), score: x.sc }))
+                    : getMatches().map(c => ({ id: c.pid, name: c.name, sub: [c.position, c.company].filter(Boolean).join(" · "), score: c.aff }));
+                  if (!rows.length) return <p className="hr-caption" style={{ margin: 0 }}>{critTab === "fit" ? "Ajoute des profils au vivier (bouton « + Vivier ») pour voir leur classement." : "Importe des contacts, ou élargis les mots-clés de filtrage, pour voir leur classement."}</p>;
+                  return rows.slice(0, 10).map((r, i) => {
+                    const col = talentVerdict(r.score).color; const ref = refRanks && refRanks[r.id]; const d = ref ? ref - (i + 1) : 0;
+                    return (
+                      <div key={r.id} className="hr-rank-row">
+                        <span className="hr-rank-n">{i + 1}</span>
+                        <div className="hr-rank-mid">
+                          <div className="hr-rank-name">{r.name}</div>
+                          <div className="hr-rank-sub">{r.sub}</div>
+                          <div className="hr-rank-bar"><i style={{ width: r.score + "%", background: col }} /></div>
+                        </div>
+                        <span className="hr-rank-sc" style={{ color: col }}>{r.score}</span>
+                        <span className="hr-rank-d" style={{ color: d > 0 ? "var(--green)" : "#C15B57" }}>{d > 0 ? "▲" + d : d < 0 ? "▼" + (-d) : ""}</span>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+            </div>
+          </>)}
+        </div>
+
         {/* Contacts filtrés */}
         {contacts.length > 0 && (() => {
-          const kws = netKeywords.split(/[\n,]/).map(s => s.trim().toLowerCase()).filter(Boolean);
-          const inNet = new Set(network.map(n => n.id));
-          const matches = contacts
-            .filter(c => c.position && kws.some(k => c.position.toLowerCase().includes(k)) && !inNet.has((c.name + "|" + c.company).toLowerCase()))
-            .map(c => ({ ...c, aff: affinityScore(c.position) }))
-            .sort((a, b) => b.aff - a.aff);
+          const matches = getMatches();
           return (
             <div style={{ marginBottom: 16 }}>
               <p className="hr-section-title" style={{ padding: "0 4px" }}>{matches.length} contacts au profil ciblé · {contacts.length} importés</p>
-              <p className="hr-caption" style={{ padding: "0 4px", marginBottom: 8 }}>Affinité = correspondance de l'intitulé avec le profil transfo/lean/excellence-op. C'est un tri pour prioriser qui regarder — pas un verdict. Le vrai fit se note dans le Vivier.</p>
-              {matches.slice(0, 60).map((c, i) => {
+              <p className="hr-caption" style={{ padding: "0 4px", marginBottom: 8 }}>Score = affinité de l'intitulé du poste, ajustée par les critères ci-dessus (Open to work, critères ajoutés). C'est un tri pour prioriser qui regarder — pas un verdict. Le vrai fit se note dans le Vivier.</p>
+              {matches.slice(0, 60).map(c => {
                 const col = talentVerdict(c.aff).color;
+                const tip = "Intitulé du poste : " + c.base + " (poids " + crit.initial.baseW + ")" + c.parts.filter(p => p.on).map(p => " · " + (p.label || "critère") + " : oui (poids " + p.w + ")").join("");
                 return (
-                  <div key={i} className="hr-cb" style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    <span title="Affinité de poste" style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 15, fontWeight: 600, color: col, width: 30, textAlign: "right", flexShrink: 0 }}>{c.aff}</span>
+                  <div key={c.pid} className="hr-cb" style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <span title={tip} style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 15, fontWeight: 600, color: col, width: 30, textAlign: "right", flexShrink: 0 }}>{c.aff}</span>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div className="hr-cb-name">{c.name}</div>
                       <div className="hr-cb-meta" style={{ color: "var(--mute)" }}>{[c.position, c.company].filter(Boolean).join(" · ")}</div>
+                      <div className="hr-flags">
+                        {(() => { const l = liLinkFor(c); return <a className="hr-lilink" href={l.href} target="_blank" rel="noopener noreferrer" title={l.direct ? "Ouvre son profil LinkedIn dans ton navigateur (tu y es connecté) : la mention « Open to work » figure autour de la photo" : "Pas d'URL de profil dans tes données : ouvre la recherche LinkedIn sur son nom et son entreprise (vérifie que c'est la bonne personne)"}>{l.direct ? "Voir le profil ↗" : "Chercher sur LinkedIn ↗"}</a>; })()}
+                        {crit.initial.crits.filter(k => k.type === "flag").map(k => (
+                          <button key={k.id} className={"hr-flag" + (((marks[c.pid] || {})[k.id]) ? " on" : "")} onClick={() => toggleMark(c.pid, k.id)} title="Marquer ou démarquer ce profil">{k.label || "(sans nom)"}</button>
+                        ))}
+                        {c.parts.filter(p => p.on && p.type === "kw").map(p => <span key={p.id} className="hr-flag auto">✓ {p.label || "critère"}</span>)}
+                        {(() => { const t = (marks[c.pid] || {})._t; if (!t) return null; const age = Math.floor((Date.now() - new Date(t).getTime()) / 864e5); return <span className={"hr-flagdate" + (age > 45 ? " old" : "")} title="Date de la dernière marque. Le statut LinkedIn change vite : pense à revérifier les marques anciennes.">{age > 45 ? "à revérifier · " : ""}marqué le {new Date(t).toLocaleDateString("fr-FR")}</span>; })()}
+                      </div>
                     </div>
                     <button className="hr-mini" onClick={() => addToNetwork(c)}>+ Vivier</button>
                   </div>
@@ -1904,8 +2165,9 @@ Signaux : ${(result.signals || []).join(" ; ") || "—"}`;
         {network.length > 0 && (
           <div>
             <p className="hr-section-title" style={{ padding: "0 4px" }}>Vivier · {network.length}</p>
-            {[...network].sort((a, b) => netScore(b.tags) - netScore(a.tags)).map(n => {
-              const sc = netScore(n.tags); const v = talentVerdict(sc);
+            {fitRanked().map(({ n, sc }) => {
+              const v = talentVerdict(sc);
+              const openOn = (marks[n.id] || {}).open; const openLbl = ((crit.initial.crits.find(k => k.id === "open")) || {}).label || "Open to work";
               return (
                 <div key={n.id} className="hr-cb">
                   <div className="hr-cb-head">
@@ -1914,14 +2176,15 @@ Signaux : ${(result.signals || []).join(" ; ") || "—"}`;
                       <div className="hr-cb-name">{n.name}</div>
                       <div className="hr-cb-meta" style={{ color: "var(--mute)" }}>{[n.position, n.company].filter(Boolean).join(" · ")}</div>
                     </div>
+                    {openOn && <span className="hr-flag auto">{openLbl}</span>}
                     <span className="hr-badge" style={{ color: v.color, background: v.color + "22" }}>{v.label}</span>
                     <button className="hr-del" onClick={() => removeNetwork(n.id)} title="Retirer">×</button>
                   </div>
-                  {NET_FIELDS.map(f => (
+                  {crit.fit.map(f => (
                     <div key={f.key} className="hr-nettag">
                       <span className="hr-nettag-k">{f.label}</span>
                       <div className="hr-seg">
-                        {f.opts.map(o => <button key={o} className={n.tags[f.key] === o ? "on" : ""} onClick={() => setTag(n.id, f.key, o)}>{o}</button>)}
+                        {f.opts.map((o, i) => <button key={i} className={n.tags[f.key] === o.l ? "on" : ""} onClick={() => setTag(n.id, f.key, o.l)}>{o.l}</button>)}
                       </div>
                     </div>
                   ))}
@@ -1929,6 +2192,7 @@ Signaux : ${(result.signals || []).join(" ; ") || "—"}`;
                     <button className="hr-mini" onClick={() => draftReconnect(n.id)} disabled={draftingId === n.id}>
                       {draftingId === n.id ? <><span className="hr-spin" />…</> : (n.draft ? "Régénérer la reprise ▸" : "Rédiger la reprise de contact ▸")}
                     </button>
+                    {(() => { const l = liLinkFor(contacts.find(x => profileId(x) === n.id) || n); return <a className="hr-lilink" style={{ marginLeft: 12 }} href={l.href} target="_blank" rel="noopener noreferrer">{l.direct ? "Voir le profil ↗" : "Chercher sur LinkedIn ↗"}</a>; })()}
                   </div>
                   {Array.isArray(n.draft) && n.draft.map((d, i) => (
                     <div key={i} className="hr-variant">
@@ -1939,7 +2203,7 @@ Signaux : ${(result.signals || []).join(" ; ") || "—"}`;
                 </div>
               );
             })}
-            <p className="hr-caption">Score = TON évaluation terrain (tu as vu ces gens travailler), pas une devinette de l'IA. Remplace tout [marqueur] par votre projet réel avant d'envoyer.</p>
+            <p className="hr-caption">Score = TON évaluation terrain (tu as vu ces gens travailler), pondérée par les critères ci-dessus, pas une devinette de l'IA. Remplace tout [marqueur] par votre projet réel avant d'envoyer.</p>
           </div>
         )}
 
