@@ -593,7 +593,7 @@
 // Réalisation/Synthèse : dictée des échanges -> CR prêt à copier + actions décidées
 // créées dans la feuille Actions (avec n°, pilote, quadrant). CR historisés.
 (function(){
-  var CR_ROOT='view', CR_REFS=null, CR_LIST=[], CR_CUR=null, CR_BUSY=false, CR_MSG='';
+  var CR_ROOT='view', CR_REFS=null, CR_LIST=[], CR_CUR=null, CR_BUSY=false, CR_MSG='', CR_DEL={}, CR_LOCKOK=false;
   var CR_REC=null, CR_RECORDING=false, CR_DICT='';
   var CR_EDIT_PREP=false, CR_EDIT_SYNTH=false;
 
@@ -633,6 +633,29 @@
   }
   var CR_LOCK_TTL=25*60*1000;
   function crUid(){ return (SB_SESSION&&SB_SESSION.user&&SB_SESSION.user.id)||null; }
+
+  /* ---------- Verrou posé par l'AUTEUR (cr_verrou.sql) ---------- */
+  function crIsLocked(c){ return !!(c && c.verrouille_le); }
+  function crIsMine(c){ var u=crUid(); return !!(u && c && c.auteur_id && String(c.auteur_id)===String(u)); }
+  function crIsDirection(){ try{ return typeof CURRENT_ROLE!=='undefined' && CURRENT_ROLE==='eric'; }catch(_){ return false; } }   // indication d'écran seulement : la base décide
+  function crCanLock(c){ return !!(CR_LOCKOK && c && c.id && !crIsLocked(c) && (crIsMine(c) || (!c.auteur_id && crIsDirection()))); }
+  function crCanUnlock(c){ return !!(CR_LOCKOK && c && c.id && crIsLocked(c) && (crIsMine(c) || crIsDirection())); }
+  function crLockWho(c){ var p=((CR_REFS&&CR_REFS.pilotes)||[]).filter(function(x){ return x.user_id && String(x.user_id)===String(c.verrouille_par); })[0]; return p?p.nom:(String(c.verrouille_par)===String(crUid())?'vous':'son auteur'); }
+  function crLockDate(c){ try{ var d=new Date(c.verrouille_le); return d.toLocaleDateString('fr-FR')+' à '+d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}); }catch(_){ return ''; } }
+  /* CR verrouillé : tout est en lecture seule, sauf quitter, copier, envoyer par mail et (si l'on en a le droit) déverrouiller. La base refuse de toute façon toute modification. */
+  function crApplyLock(z){
+    var keep=/^\s*cr(Back|Copy|CopyPrep|Mail|Lock)\(/;
+    [].slice.call(z.querySelectorAll('input,textarea,select')).forEach(function(el){
+      if(el.tagName==='TEXTAREA'||(el.tagName==='INPUT'&&(el.type==='text'||el.type==='date'))) el.readOnly=true; else el.disabled=true;   // lecture seule : le texte reste sélectionnable et copiable
+    });
+    [].slice.call(z.querySelectorAll('button')).forEach(function(b){ if(!keep.test(b.getAttribute('onclick')||'')) b.style.display='none'; });
+  }
+  function crLockBar(d){
+    if(!(CR_LOCKOK&&d&&d.id&&crIsLocked(d))) return '';
+    return '<div class="crLockBar" role="status" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#f3ede1;border:1px solid rgba(86,10,15,.25);border-left:5px solid #560A0F;border-radius:8px;padding:9px 12px;margin-bottom:8px;font-size:12.5px;color:#560A0F;"><span>🔒 <b>Compte-rendu verrouillé</b> par '+e(crLockWho(d))+' le '+e(crLockDate(d))+' : son contenu ne peut plus être modifié ni supprimé.</span>'
+      +((CR_ROOT!=='obxCR'&&crCanUnlock(d))?'<button class="add-btn sm" onclick="crLock(false)" type="button" style="margin-left:auto;background:#fff;color:#560A0F;border:1px solid #560A0F;">🔓 Déverrouiller</button>':'')+'</div>';
+  }
+  function crSaveLockBtn(d){ return (CR_LOCKOK&&CR_ROOT!=='obxCR'&&!crIsLocked(d)&&(!d.id||crCanLock(d)))?'<button class="add-btn" onclick="crSaveLock()" type="button" title="Enregistre puis verrouille : plus personne ne pourra modifier ce CR sans le déverrouiller" style="background:#fff;color:#560A0F;border:1px solid #560A0F;">🔒 Enregistrer et verrouiller</button>':''; }
   function crLockName(uid){ if(!uid) return ''; var p=((CR_REFS&&CR_REFS.pilotes)||[]).find(function(x){return x.user_id===uid;}); return p?p.nom:'un autre utilisateur'; }
   function crLockFresh(c){ if(!c||!c.transcription_par||!c.transcription_le) return false; var age=Date.now()-new Date(c.transcription_le).getTime(); return age>=0 && age<CR_LOCK_TTL; }
   function crLockActiveOther(c){ return crLockFresh(c) && c.transcription_par!==crUid(); }
@@ -648,8 +671,14 @@
     CR_REFS={thematiques:(th&&th.data)||[], pilotes:(pi&&pi.data)||[]};
   }
   async function crLoadList(){
-    var q=await SB.from('comptes_rendus').select('id,numero,titre,date_reunion,interlocuteur_id,statut,created_at,transcription_par,transcription_le').order('numero',{ascending:false});
+    var base='id,numero,titre,date_reunion,interlocuteur_id,statut,created_at,transcription_par,transcription_le';
+    var q=await SB.from('comptes_rendus').select(base+',auteur_id,verrouille_le,verrouille_par').order('numero',{ascending:false});
+    if(q&&q.error){ CR_LOCKOK=false; q=await SB.from('comptes_rendus').select(base).order('numero',{ascending:false}); }   // verrou pas encore installé en base : liste d'avant
+    else { CR_LOCKOK=true; }
     CR_LIST=(q&&q.data)?q.data:[];
+    /* Suppression réservée à l'ANIMATEUR de la réunion (AIC : animateur de l'espace ; Obeya : animateur de l'Obeya) : la base dit quels CR sont concernés. */
+    CR_DEL={};
+    try{ var dq=await SB.rpc('cr_supprimables'); if(dq&&!dq.error&&Array.isArray(dq.data)) dq.data.forEach(function(x){ var id=(x&&typeof x==='object')?Object.keys(x).map(function(k){return x[k];})[0]:x; if(id) CR_DEL[String(id)]=true; }); }catch(_){}
   }
 
   window.renderCRSheet=async function(rootId){
@@ -663,6 +692,7 @@
   function crRepaint(){
     var z=document.getElementById(CR_ROOT); if(!z) return;
     z.innerHTML = CR_CUR ? crEditorHtml() : crListHtml();
+    if(CR_CUR&&CR_LOCKOK&&crIsLocked(CR_CUR)) crApplyLock(z);
   }
 
   // ---------- Liste des CR ----------
@@ -675,8 +705,10 @@
       var st=c.statut==='cloture'?'clôturé':(c.statut==='tenue'?'tenue':'préparation');
       return '<div style="display:flex;gap:10px;align-items:center;padding:9px 6px;border-bottom:1px solid rgba(86,10,15,.10);">'
         +'<div style="flex:1;min-width:0;"><span style="font-size:11px;color:var(--muted);">CR #'+(c.numero||'?')+'</span> <span style="font-size:13px;font-weight:600;color:#560A0F;">'+e(c.titre||'(sans titre)')+'</span>'
-        +'<div class="edit-hint" style="margin-top:2px;">'+(c.date_reunion||'')+(c.interlocuteur_id?(' · '+e(piloteNom(c.interlocuteur_id))):'')+' · '+st+(crLockFresh(c)?(' · <span style="color:#c0392b;font-weight:700;">🔴 transcription en cours'+(crLockName(c.transcription_par)?(' ('+e(crLockName(c.transcription_par))+')'):'')+'</span>'):'')+'</div></div>'
-        +'<button class="add-btn sm" onclick="crOpen(\''+c.id+'\')" type="button" style="flex:0 0 auto;">Ouvrir</button></div>';
+        +'<div class="edit-hint" style="margin-top:2px;">'+(c.date_reunion||'')+(c.interlocuteur_id?(' · '+e(piloteNom(c.interlocuteur_id))):'')+' · '+st+((CR_LOCKOK&&crIsLocked(c))?' · <span style="color:#560A0F;font-weight:700;" title="Verrouillé par son auteur : contenu non modifiable">🔒 verrouillé</span>':'')+(crLockFresh(c)?(' · <span style="color:#c0392b;font-weight:700;">🔴 transcription en cours'+(crLockName(c.transcription_par)?(' ('+e(crLockName(c.transcription_par))+')'):'')+'</span>'):'')+'</div></div>'
+        +((CR_DEL[String(c.id)]&&!crIsLocked(c))?'<button class="add-btn sm" onclick="crDelete(\''+c.id+'\')" type="button" title="Supprimer ce compte-rendu (réservé à l\u2019animateur)" aria-label="Supprimer ce compte-rendu" style="flex:0 0 auto;background:#fff;color:#c0392b;border:1px solid #c0392b;">\ud83d\uddd1 Supprimer</button>':'')
+        +'<button class="add-btn sm" onclick="crOpen(\''+c.id+'\')" type="button" style="flex:0 0 auto;">Ouvrir</button>'
+        +'</div>';
     }).join('');
     return head+'<div>'+rows+'</div>';
   }
@@ -701,7 +733,7 @@
     catch(err){ CR_MSG='Ouverture impossible : '+(err.message||err); crRepaint(); }
   };
   window.crBack=async function(){
-    if(CR_CUR && document.getElementById('crTitre')){ if(CR_RECORDING){ try{ crStopAll(''); }catch(_){} } crReadHeader();
+    if(CR_CUR && !crIsLocked(CR_CUR) && document.getElementById('crTitre')){ if(CR_RECORDING){ try{ crStopAll(''); }catch(_){} } crReadHeader();
       var has=(CR_CUR.titre||'').trim()||(CR_CUR.contexte||'').trim()||(CR_CUR.transcription||'').trim()||(CR_CUR.synthese||'').trim();
       if(has){ try{ await crSaveSilent(); }catch(err){ CR_MSG='Enregistrement refusé : '+(err.message||err); crRepaint(); alert('Le compte-rendu n\'a pas pu être enregistré : '+(err.message||err)+'\nIl reste ouvert pour ne rien perdre.'); return; } } }
     crReleaseLock(); CR_CUR=null; CR_MSG=''; crLoadList().then(crRepaint); };
@@ -725,8 +757,10 @@
     var actionsBloc='';
     if(d.actions_numeros&&d.actions_numeros.length){ actionsBloc='<div class="edit-hint" style="margin-top:6px;">Actions créées dans la feuille Actions : '+d.actions_numeros.map(function(n){return '#'+n;}).join(', ')+'</div>'; }
     return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><button class="add-btn sm" onclick="crBack()" type="button" style="background:#fff;color:#560A0F;">← Liste</button>'
-      +'<div class="sec-title" style="margin:0;">'+(d.id?('CR #'+(d.numero||'')):'Nouveau compte-rendu')+'</div></div>'
+      +'<div class="sec-title" style="margin:0;">'+(d.id?('CR #'+(d.numero||'')):'Nouveau compte-rendu')+'</div>'
+      +'<span style="margin-left:auto;display:inline-flex;gap:8px;flex-wrap:wrap;">'+((CR_ROOT!=='obxCR'&&crCanLock(d))?'<button class="add-btn sm" onclick="crLock(true)" type="button" title="Verrouiller ce compte-rendu : plus personne ne pourra le modifier ni le supprimer sans le déverrouiller" style="background:#fff;color:#560A0F;border:1px solid #560A0F;">🔒 Verrouiller</button>':'')+((d.id&&CR_DEL[String(d.id)]&&CR_ROOT!=='obxCR'&&!crIsLocked(d))?'<button class="add-btn sm" onclick="crDelete(\''+d.id+'\')" type="button" title="Supprimer ce compte-rendu (réservé à l\u2019animateur)" style="background:#fff;color:#c0392b;border:1px solid #c0392b;">\ud83d\uddd1 Supprimer ce CR</button>':'')+'</span></div>'
       +(CR_MSG?'<div class="edit-hint" style="color:var(--signal);margin-bottom:8px;">'+e(CR_MSG)+'</div>':'')
+      +crLockBar(d)
       // en-tête
       +'<div class="panel" style="padding:12px 16px;"><div style="display:flex;gap:10px;flex-wrap:wrap;">'
       +'<label style="flex:2;min-width:200px;font-size:11px;color:var(--muted);">Titre / objet<div style="margin-top:2px;"><input id="crTitre" type="text" value="'+e(d.titre||'')+'" style="'+sel()+'"></div></label>'
@@ -752,7 +786,7 @@
       +(lockedOther ? ('<div style="background:#fdecea;border:1px solid #c0392b;border-radius:8px;padding:8px 12px;margin-top:8px;color:#c0392b;font-size:12.5px;">⚠ Transcription en cours par <b>'+e(crLockName(d.transcription_par))+'</b> depuis '+crLockHeure(d)+'. <button class="add-btn sm" onclick="crTakeOver()" type="button" style="margin-left:6px;">Prendre la main</button></div>') : ('<div style="margin-top:8px;"><button class="add-btn" onclick="crSynth()" type="button"'+(CR_BUSY?' disabled':'')+'>'+(CR_BUSY?'… synthèse':'✨ Générer la synthèse + les actions')+'</button></div>'))
       +crSynthBlock(d)
       +'</div>'
-      +'<div style="display:flex;gap:8px;margin-top:12px;"><button class="add-btn" onclick="crSave()" type="button">✓ Enregistrer le CR</button><button class="add-btn sm" onclick="crBack()" type="button" style="background:#fff;color:#560A0F;">Fermer</button><span id="crSaveMsg" role="status" style="align-self:center;font-size:12.5px;"></span></div>';
+      +'<div style="display:flex;gap:8px;margin-top:12px;"><button class="add-btn" onclick="crSave()" type="button">✓ Enregistrer le CR</button>'+crSaveLockBtn(d)+'<button class="add-btn sm" onclick="crBack()" type="button" style="background:#fff;color:#560A0F;">Fermer</button><span id="crSaveMsg" role="status" style="align-self:center;font-size:12.5px;"></span></div>';
   }
 
   // ---------- Préparation IA ----------
@@ -930,6 +964,48 @@
 
   window.crDraftField=function(i,f,v){ var a=CR_CUR&&CR_CUR.actions_draft&&CR_CUR.actions_draft[i]; if(!a) return; if(f==='priorite') a[f]=parseInt(v,10)||2; else if(f==='pilote_id') a[f]=v||null; else a[f]=v; };
   window.crDraftToggle=function(i){ var a=CR_CUR&&CR_CUR.actions_draft&&CR_CUR.actions_draft[i]; if(a){ a.include=!a.include; crRepaint(); } };
+  async function crRefreshCur(){ try{ var q=await SB.from('comptes_rendus').select('*').eq('id',CR_CUR.id).single(); if(q&&!q.error&&q.data){ CR_CUR=q.data; CR_DICT=CR_CUR.transcription||''; } }catch(_){} }
+  /* Verrouiller / déverrouiller (fonction de la base cr_verrouiller : seul l'auteur ; la direction pour déverrouiller ou pour un CR sans auteur enregistré).
+     Les modifications en cours sont enregistrées AVANT de verrouiller : rien n'est perdu. */
+  async function crLockFlow(on, saveFirst){
+    if(CR_BUSY||!CR_CUR) return;
+    if(CR_RECORDING){ try{ crStopAll(''); }catch(_){} }
+    if(on){
+      if(!confirm((saveFirst?'Enregistrer puis verrouiller':'Verrouiller')+' ce compte-rendu ?\n\nPlus personne, vous compris, ne pourra modifier son contenu ni le supprimer tant que vous ne l\u2019aurez pas déverrouillé. Les actions déjà créées ne sont pas touchées.'+(saveFirst?'':'\n\nVos modifications en cours sont enregistrées d\u2019abord.'))) return;
+      crReadHeader(); CR_BUSY=true;
+      try{ await crSaveSilent(); }catch(err){ CR_BUSY=false; CR_MSG='Enregistrement refusé : '+(err.message||err)+' \u2014 le compte-rendu n\u2019a pas été verrouillé.'; crRepaint(); alert(CR_MSG); return; }
+    } else {
+      if(!confirm('Déverrouiller ce compte-rendu ?\n\nIl redeviendra modifiable (et supprimable par son animateur).')) return;
+      CR_BUSY=true;
+    }
+    var r; try{ r=await SB.rpc('cr_verrouiller',{p_id:CR_CUR.id,p_verrouiller:!!on}); }catch(err){ r={error:err}; }
+    CR_BUSY=false;
+    if(!r||r.error){
+      CR_MSG=(on?'Verrouillage':'Déverrouillage')+' impossible : '+((r&&r.error&&r.error.message)||'erreur inconnue')+((on&&saveFirst)?' (le compte-rendu est enregistré)':'');
+      await crRefreshCur(); try{ await crLoadList(); }catch(_){} crRepaint(); return;
+    }
+    await crRefreshCur(); CR_MSG=(on?'🔒 CR #':'🔓 CR #')+(CR_CUR.numero||'')+(on?' verrouillé.':' déverrouillé.');
+    try{ await crLoadList(); }catch(_){} crRepaint();
+  }
+  window.crLock=function(on){ return crLockFlow(!!on,false); };
+  window.crSaveLock=function(){ return crLockFlow(true,true); };
+  window.crDelete=async function(id){
+    id=String(id);
+    var c=(CR_LIST||[]).filter(function(x){return String(x.id)===id;})[0]||((CR_CUR&&String(CR_CUR.id)===id)?CR_CUR:null)||{};
+    if(crIsLocked(c)){ CR_MSG='Suppression impossible : ce compte-rendu est verrouillé par son auteur.'; crRepaint(); return; }
+    var nA=(c.actions_numeros&&c.actions_numeros.length)||0;
+    if(!confirm('Supprimer définitivement le CR #'+(c.numero||'?')+(c.titre?(' \u00ab '+c.titre+' \u00bb'):'')+' ?\n\nSa préparation, sa transcription et son compte-rendu seront supprimés. Une copie reste 30 jours à la disposition d\u2019un administrateur.'+(nA?('\n\nLes '+nA+' action(s) déjà créée(s) dans la feuille Actions sont CONSERVÉES.'):''))) return;
+    if(CR_BUSY) return; CR_BUSY=true;
+    var wasOpen=!!(CR_CUR&&String(CR_CUR.id)===id);
+    if(wasOpen&&CR_RECORDING){ try{ crStopAll(''); }catch(_){} }
+    var r; try{ r=await SB.rpc('cr_supprimer',{p_id:id}); }catch(err){ r={error:err}; }
+    CR_BUSY=false;
+    if(!r||r.error){ CR_MSG='Suppression impossible : '+((r&&r.error&&r.error.message)||'erreur inconnue'); crRepaint(); return; }
+    if(wasOpen){ CR_CUR=null; CR_DICT=''; CR_INTERIM=''; }
+    try{ var bk=JSON.parse(localStorage.getItem('crDictBackup')||'null'); if(bk&&String(bk.id)===id) localStorage.removeItem('crDictBackup'); }catch(_){}
+    try{ await crLoadList(); }catch(_){}
+    CR_MSG='CR #'+((r.data&&r.data.numero)||c.numero||'?')+' supprimé.'+(nA?(' Les '+nA+' action(s) déjà créée(s) sont conservées.'):''); crRepaint();
+  };
   window.crDraftConf=function(i){ var a=CR_CUR&&CR_CUR.actions_draft&&CR_CUR.actions_draft[i]; if(a){ a.confidentiel=!a.confidentiel; crRepaint(); } };
   window.crDraftConfAll=function(on){ ((CR_CUR&&CR_CUR.actions_draft)||[]).forEach(function(a){ a.confidentiel=!!on; }); crRepaint(); };
   window.crDraftRemove=function(i){ if(CR_CUR&&CR_CUR.actions_draft){ CR_CUR.actions_draft.splice(i,1); crRepaint(); } };
