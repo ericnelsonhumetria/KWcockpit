@@ -32,20 +32,24 @@
   function flash(id, ok, txt){ var el = document.getElementById(id); if(!el) return; el.style.color = ok ? '#1e7d34' : '#9a3412'; el.textContent = txt; if(ok) setTimeout(function(){ if(el.textContent === txt) el.textContent = ''; }, 2500); }
   function fdate(d){ if(!d) return ''; var p = String(d).slice(0,10).split('-'); return p.length === 3 ? p[2] + '/' + p[1] + '/' + p[0] : d; }
   function byId(list, id){ for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i]; return null; }
-  function view(){ return document.getElementById('view'); }
+  var HOSTEL = null;   /* élément qui porte l'AIC : la feuille « AIC » de l'onglet Clap! (même vue dans le Cockpit et dans la page Clap!). On garde l'ÉLÉMENT, pas son nom : si l'on change de feuille pendant une séance, le chrono et les relances continuent d'écrire dans cet élément (détaché, sans effet) au lieu d'écraser la page. */
+  function view(){ return HOSTEL || document.getElementById('view'); }
 
   /* ---------- Accès : CEO (fonction SQL aic_is_ceo), ou membre actif d'au moins un espace ---------- */
   var _accP = null, _accEmail = '';
   function aicxAccess(){
     var em = me();
     if (_accP && _accEmail === em) return _accP;   /* une seule résolution partagée, même si appelée en parallèle */
-    _accEmail = em; X.email = em; X.access = false; X.ceo = false;
+    _accEmail = em; X.email = em; X.access = false; X.ceo = false; X.pmo = false;
     _accP = (async function(){
       try {
         var r = await db().rpc('aic_is_ceo');
         X.ceo = !!(r && !r.error && r.data === true);
         if (X.ceo) X.access = true;
         else { var m = await db().from('aic_membres').select('id').eq('email', em).eq('actif', true).limit(1); X.access = !!(m && m.data && m.data.length); }
+        /* PMO : voit toutes les AIC et peut préparer, lancer et terminer chacune (aic_pmo_niveaux.sql). Sans ce SQL : simplement pas de PMO. */
+        try { var pm = await db().rpc('aic_est_pmo'); X.pmo = !!(pm && !pm.error && pm.data === true); } catch(e1){ X.pmo = false; }
+        if (X.pmo) X.access = true;
       } catch(e){ X.access = false; }
       return X.access;
     })();
@@ -60,16 +64,10 @@
       aicxTab().catch(function(){});
     };
   }
-  async function aicxTab(){
+  async function aicxTab(){   /* l'AIC n'est plus un onglet : c'est une feuille de l'onglet Clap! (à côté de Réunions & Rituels et d'Actions) */
     var tabs = document.getElementById('tabs'); if (!tabs || !db()) return;
-    var ok = await aicxAccess();
+    await aicxAccess();
     var old = tabs.querySelector('[data-tab="aic"]'); if (old) old.remove();
-    if (!ok) return;
-    var b = document.createElement('button');
-    b.className = 'tab'; b.dataset.tab = 'aic'; b.setAttribute('onclick', "switchTab('aic')"); b.innerHTML = 'AIC';
-    var adm = tabs.querySelector('[data-tab="admin"]');
-    if (adm) tabs.insertBefore(b, adm); else tabs.appendChild(b);
-    if (typeof CURRENT_TAB !== 'undefined' && CURRENT_TAB === 'aic') b.classList.add('active');
   }
 
   if (COCKPIT){
@@ -77,18 +75,18 @@
     renderTab = function(){
       _rtX.apply(this, arguments);
       if (typeof CURRENT_TAB === 'undefined') return;
-      if (CURRENT_TAB === 'aic') aicxMain();
+      if (CURRENT_TAB === 'aic'){ if (typeof window.clapGo === 'function') window.clapGo('aic'); else aicxMain(); }   /* ancien lien vers l'onglet AIC : on ouvre la feuille AIC de Clap! */
       else if (CURRENT_TAB === 'admin'){ aicxStructMount(); aicxAdm2Mount(); }
     };
   }
   /* Clap! : la page appelle ces quatre fonctions ; rien d'autre n'est requis de sa part. */
-  if (CLAP){
+  {   /* l'API est la même dans le Cockpit et dans Clap! : les deux affichent l'AIC par la même feuille */
     window.clapAIC = {
       access: function(){ return aicxAccess().then(function(ok){ return !!ok; }, function(){ return false; }); },   /* CEO ou membre actif d'un espace */
-      mount: function(){ return aicxMain(); },                                                                         /* affiche l'AIC dans #view (reprend la séance en cours s'il y en a une) */
+      mount: function(host){ HOSTEL = host ? document.getElementById(host) : null; return aicxMain(); },                                                                         /* affiche l'AIC dans #view (reprend la séance en cours s'il y en a une) */
       busy: function(){ return !!(X.session && X.session.mode === 'live'); },                                         /* AIC en cours : la page demande confirmation avant de quitter l'onglet */
       reset: function(){ try { if (CH.timer) clearInterval(CH.timer); if (CH.poll) clearInterval(CH.poll); if (TR.t) clearInterval(TR.t); } catch(_){} CH.timer = null; CH.poll = null; TR.t = null;
-                         X.open = null; X.session = null; X.access = null; X.ceo = false; X.missions = []; X.espaces = []; X.membres = []; _accP = null; _accEmail = ''; }   /* déconnexion : rien ne reste d'un utilisateur à l'autre */
+                         X.open = null; X.session = null; X.access = null; X.ceo = false; X.pmo = false; WK.by = null; WK.lundi = ''; WK.err = ''; WK.reqFor = ''; HOSTEL = null; X.missions = []; X.espaces = []; X.membres = []; _accP = null; _accEmail = ''; }   /* déconnexion : rien ne reste d'un utilisateur à l'autre */
     };
   }
 
@@ -152,6 +150,7 @@
   }
   async function aicxMain(){
     var v = view(); if (!v) return;
+    WK.by = null; WK.err = ''; WK.reqFor = '';   /* la vue par semaine est rechargée à chaque ouverture : jamais de points périmés */
     v.innerHTML = head() + '<div class="panel" style="padding:14px 16px;">Chargement des espaces AIC…</div>';
     try {
       await aicxAccess(); await aicxLoad(); X.msg = '';
@@ -165,7 +164,7 @@
   function aicxRender(){ if (!X.msg && X.session && byId(X.espaces, X.session.espaceId)){ aicxStartSession(X.session.crId, X.session.pane, true, X.session.mode, X.session.date); return; } if (X.msg){ view().innerHTML = head() + '<div class="panel" style="padding:14px 16px;color:var(--signal);">' + esc(X.msg) + '</div>'; return; } if (X.open && byId(X.espaces, X.open)) aicxDashboard(); else { X.open = null; aicxList(); } }
   function head(){
     return '<div class="sec-eyebrow">AIC</div><div class="sec-title">Espaces par mission</div>'
-      + '<div class="sec-note">Un espace par niveau et par mission, strictement cloisonnés : vous ne voyez que les espaces dont vous êtes membre (et ceux placés sous eux).' + (X.ceo ? (CLAP ? ' Configuration : dans le Cockpit KW, Admin › Structures AIC.' : ' Configuration : Admin › Structures AIC.') : '') + '</div>';
+      + '<div class="sec-note">Un espace par niveau et par mission, strictement cloisonnés : vous ne voyez que les espaces dont vous êtes membre (et ceux placés sous eux).' + (X.pmo ? ' En tant que PMO, vous voyez toutes les AIC et pouvez préparer, lancer et terminer chacune.' : '') + (X.ceo ? (CLAP ? ' Configuration : dans le Cockpit KW, Admin › Structures AIC.' : ' Configuration : Admin › Structures AIC.') : '') + '</div>';
   }
 
   /* ---------- Liste : missions > cascade ---------- */
@@ -178,8 +177,8 @@
     var ind = (depth - 1) * 22;
     var h = '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:7px 0 7px ' + ind + 'px;border-bottom:1px solid rgba(86,10,15,.08);' + (arch ? 'opacity:.55;' : '') + '">'
       + '<span style="color:rgba(86,10,15,.45);">' + (depth > 1 ? '└' : '') + '</span>'
-      + '<b style="font-size:13px;">' + esc(e.libelle) + '</b>'
-      + '<span class="sub-cell">' + esc(NIV_LBL[e.niveau]) + ' · ' + n + ' membre(s)</span>' + (arch ? '<span class="pill p-grey">archivé</span>' : '')
+      + (cfg ? '' : wkDot(e)) + '<b style="font-size:13px;">' + esc(e.libelle) + '</b>'
+      + '<span class="sub-cell">' + esc(NIV_LBL[e.niveau]) + ' · ' + n + ' membre(s)</span>' + (arch ? '<span class="pill p-grey">archivé</span>' : '') + (cfg ? '' : wkLinks(e))
       + (cfg ? '<span style="display:inline-flex;gap:4px;align-items:center;" title="Durée de l\u2019AIC, utilisée par le chrono en décompte"><input id="du_' + e.id + '" type="number" min="5" max="240" value="' + esc(e.duree_min || '') + '" placeholder="' + DUREE_DEFAUT + '" aria-label="Durée de l\u2019AIC en minutes" style="' + INP + 'width:64px;height:28px;"><span class="sub-cell">min</span><button type="button" class="add-btn sm ghost" onclick="aicxSetDuree(\'' + e.id + '\')">OK</button><span id="ds_' + e.id + '" role="status" style="font-size:12px;"></span></span>' : '')
       + (cfg && e.niveau === 3 ? '<span style="display:inline-flex;gap:4px;align-items:center;"><input id="hr_' + e.id + '" value="' + esc(e.humetria_ref || '') + '" placeholder="réf. Humetria" aria-label="Référence du site dans Humetria" style="' + INP + 'width:150px;height:28px;"><button type="button" class="add-btn sm ghost" onclick="aicxSetRef(\'' + e.id + '\')">OK</button><span id="hs_' + e.id + '" role="status" style="font-size:12px;"></span></span>' : '')
       + '<span style="margin-left:auto;white-space:nowrap;">'
@@ -194,7 +193,7 @@
     var list = membresDe(e.id, true);
     var opts = X.users.map(function(u){ return '<option value="' + esc(u.email) + '">' + esc(u.role || '') + '</option>'; }).join('');
     function how(m){
-      if (e.niveau !== 3 || !m.actif || m.doit_preparer === false) return '';
+      if (!m.actif || m.doit_preparer === false) return '';
       if (m.acces === 'animation') return '<div class="sub-cell" style="padding:0 0 4px 12px;">Animateur : prépare avec le bouton « Préparer l\u2019AIC ».</div>';
       if (m.acces === 'contribution') return '<div class="sub-cell" style="padding:0 0 4px 12px;">Consultant : prépare en renseignant son SQCDP (un seul pour l\u2019ensemble des managers qu\u2019il coache).</div>';
       return '';
@@ -231,12 +230,65 @@
       + (m.perimetre ? '<div class="sub-cell" style="margin:4px 0 6px;">Périmètre : ' + esc(m.perimetre) + '</div>' : '')
       + tree + add + '</div>';
   }
+
+  /* ---------- Vue par semaine : arbre des AIC, point de couleur, lien vers le compte rendu (aic_semaine, aic_pmo_niveaux.sql) ---------- */
+  var WK = { lundi:'', by:null, err:'', tok:0, reqFor:'' };
+  var WKC = { vert:'#2e7d46', orange:'#e08a00', rouge:'#c0392b', gris:'#b9b1ad' };
+  var WKL = { vert:'AIC tenue et préparée par tout le monde', orange:'AIC tenue, mais pas préparée par tout le monde', rouge:'AIC non tenue', gris:'Pas encore de séance (semaine à venir ou en cours)' };
+  function mondayIso(j){ var p = j.split('-'), d = new Date(+p[0], +p[1] - 1, +p[2]); return addDays(j, -((d.getDay() + 6) % 7)); }
+  function isoWeek(j){ var p = j.split('-'), d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2])), dn = d.getUTCDay() || 7; d.setUTCDate(d.getUTCDate() + 4 - dn); var y0 = new Date(Date.UTC(d.getUTCFullYear(), 0, 1)); return Math.ceil(((d - y0) / 86400000 + 1) / 7); }
+  function wkLabel(l){ var a = l.split('-'), b = addDays(l, 6).split('-'); return 'Semaine ' + isoWeek(l) + ' · ' + (+a[2]) + (a[1] !== b[1] ? ' ' + MOIS[+a[1] - 1] : '') + ' → ' + (+b[2]) + ' ' + MOIS[+b[1] - 1] + ' ' + b[0]; }
+  function wkInfo(e){ return (WK.by && WK.by[e.id]) || null; }
+  function wkDot(e){
+    if (!WK.by) return '<span class="aicx-wkdot" data-st="" aria-hidden="true" style="display:inline-block;width:12px;height:12px;border-radius:50%;border:1px dashed rgba(86,10,15,.3);flex:0 0 auto;"></span>';
+    var w = wkInfo(e); if (!w) return '<span aria-hidden="true" style="display:inline-block;width:12px;flex:0 0 auto;"></span>';
+    var tenues = (w.seances || []).filter(function(x){ return x.etat !== 'prevue'; });
+    var tip = WKL[w.statut] + (tenues.length ? ' — ' + tenues.map(function(x){ return fdate(x.jour).slice(0, 5) + ' : préparée par ' + x.exhaustifs + '/' + x.attendus + (x.etat === 'en_cours' ? ' (en cours)' : ''); }).join(' ; ') : '');
+    return '<span class="aicx-wkdot" data-st="' + esc(w.statut) + '" role="img" aria-label="' + esc(WKL[w.statut]) + '" title="' + esc(tip) + '" style="display:inline-block;width:12px;height:12px;border-radius:50%;flex:0 0 auto;background:' + (WKC[w.statut] || WKC.gris) + ';"></span>';
+  }
+  function wkLinks(e){
+    var w = wkInfo(e); if (!w || !w.seances || !w.seances.length) return '';
+    return w.seances.map(function(x){
+      return '<a href="#" class="aicx-crlink" onclick="return aicxOpenCr(\'' + esc(x.cr_id) + '\')" title="Ouvrir le compte rendu (Clap! › Réunions &amp; Rituels)" style="font-size:12px;color:#560A0F;text-decoration:underline;white-space:nowrap;">📄 CR du ' + esc(fdate(x.jour).slice(0, 5)) + (x.etat === 'en_cours' ? ' (en cours)' : (x.etat === 'prevue' ? ' (prévue)' : '')) + '</a>';
+    }).join(' ');
+  }
+  function weekBar(){
+    if (!WK.lundi) WK.lundi = mondayIso(todayIso());
+    var cur = WK.lundi === mondayIso(todayIso());
+    var legend = ['vert', 'orange', 'rouge', 'gris'].map(function(k){ return '<span style="display:inline-flex;align-items:center;gap:5px;font-size:12px;"><span style="width:11px;height:11px;border-radius:50%;background:' + WKC[k] + ';display:inline-block;"></span>' + esc(WKL[k]) + '</span>'; }).join('');
+    return '<div class="panel aicx-wkbar" style="margin-top:12px;padding:10px 14px;"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">'
+      + '<button type="button" class="add-btn sm ghost" onclick="aicxWeek(-1)" aria-label="Semaine précédente">‹</button>'
+      + '<b id="aicx_wklabel" style="min-width:240px;text-align:center;">' + esc(wkLabel(WK.lundi)) + '</b>'
+      + '<button type="button" class="add-btn sm ghost" onclick="aicxWeek(1)" aria-label="Semaine suivante">›</button>'
+      + (cur ? '' : '<button type="button" class="add-btn sm" onclick="aicxWeekToday()">Cette semaine</button>')
+      + '<label class="sub-cell" style="display:inline-flex;align-items:center;gap:6px;margin-left:auto;">Aller à la semaine du <input type="date" id="aicx_wkpick" value="' + WK.lundi + '" onchange="aicxWeekPick(this.value)" aria-label="Choisir une semaine" style="' + INP + 'height:30px;"></label></div>'
+      + '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;">' + legend + '</div>'
+      + (WK.err ? '<div class="sub-cell" style="color:var(--signal);margin-top:6px;">' + esc(WK.err) + '</div>' : '') + '</div>';
+  }
+  /* Charge la semaine affichée (une seule requête pour tout l'arbre) puis redessine la liste, si elle est encore à l'écran. Les réponses périmées sont ignorées. */
+  function aicxWeekEnsure(){
+    if (WK.by || WK.err || WK.reqFor === WK.lundi || !db()) return;
+    var tok = ++WK.tok; WK.reqFor = WK.lundi;
+    rpc('aic_semaine', { p_lundi:WK.lundi }).then(function(d){
+      if (tok !== WK.tok) return; var by = {}; ((d && d.espaces) || []).forEach(function(x){ by[x.espace_id] = x; }); WK.by = by;
+    }, function(err){
+      if (tok !== WK.tok) return; var m = (err && err.message) || String(err); WK.by = null;
+      WK.err = (missing(m) ? 'Vue par semaine indisponible : exécutez d\u2019abord aic_pmo_niveaux.sql.' : 'Vue par semaine indisponible : ' + m);
+    }).then(function(){ if (tok === WK.tok && !X.open && !X.session && document.getElementById('aicx_wklabel')) aicxList(); });
+  }
+  function wkGo(lundi){ WK.lundi = lundi; WK.by = null; WK.err = ''; WK.reqFor = ''; WK.tok++; if (!X.open && !X.session) aicxList(); }
+  window.aicxWeek = function(d){ wkGo(addDays(WK.lundi || mondayIso(todayIso()), 7 * d)); };
+  window.aicxWeekToday = function(){ wkGo(mondayIso(todayIso())); };
+  window.aicxWeekPick = function(v){ if (/^\d{4}-\d{2}-\d{2}$/.test(v || '')) wkGo(mondayIso(v)); };
+  window.aicxOpenCr = function(crId){ if (typeof window.clapOpenCR === 'function') window.clapOpenCR(crId); return false; };
+
   function aicxList(){
     var ms = X.missions.filter(visibleArch);
-    var h = head();
+    var h = head() + weekBar();
     h += '<label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;margin-top:12px;"><input type="checkbox" ' + (X.showArch ? 'checked ' : '') + 'onchange="aicxToggleArch(this.checked)" style="width:auto;margin:0;">Afficher les archives</label>';
     h += ms.length ? ms.map(function(m){ return missionBlock(m, false); }).join('') : '<div class="panel" style="padding:14px 16px;margin-top:12px;">' + (X.ceo ? 'Aucune mission. Créez-en une dans Admin › Structures AIC.' : 'Vous n\u2019êtes membre d\u2019aucun espace AIC actif.') + '</div>';
     view().innerHTML = h;
+    aicxWeekEnsure();
   }
 
   /* ---------- Actions de configuration (appelées depuis Admin ; la RLS impose « CEO seul ») ---------- */
@@ -332,13 +384,16 @@
   function shortDate(j){ var p = j.split('-'); return p[2] + '/' + p[1]; }
   function fmt(n){ if (n == null || n === '' || isNaN(n)) return '—'; return String(Math.round(Number(n) * 100) / 100).replace('.', ','); }
   function leaves(e){ if (e.niveau === 3) return [e]; var out = []; (function walk(id){ X.espaces.filter(function(c){ return c.parent_id === id && !c.archived_at; }).forEach(function(c){ if (c.niveau === 3) out.push(c); else walk(c.id); }); })(e.id); return out; }
+  function scope(e){ var out = [e]; (function walk(id){ X.espaces.filter(function(c){ return c.parent_id === id && !c.archived_at; }).forEach(function(c){ out.push(c); walk(c.id); }); })(e.id); return out; }   /* l'espace + tous ses descendants : relevés saisis à CHAQUE niveau */
+  function nbLbl(e){ return e && e.niveau === 3 ? ' sites' : ' AIC'; }   /* « 2/3 sites » pour un AIC de site ; « 2/3 AIC » quand le niveau compte lui-même dans sa consolidation */
   function siteName(e){ return e && e.niveau === 3 ? e.libelle.split(' · ').slice(2).join(' · ') || null : null; }
   function themsFor(e){ return (SP.ref && !SP.ref.err) ? SP.ref.them.filter(function(t){ return t.actif && (t.niveaux || []).indexOf(e.niveau) >= 0; }) : []; }
   function indsFor(th, e){ return (SP.ref && !SP.ref.err) ? SP.ref.ind.filter(function(x){ return x.actif && x.thematique_id === th.id && (x.niveaux || []).indexOf(e.niveau) >= 0; }) : []; }
   function indexSt(){ var m = {}; SP.st.forEach(function(s){ m[s.espace_id + '|' + s.thematique_id + '|' + s.jour] = s; }); return m; }
   function indexVal(){ var m = {}; SP.val.forEach(function(s){ m[s.espace_id + '|' + s.indicateur_id + '|' + s.jour] = s; }); return m; }
   function memberAcces(e, accesList){ return X.membres.some(function(m){ return m.espace_id === e.id && m.actif && m.email === me() && accesList.indexOf(m.acces) >= 0; }); }
-  function canWrite(e){ if (!e || e.niveau !== 3 || e.archived_at) return false; return X.ceo || memberAcces(e, ['contribution', 'animation']); }
+  function canWrite(e){ if (!e || e.archived_at) return false; return X.ceo || memberAcces(e, ['contribution', 'animation']); }
+  function canLead(e){ return !!e && !e.archived_at && (canAnimate(e) || X.pmo === true); }   /* animateur de l'AIC, ou PMO : préparer, lancer, terminer (jamais animer : synthèse, flux de sujets) */
   function canAnimate(e){ if (!e || e.archived_at) return false; return memberAcces(e, ['animation']); }   /* animateur de CET espace uniquement (le CEO doit en être membre « animation ») */
 
   /* Pire situation parmi les sites : rouge > orange > vert. n = nombre de sites ayant un relevé ce jour-là. */
@@ -519,7 +574,7 @@
   function missing(m){ return /relation|does not exist|schema cache|column/i.test(m || ''); }
   async function aicxLoadStatuts(){
     var e = byId(X.espaces, X.open); SP.st = []; SP.val = []; SP.stErr = ''; SP.valErr = ''; if (!e) return;
-    var ids = leaves(e).map(function(x){ return x.id; }); if (!ids.length) return;
+    var ids = scope(e).map(function(x){ return x.id; }); if (!ids.length) return;
     var b = bounds(SP.month), lim = addDays(todayIso(), -100), from = b.first < lim ? b.first : lim, to = b.last > todayIso() ? b.last : todayIso();
     try { SP.st = await pageAll(function(){ return db().from('aic_statuts').select('*').in('espace_id', ids).gte('jour', from).lte('jour', to).order('jour', { ascending:false }).order('id'); }); }
     catch(err){ var m = (err && err.message) || String(err); SP.stErr = m + (missing(m) ? ' — exécutez d\u2019abord aic_brique2b_sqcdp.sql.' : ''); }
@@ -625,7 +680,7 @@
     var cf = cfgOf(th), inds = indsFor(th, e), pr = principalInd(th, inds), cc = chartCfg(th);
     var rd = refDay(IX, th.id, ids), eff = rd || chartEnd(), a = rd ? agg(IX, th.id, rd, ids) : { st:null, n:0 }, s = a.st ? SC[a.st] : null, b = bounds(SP.month), body = '';
     var cap = SP.month === curMonth() ? 'Aujourd\u2019hui' : (rd ? 'Dernier relevé ' + fdate(rd) : 'Aucun relevé ce mois');
-    if (ids.length > 1) cap += ' · ' + a.n + '/' + ids.length + ' sites';
+    if (ids.length > 1) cap += ' · ' + a.n + '/' + ids.length + nbLbl(e);
     if (cf.pave.statut) body += '<div class="aicx-tb aicx-r-s">' + face(a.st, 40) + '<div class="aicx-cap"><b>' + (s ? s.l : 'Non renseigné') + '</b><span>' + esc(cap) + '</span></div></div>';
     if (cf.pave.indic){
       var lv = pr ? lastVal(IXV, pr.id, ids, eff) : null, sg = (pr && lv) ? suggest(pr, lv.v) : null;
@@ -678,7 +733,7 @@
     for (var d = 1; d <= b.n; d++){
       var j = SP.month + '-' + pad(d), a = agg(IX, th.id, j, ids), s = a.st ? SC[a.st] : null, fut = j > today, dw = (off + d - 1) % 7;
       var one = (ids.length === 1) ? IX[ids[0] + '|' + th.id + '|' + j] : null;
-      var tip = longDate(j) + ' — ' + (s ? s.l + ' · ' + s.d : 'non renseigné') + (one && one.commentaire ? ' — ' + one.commentaire : '') + (ids.length > 1 && a.n ? ' (' + a.n + '/' + ids.length + ' sites)' : '');
+      var tip = longDate(j) + ' — ' + (s ? s.l + ' · ' + s.d : 'non renseigné') + (one && one.commentaire ? ' — ' + one.commentaire : '') + (ids.length > 1 && a.n ? ' (' + a.n + '/' + ids.length + nbLbl(e).trim() + ')' : '');
       h += '<button type="button" class="aicx-day' + (s ? ' has' : (dw >= 5 ? ' we' : '')) + (j === today ? ' today' : '') + (SP.edit && SP.edit.jour === j && SP.edit.thId === th.id ? ' edit' : '') + '" title="' + esc(tip) + '" aria-label="' + esc(tip) + '"'
         + (s ? ' style="background:' + s.c + '"' : '') + (fut || !interactive ? ' disabled' : ' onclick="aicxEditDay(\'' + th.id + '\',\'' + j + '\')"') + '>' + d + (s ? '<small>' + s.g + '</small>' : '') + '</button>';
     }
@@ -729,7 +784,7 @@
   function seancesHtml(e){
     var h = '<div class="field-label" style="margin-top:18px;">Séances AIC</div>';
     if (SP.seErr) return h + '<div class="panel" style="padding:10px 14px;color:var(--signal);">Séances indisponibles : ' + esc(SP.seErr) + '</div>';
-    if (!SP.seances.length) return h + '<div class="panel" style="padding:12px 16px;">Aucune séance enregistrée' + (canAnimate(e) ? ' — lancez la première avec « ▶ Lancer l\u2019AIC ».' : '.') + '</div>';
+    if (!SP.seances.length) return h + '<div class="panel" style="padding:12px 16px;">Aucune séance enregistrée' + (canLead(e) ? ' — lancez la première avec « ▶ Lancer l\u2019AIC ».' : '.') + '</div>';
     return h + '<div class="panel" style="padding:6px 16px;">' + SP.seances.map(function(c){ var n = (c.actions_numeros || []).length;
       return '<div style="display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid rgba(86,10,15,.08);font-size:13px;"><span class="sub-cell">CR #' + esc(c.numero || '?') + '</span><b>' + esc(c.titre || '(sans titre)') + '</b><span class="sub-cell">' + esc(fdate(c.date_reunion)) + ' · ' + esc(c.statut === 'cloture' ? 'clôturée' : c.statut === 'tenue' ? 'tenue' : 'préparation') + (n ? ' · ' + n + ' action(s)' : '') + '</span>'
         + '<span style="margin-left:auto;display:inline-flex;gap:6px;">' + (function(){ var sc = B4.seanceBy[String(c.id)], bl = sc ? B4.bilanBy[sc.id] : null; return bl && canSupervise(e) ? '<button type="button" class="add-btn sm ghost" onclick="aicxShowBilan(\'' + bl.id + '\')" title="Bilan de préparation enregistré">📊 Bilan ' + fmt(bl.taux) + ' %</button>' : ''; })() + (canAnimate(e) ? '<button type="button" class="add-btn sm ghost" onclick="aicxOpenSeance(\'' + c.id + '\')">Ouvrir</button>' : '') + '</span></div>'; }).join('') + '</div>';
@@ -775,7 +830,7 @@
     aicxCss();
     var e = byId(X.espaces, X.open); if (!e) { aicxList(); return; }
     var inSess = !!(X.session && X.session.espaceId === e.id);
-    var m = byId(X.missions, e.mission_id) || {}, ids = leaves(e).map(function(x){ return x.id; }), IX = indexSt(), IXV = indexVal(), thems = themsFor(e), leaf = e.niveau === 3;
+    var m = byId(X.missions, e.mission_id) || {}, ids = scope(e).map(function(x){ return x.id; }), IX = indexSt(), IXV = indexVal(), thems = themsFor(e), leaf = e.niveau === 3;
     var chain = [], cur = e; while (cur) { chain.unshift(cur); cur = cur.parent_id ? byId(X.espaces, cur.parent_id) : null; }
     var sel = thems.filter(function(t){ return t.id === SP.sel; })[0] || thems[0] || null; if (sel) SP.sel = sel.id;
     var b = bounds(SP.month);
@@ -784,7 +839,7 @@
       + '<div class="aicx-bar"><button type="button" class="add-btn sm ghost" onclick="aicxBack()">← Tous les espaces</button>'
       + '<span class="aicx-chip">' + esc(m.client || '') + ' · ' + esc(m.intitule || '') + '</span>' + chain.map(function(c){ return '<span class="aicx-chip">' + esc(NIV_LBL[c.niveau]) + '</span>'; }).join('') + '</div>'
       + '<div class="aicx-bar"><div class="aicx-title" style="margin:0;">' + esc(e.libelle) + (e.archived_at ? ' <span class="pill p-grey">archivé</span>' : '') + '</div>'
-      + (canAnimate(e) ? '<span style="margin-left:auto;display:inline-flex;gap:8px;align-items:center;flex-wrap:wrap;"><span id="aicx_lfb" role="status" style="font-size:12px;"></span><button type="button" class="add-btn ghost" style="font-size:15px;padding:10px 18px;" onclick="aicxPrepare()">🧠 Préparer l\u2019AIC</button><button type="button" class="add-btn aicx-go" style="font-size:15px;padding:10px 18px;" onclick="aicxLaunch()">▶ Lancer l\u2019AIC</button></span>' : '') + '</div>'
+      + (canLead(e) ? '<span style="margin-left:auto;display:inline-flex;gap:8px;align-items:center;flex-wrap:wrap;"><span id="aicx_lfb" role="status" style="font-size:12px;"></span><button type="button" class="add-btn ghost" style="font-size:15px;padding:10px 18px;" onclick="aicxPrepare()">🧠 Préparer l\u2019AIC</button><button type="button" class="add-btn aicx-go" style="font-size:15px;padding:10px 18px;" onclick="aicxLaunch()">▶ Lancer l\u2019AIC</button></span>' : '') + '</div>'
       + '<div class="sub-cell">Membres : ' + (membresDe(e.id).map(function(x){ return esc(x.email); }).join(', ') || 'aucun') + '</div>')
       + (inSess ? synthHtml(e, thems) : b4Top(e, thems, IX, ids))
       + '<div class="aicx-month"><button type="button" class="add-btn sm ghost" onclick="aicxMonth(-1)" aria-label="Mois précédent">‹</button><b>' + MOIS[b.mo - 1] + ' ' + b.y + '</b><button type="button" class="add-btn sm ghost" onclick="aicxMonth(1)" aria-label="Mois suivant"' + (SP.month >= curMonth() ? ' disabled' : '') + '>›</button>'
@@ -805,7 +860,7 @@
       if (sel){
         var rd = refDay(IX, sel.id, ids) || chartEnd();
         h += '<div class="field-label" style="margin-top:18px;">' + esc(sel.code) + ' · ' + esc(sel.libelle) + '</div>' + zonesHtml(IX, IXV, sel, e, ids)
-          + '<div class="aicx-two"><div><div class="field-label">Relevés de ' + MOIS[b.mo - 1] + '</div>' + calendarHtml(IX, sel, e, ids, leaf) + (leaf ? editorHtml(IX, IXV, sel, e) : '<div class="sub-cell" style="margin-top:10px;">Consolidation en lecture seule. Ouvrez un site pour saisir ou corriger un relevé.</div>') + '</div>'
+          + '<div class="aicx-two"><div><div class="field-label">Relevés de ' + MOIS[b.mo - 1] + '</div>' + calendarHtml(IX, sel, e, ids, leaf || canWrite(e)) + ((leaf || canWrite(e)) ? editorHtml(IX, IXV, sel, e) : '<div class="sub-cell" style="margin-top:10px;">Consolidation en lecture seule. Ouvrez un site pour saisir ou corriger un relevé.</div>') + '</div>'
           + '<div><div class="field-label">Indicateurs de suivi</div>' + indicatorsHtml(IXV, sel, e, ids, rd) + consultantsFieldHtml(sel, e) + '<div class="field-label" style="margin-top:14px;">Derniers commentaires</div>' + timelineHtml(sel, ids) + '</div></div>';
         if (qT && sel.id === qT.id) h += icmHtml(e, ids);
       }
@@ -833,7 +888,7 @@
     L.push('Objectif : revoir les écarts SQCDP, décider des actions (quoi, qui, quand) et remonter les sujets non traités au niveau supérieur.', '');
     L.push('SITUATION SQCDP DU JOUR');
     themsFor(e).forEach(function(t){
-      var a = agg(IX, t.id, ref, ids), line = '- ' + t.code + ' ' + t.libelle + ' : ' + (a.st ? SC[a.st].l.toUpperCase() : 'non renseigné') + (ids.length > 1 ? ' (' + a.n + '/' + ids.length + ' sites)' : '');
+      var a = agg(IX, t.id, ref, ids), line = '- ' + t.code + ' ' + t.libelle + ' : ' + (a.st ? SC[a.st].l.toUpperCase() : 'non renseigné') + (ids.length > 1 ? ' (' + a.n + '/' + ids.length + nbLbl(e).trim() + ')' : '');
       var one = ids.length === 1 ? IX[ids[0] + '|' + t.id + '|' + ref] : null; if (one && one.commentaire) line += ' — ' + one.commentaire;
       var run = 0; for (var k = 0; k < 30; k++){ var s = agg(IX, t.id, addDays(ref, -k), ids).st; if (s && s !== 'vert') run++; else if (k > 0 || s) break; } if (a.st && a.st !== 'vert' && run > 1) line += ' — ' + run + ' jours consécutifs hors vert';
       L.push(line);
@@ -842,7 +897,7 @@
       if (ids.length > 1) leaves(e).forEach(function(sx){ var g = IX[sx.id + '|' + t.id + '|' + ref]; if (g && RANK[g.statut] && g.statut !== 'vert') L.push('    · ' + sx.libelle.replace(/^AIC 3 · /, '') + ' : ' + SC[g.statut].l + (g.commentaire ? ' — ' + g.commentaire : '')); });
     });
     if (!B4.missing){
-      if (e.niveau === 3 && B4.preps.length){
+      if (B4.preps.length){
         var th3 = themsFor(e); L.push('', 'SQCDP DES CONSULTANTS (préparation, par champ)');
         th3.forEach(function(t){ attendus(e, th3).forEach(function(m){ var r = prepOf(m.email, t.id); if (!r) return; L.push('- ' + t.code + ' · ' + nomDe(m.email) + ' : ' + SC[r.statut].l.toUpperCase() + (r.commentaire ? ' — ' + r.commentaire : '')); }); });
         var miss = attendus(e, th3).map(function(m){ var mine = th3.filter(function(t){ return !prepOf(m.email, t.id); }); return mine.length ? nomDe(m.email) + ' (' + mine.map(function(t){ return t.code; }).join(' ') + ')' : ''; }).filter(Boolean);
@@ -863,7 +918,7 @@
   }
   /* Séance du jour de cet espace : reprise si elle existe, sinon créée (ordre du jour prérempli). Réservé à l'animateur. */
   async function aicxEnsureSeance(e, fbId){
-    if (!canAnimate(e)) throw new Error('Réservé à l\u2019animateur de cet AIC.');
+    if (!canLead(e)) throw new Error('Réservé à l\u2019animateur de cet AIC ou au PMO.');
     if (!crReady()) throw new Error('Module Réunions & Rituels indisponible.');
     var ex = await db().from('comptes_rendus').select('id,statut,preparation').eq('aic_espace_id', e.id).eq('date_reunion', todayIso()).neq('statut', 'cloture').order('created_at', { ascending:false }).limit(1);
     if (ex.error) throw ex.error;
@@ -889,7 +944,7 @@
       try { var pr0 = await rpc('aic_seance_prepare', { p_cr:String(s.id) }); setOffset(pr0.server_now); B4.seanceBy[String(s.id)] = pr0.seance; B4.sc = B4.sc.filter(function(x){ return x.cr_id !== String(s.id); }); B4.sc.unshift(pr0.seance); }
       catch(e0){ var m0 = (e0 && e0.message) || String(e0); if (!missing(m0)) throw e0; }
       await aicxStartSession(s.id, 'cr', false, 'prepa');
-      var tasks = [], synth = (e.niveau === 3 && B4.preps.length) ? 'oui' : '';
+      var tasks = [], synth = B4.preps.length ? 'oui' : '';
       if (!s.prepared && typeof window.crPrep === 'function'){ flash('aicx_sfb', true, '🧠 Préparation IA en cours…'); tasks.push(window.crPrep()); }
       if (synth) tasks.push(window.aicxSynth(true));                        /* la synthèse du SQCDP de l'animateur se prépare en parallèle */
       await Promise.all(tasks.map(function(t){ return Promise.resolve(t).catch(function(){}); }));
@@ -979,7 +1034,7 @@
   var STAT_PREP = { exhaustive:['✓', 'Exhaustive', '#2e7d46'], tardive:['⏱', 'Complète mais tardive', '#e08a00'], partielle:['◐', 'Partielle', '#e08a00'], absente:['✕', 'Non préparée', '#c0392b'] };
 
   function canSupervise(e){ return canSeeIcm(e); }                       /* animateur de l'espace ou d'un espace au-dessus, ou CEO */
-  function canPrepare(e){ var m = (e && !e.archived_at && e.niveau === 3) ? monMembre(e) : null; return !!m && m.acces === 'contribution' && m.doit_preparer !== false && !(m.champs && m.champs.length === 0); }   /* consultant : il renseigne son SQCDP ; l'animateur prépare avec « Préparer l'AIC » */
+  function canPrepare(e){ var m = (e && !e.archived_at) ? monMembre(e) : null; return !!m && m.acces === 'contribution' && m.doit_preparer !== false && !(m.champs && m.champs.length === 0); }   /* consultant : il renseigne son SQCDP ; l'animateur prépare avec « Préparer l'AIC » */
   function canContribute(e){ return !!e && !e.archived_at && (X.ceo || memberAcces(e, ['contribution', 'animation'])); }
   function nomDe(email){ var p = (X.pilotes || []).filter(function(x){ return x.email && String(x.email).toLowerCase() === String(email).toLowerCase(); })[0]; return p && p.nom ? p.nom : String(email || '').split('@')[0]; }
   function dureeDe(e){ return (e && e.duree_min) ? e.duree_min : DUREE_DEFAUT; }
@@ -1031,7 +1086,7 @@
       B4.live = B4.sc.filter(function(x){ return x.jour === today && x.debut_at && !x.fin_at; })[0] || null;
     } catch(err){ var m = (err && err.message) || String(err); if (missing(m)) { B4.missing = true; return; } B4.err = m; return; }
     try { var pr = await db().from('aic_prepa_sqcdp').select('*').eq('espace_id', e.id).eq('pour_le', today); if (!pr.error) B4.preps = pr.data || []; } catch(_){}
-    if (canAnimate(e) && e.niveau === 3 && !B4.syn){ try { var sy = await db().from('aic_syntheses').select('*').eq('espace_id', e.id).eq('jour', today).order('genere_le', { ascending:false }).limit(1); var row = sy && sy.data && sy.data[0]; if (row && !row.valide_le && row.proposition) B4.syn = { id:row.id, ia:row.ia, modele:row.modele, champs:row.proposition.champs || [], global:row.proposition.global || '', manquants:row.proposition.manquants || [], validated:false }; } catch(_){} }
+    if (canAnimate(e) && !B4.syn){ try { var sy = await db().from('aic_syntheses').select('*').eq('espace_id', e.id).eq('jour', today).order('genere_le', { ascending:false }).limit(1); var row = sy && sy.data && sy.data[0]; if (row && !row.valide_le && row.proposition) B4.syn = { id:row.id, ia:row.ia, modele:row.modele, champs:row.proposition.champs || [], global:row.proposition.global || '', manquants:row.proposition.manquants || [], validated:false }; } catch(_){} }
     try {
       var su = await db().from('aic_sujets').select('*').eq('espace_id', e.id).is('archived_at', null).order('created_at', { ascending:false }); if (su.error) throw su.error; B4.sujets = su.data || [];
       var ids = B4.sujets.map(function(x){ return x.id; });
@@ -1051,9 +1106,9 @@
   function heure(ts){ return ts ? new Date(ts).toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit' }) : ''; }
   /* Mode ANIMATEUR : sa préparation = le bouton « Préparer l'AIC » (et non des champs à remplir). */
   function animPrepHtml(e){
-    if (e.niveau !== 3 || !canAnimate(e)) return ''; var sc = seanceDuJour(), pa = sc && sc.prepare_at, apres = pa && sc.debut_at && pa > sc.debut_at;
+    if (!canLead(e)) return ''; var sc = seanceDuJour(), pa = sc && sc.prepare_at, apres = pa && sc.debut_at && pa > sc.debut_at;
     var cons = attendus(e, themsFor(e)), prets = cons.filter(function(m){ return themsFor(e).every(function(t){ return prepOf(m.email, t.id); }); }).length;
-    return '<div class="aicx-card" style="margin:12px 0;border-left:5px solid ' + (pa && !apres ? SC.vert.c : SC.orange.c) + ';"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;"><b>🧭 Ma préparation d\u2019animateur</b>'
+    return '<div class="aicx-card" style="margin:12px 0;border-left:5px solid ' + (pa && !apres ? SC.vert.c : SC.orange.c) + ';"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;"><b>🧭 ' + (canAnimate(e) ? 'Ma préparation d\u2019animateur' : 'Préparation de l\u2019animateur (faite par le PMO)') + '</b>'
       + '<span class="aicx-chip" style="background:' + (pa ? (apres ? '#fff1d6' : '#e3f1e6') : '#fbe3df') + ';">' + (pa ? (apres ? '⏱ faite à ' + esc(heure(pa)) + ', après le lancement' : '✓ « Préparer l\u2019AIC » fait à ' + esc(heure(pa))) : '○ « Préparer l\u2019AIC » pas encore fait') + '</span>'
       + '<span class="sub-cell">' + prets + '/' + cons.length + ' consultant(s) prêt(s)</span></div>'
       + '<div class="sub-cell" style="margin-top:4px;">Vous ne remplissez pas de champs : cliquez sur <b>« 🧠 Préparer l\u2019AIC »</b> pour générer l\u2019ordre du jour, la préparation IA du compte-rendu et la synthèse du SQCDP de vos consultants. Le bilan vérifie que vous l\u2019avez fait <b>avant le lancement</b>.</div></div>';
@@ -1089,7 +1144,7 @@
   };
   /* L'animateur (et au-dessus) voit le SQCDP de chaque consultant : un champ par consultant, sur son périmètre. */
   function teamPrepHtml(e, thems){
-    if (e.niveau !== 3 || !canSupervise(e) || !thems.length) return '';
+    if (!canSupervise(e) || !thems.length) return '';
     var exp = attendus(e, thems), anim = animateurDe(e); if (!exp.length && !anim) return '';
     var head = '<tr><th style="text-align:left;">Participant</th>' + thems.map(function(t){ return '<th title="' + esc(t.libelle) + '">' + themChip(t) + '</th>'; }).join('') + '<th>Avancement</th></tr>', ready = 0;
     var sc = seanceDuJour(), pa = sc && sc.prepare_at, apres = pa && sc.debut_at && pa > sc.debut_at;
@@ -1103,7 +1158,7 @@
       + '<div style="overflow-x:auto;margin-top:6px;"><table class="aicx-mx" style="min-width:460px;"><thead>' + head + '</thead><tbody>' + animRow + rows + '</tbody></table></div></div>';
   }
   function consultantsFieldHtml(th, e){
-    if (!th || e.niveau !== 3 || !canSupervise(e) || B4.missing) return '';
+    if (!th || !canSupervise(e) || B4.missing) return '';
     var thems = themsFor(e), exp = attendus(e, thems); if (!exp.length) return '';
     return '<div class="field-label" style="margin-top:14px;">Remontées des consultants · ' + esc(th.code) + '</div>' + exp.map(function(m){ var r = prepOf(m.email, th.id);
       return '<div style="display:flex;gap:10px;align-items:flex-start;padding:5px 0;border-bottom:1px solid rgba(86,10,15,.07);">' + (r ? dot(r.statut, 22) : '<span class="aicx-wait">○</span>') + '<div style="font-size:13px;"><b>' + esc(nomDe(m.email)) + '</b><div>' + (r ? esc(r.commentaire || SC[r.statut].l) : '<span class="sub-cell">pas encore renseigné</span>') + '</div></div></div>'; }).join('');
@@ -1116,7 +1171,7 @@
   }
   window.aicxSynth = async function(auto){
     var e = byId(X.espaces, X.open); if (!e) return; var fb = document.getElementById('aicx_syn_fb') ? 'aicx_syn_fb' : 'aicx_sfb';
-    if (!canAnimate(e) || e.niveau !== 3){ if (auto !== true) flash(fb, false, 'Réservé à l\u2019animateur d\u2019un AIC de site.'); return; }
+    if (!canAnimate(e)){ if (auto !== true) flash(fb, false, 'Réservé à l\u2019animateur de cet AIC.'); return; }
     flash(fb, true, '🧠 Synthèse en cours…');
     try {
       var r = await fetch('/.netlify/functions/aic-synthese-ia', { method:'POST', headers:{ 'Content-Type':'application/json', Authorization:'Bearer ' + await tokenOf() }, body:JSON.stringify({ espace_id:e.id, jour:todayIso() }) });
@@ -1129,7 +1184,7 @@
     } catch(err){ flash(document.getElementById('aicx_syn_fb') ? 'aicx_syn_fb' : 'aicx_sfb', false, 'Refusé : ' + ((err && err.message) || err)); }
   };
   function synthHtml(e, thems){
-    var sy = B4.syn; if (!sy || e.niveau !== 3 || !canAnimate(e)) return '';
+    var sy = B4.syn; if (!sy || !canAnimate(e)) return '';
     var rows = (sy.champs || []).map(function(c){
       var st = c.statut_ia || c.statut_regle || '', th = thems.filter(function(t){ return t.id === c.thematique_id; })[0] || { code:c.code, libelle:c.libelle, couleur:'#560A0F' };
       var opts = ['', 'vert', 'orange', 'rouge'].map(function(k){ return '<option value="' + k + '"' + (k === st ? ' selected' : '') + '>' + (k ? SC[k].l : '— (ne pas renseigner)') + '</option>'; }).join('');

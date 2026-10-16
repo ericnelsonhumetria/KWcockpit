@@ -15,7 +15,8 @@
   var PA_VIEW='matrice';           // matrice | liste | kanban | periode | archive
   var PA_ROOT='view';
   var PA_PERIOD={gran:'mois', from:'', to:''};
-  var PA_SHEET='actions';          // 'actions' | 'cr'
+  var PA_SHEET='actions';          // 'actions' | 'cr' | 'aic'
+  var PA_AIC_OK=false, PA_PENDING_CR=null, PA_INIT=false;   // AIC : l'utilisateur y a-t-il accès ? ; CR à ouvrir dès que l'onglet Clap! est affiché
   var PA_DRAG_ID=null;
   var PA_REC=null, PA_RECORDING=false, PA_DICT_FINAL='', PA_BUSY=false, PA_MSG='';
   var PA_AUTO_TIMER=null, PA_AUTODRAFT_ID=null;
@@ -109,17 +110,48 @@
     v.innerHTML=paShell('<div class="edit-hint" style="padding:10px 2px;">Chargement\u2026</div>');
     PA_MSG='';
     try { await paLoadRefs(); await paLoadList(); } catch(e){ PA_MSG='Chargement impossible : '+(e.message||e); }
+    await paAicProbe();
+    if(!PA_INIT){ PA_INIT=true; try{ if(PA_AIC_OK && location.hash==='#aic') PA_SHEET='aic'; }catch(_){} }   // lien direct #aic : même chose dans le Cockpit et dans Clap!
     try { await paReclaimAuto(); } catch(e){}
     if(!PA_AUTO_TIMER) PA_AUTO_TIMER=setInterval(paAutoSave,10000);
     paRepaint();
+    if(PA_PENDING_CR){ var pc=PA_PENDING_CR; PA_PENDING_CR=null; window.clapOpenCR(pc); }
   };
+  /* L'AIC est une feuille de Clap! (Réunions & Rituels · Actions · AIC) : présente si la personne y a accès (membre d'un espace, CEO ou PMO). */
+  async function paAicProbe(){
+    try { PA_AIC_OK = !!(window.clapAIC && await window.clapAIC.access()); } catch(e){ PA_AIC_OK = false; }
+    if(!PA_AIC_OK && PA_SHEET==='aic') PA_SHEET='actions';
+  }
   function paSheetToggle(){
     function chip(val,label){ var on=PA_SHEET===val; return '<button onclick="paSetSheet(\''+val+'\')" type="button" style="font-size:13px;padding:6px 16px;border-radius:999px;border:1px solid '+(on?'#560A0F':'rgba(86,10,15,.28)')+';background:'+(on?'#560A0F':'#fff')+';color:'+(on?'#fff':'#560A0F')+';cursor:pointer;font-family:inherit;font-weight:'+(on?'700':'500')+';margin-right:8px;">'+label+'</button>'; }
-    return '<div style="display:flex;gap:4px;margin:2px 0 12px;">'+chip('cr','Réunions & Rituels')+chip('actions','Actions')+'</div>';
+    return '<div style="display:flex;gap:4px;margin:2px 0 12px;">'+chip('cr','Réunions & Rituels')+chip('actions','Actions')+((PA_AIC_OK&&PA_ROOT==='view')?chip('aic','AIC'):'')+'</div>';
   }
-  window.paSetSheet=function(v){ PA_SHEET=v; paRepaint(); };
+  function paQuitAicOk(){ return !(PA_SHEET==='aic' && window.clapAIC && window.clapAIC.busy && window.clapAIC.busy()) || confirm("Une AIC est en cours. Quitter l'onglet AIC ? Le chrono continue : revenez sur l'onglet AIC pour la terminer."); }
+  window.paSetSheet=function(v){
+    if(v!=='aic' && !paQuitAicOk()) return;
+    PA_SHEET=v;
+    try{ if(v==='aic') history.replaceState(null,'','#aic'); else if(location.hash==='#aic') history.replaceState(null,'',location.pathname+location.search); }catch(_){}
+    paRepaint();
+  };
+  /* Ouvre Clap! sur une feuille (utilisé par les anciens liens vers l'onglet AIC). Dans le Cockpit, bascule d'abord sur l'onglet Clap!. */
+  window.clapGo=function(sheet){
+    PA_SHEET=sheet||'actions';
+    try{ if(typeof CURRENT_TAB!=='undefined' && typeof switchTab==='function' && CURRENT_TAB!=='plandaction'){ switchTab('plandaction'); return; } }catch(_){}
+    paRepaint();
+  };
+  /* Ouvre un compte rendu dans Réunions & Rituels (lien depuis l'arbre des AIC). */
+  window.clapOpenCR=async function(id){
+    if(!paQuitAicOk()) return;
+    try{ if(typeof CURRENT_TAB!=='undefined' && typeof switchTab==='function' && CURRENT_TAB!=='plandaction'){ PA_PENDING_CR=id; PA_SHEET='cr'; switchTab('plandaction'); return; } }catch(_){}
+    PA_SHEET='cr'; try{ if(location.hash==='#aic') history.replaceState(null,'',location.pathname+location.search); }catch(_){}
+    var v=document.getElementById(PA_ROOT); if(!v) return;
+    v.innerHTML=paSheetToggle()+'<div id="crSheet"></div>';
+    if(window.renderCRSheet) await window.renderCRSheet('crSheet');
+    if(window.crOpen) await window.crOpen(id);
+  };
   function paRepaint(){
     var v=document.getElementById(PA_ROOT); if(!v) return;
+    if(PA_SHEET==='aic' && PA_AIC_OK && PA_ROOT==='view' && window.clapAIC){ v.innerHTML=paSheetToggle()+'<div id="aicSheet"></div>'; window.clapAIC.mount('aicSheet'); return; }
     if(PA_SHEET==='cr'){ v.innerHTML=paSheetToggle()+'<div id="crSheet"></div>'; if(window.renderCRSheet) window.renderCRSheet('crSheet'); return; }
     v.innerHTML=paSheetToggle()+paShell(paCaptureHtml() + paFormZoneHtml() + paControlsHtml() + '<div id="paResults"></div>');
     paRenderResults();
@@ -692,6 +724,7 @@
   function crRepaint(){
     var z=document.getElementById(CR_ROOT); if(!z) return;
     z.innerHTML = CR_CUR ? crEditorHtml() : crListHtml();
+    if(CR_CUR&&window.crAccessSync){ try{ window.crAccessSync(); }catch(_){} }
     if(CR_CUR&&CR_LOCKOK&&crIsLocked(CR_CUR)) crApplyLock(z);
   }
 
@@ -745,9 +778,36 @@
     CR_CUR.titre=g('crTitre'); CR_CUR.date_reunion=g('crDate')||today(); CR_CUR.interlocuteur_id=g('crInter')||null; CR_CUR.contexte=g('crContexte');
     var cbR=document.getElementById('crRoutine'); if(cbR) CR_CUR.est_routine=!!cbR.checked;
     var parts=[]; var cbs=document.querySelectorAll('.crPart'); for(var k=0;k<cbs.length;k++){ if(cbs[k].checked) parts.push(cbs[k].value); } CR_CUR.participants=parts;
-    var auths=[]; var cbs2=document.querySelectorAll('.crAuth'); for(var k2=0;k2<cbs2.length;k2++){ if(cbs2[k2].checked) auths.push(cbs2[k2].value); } CR_CUR.autorises=auths;
+    var auths=[]; var cbs2=document.querySelectorAll('.crAuth'); for(var k2=0;k2<cbs2.length;k2++){ if(cbs2[k2].checked&&parts.indexOf(cbs2[k2].value)<0) auths.push(cbs2[k2].value); } CR_CUR.autorises=auths;
     var tr=document.getElementById('crTranscript'); if(tr) CR_CUR.transcription=tr.value;
   }
+
+  /* ---------- Qui voit ce compte-rendu ? (règle appliquée par la base : cr_acces.sql) ----------
+     L'émetteur et la direction le voient toujours ; les PARTICIPANTS le lisent, le modifient et le reçoivent par mail ; les AUTORISÉS le consultent seulement.
+     Aucune fonction (Commerce, RH…) n'y accède d'office : seules les personnes cochées. */
+  function crAccessPeople(){ return (CR_REFS&&CR_REFS.pilotes||[]).filter(function(p){ return p.email||p.user_id; }); }
+  function crAccessBlock(d){
+    var ppl=crAccessPeople(), parts=d.participants||[], auts=d.autorises||[];
+    function box(cls,p,on){ return '<label data-pid="'+p.id+'" style="font-size:12.5px;color:#333;display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" class="'+cls+'" value="'+p.id+'"'+(on?' checked':'')+' onchange="crAccessSync()"> '+e(p.nom)+(p.email?'':' <span class="edit-hint" title="Sans e-mail : ne recevra pas le CR par mail">·</span>')+'</label>'; }
+    var none='<span class="edit-hint">Aucune personne avec e-mail ou compte lié — renseignez-les dans Admin → Pilotes.</span>';
+    return '<div class="crAccess" style="flex:1 1 100%;margin-top:8px;border-top:1px dashed rgba(86,10,15,.2);padding-top:8px;">'
+      +'<div style="font-size:12.5px;font-weight:700;color:#560A0F;">Qui voit ce compte-rendu ?</div>'
+      +'<div class="edit-hint" style="margin:2px 0 6px;">Vous (émetteur) et la direction le voient toujours. Aucune fonction n\u2019y accède d\u2019office : seules les personnes cochées ci-dessous.</div>'
+      +'<div style="font-size:11px;color:var(--muted);">Participants : lisent, modifient et reçoivent le CR par mail<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:4px;">'+(ppl.map(function(p){ return box('crPart',p,parts.indexOf(p.id)>=0); }).join('')||none)+'</div></div>'
+      +'<div style="font-size:11px;color:var(--muted);margin-top:6px;">Autorisés à consulter seulement (en plus des participants)<div id="crAuthList" style="display:flex;flex-wrap:wrap;gap:10px;margin-top:4px;">'+(ppl.map(function(p){ return box('crAuth',p,auts.indexOf(p.id)>=0); }).join('')||none)+'</div></div>'
+      +'<div id="crAccessSum" class="edit-hint" style="margin-top:6px;"></div></div>';
+  }
+  /* Un participant a déjà accès : on ne le propose plus parmi les autorisés ; le résumé dit exactement qui verra le CR. */
+  window.crAccessSync=function(){
+    var parts=[].slice.call(document.querySelectorAll('.crPart')).filter(function(c){return c.checked;}).map(function(c){return c.value;});
+    [].slice.call(document.querySelectorAll('.crAuth')).forEach(function(c){ var lab=c.closest('label'); var isP=parts.indexOf(c.value)>=0; if(isP) c.checked=false; if(lab) lab.style.display=isP?'none':'inline-flex'; });
+    var auts=[].slice.call(document.querySelectorAll('.crAuth')).filter(function(c){return c.checked;}).length, sum=document.getElementById('crAccessSum'); if(!sum) return;
+    var legacy=!!(CR_CUR&&CR_CUR.id&&!CR_CUR.auteur_id&&!parts.length&&!auts);
+    sum.style.color=(!parts.length&&!auts)?'#9a3412':'';
+    sum.textContent = legacy ? 'Ancien compte-rendu (émetteur inconnu) : visible de tous les comptes internes tant que personne n\u2019est coché.'
+      : (!parts.length&&!auts) ? '\u26a0 Personne n\u2019est coché : seuls vous et la direction verrez ce compte-rendu.'
+      : 'Visible par : vous, la direction, '+parts.length+' participant(s)'+(auts?(' et '+auts+' autorisé(s) en lecture seule'):'')+'.';
+  };
   function crEditorHtml(){
     var d=CR_CUR;
     var piloteOpts='<option value="">— interlocuteur (pilote) —</option>'+(CR_REFS.pilotes||[]).map(function(p){return '<option value="'+p.id+'"'+(p.id===d.interlocuteur_id?' selected':'')+'>'+e(p.nom)+'</option>';}).join('');
@@ -767,8 +827,7 @@
       +'<label style="flex:1;min-width:130px;font-size:11px;color:var(--muted);">Date<div style="margin-top:2px;"><input id="crDate" type="date" value="'+(d.date_reunion||today())+'" style="'+sel()+'"></div></label>'
       +'<label style="flex:1;min-width:160px;font-size:11px;color:var(--muted);">Interlocuteur<div style="margin-top:2px;"><select id="crInter" style="'+sel()+'">'+piloteOpts+'</select></div></label>'
       +'<label style="flex:1 1 100%;font-size:12.5px;color:#333;display:inline-flex;align-items:center;gap:6px;margin-top:6px;"><input type="checkbox" id="crRoutine"'+(d.est_routine?' checked':'')+'> C\'est une <b>routine (AIC)</b> \u2014 les actions décidées alimenteront la vue Routine du plan d\'action (sinon : réunion ponctuelle, pas de remontée)</label>'
-      +'<div style="flex:1 1 100%;font-size:11px;color:var(--muted);margin-top:2px;">Participants (pour l\'envoi par mail)<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:4px;">'+((CR_REFS.pilotes||[]).filter(function(p){return p.email;}).map(function(p){ var on=(d.participants||[]).indexOf(p.id)>=0; return '<label style="font-size:12.5px;color:#333;display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" class="crPart" value="'+p.id+'"'+(on?' checked':'')+'> '+e(p.nom)+'</label>'; }).join('')||'<span class="edit-hint">Aucun pilote avec e-mail — renseigne-les dans Admin → Pilotes (liaison compte).</span>')+'</div></div>'
-      +'<div style="flex:1 1 100%;font-size:11px;color:var(--muted);margin-top:6px;">Autorisés à consulter ce CR (en plus de l\'émetteur et des participants)<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:4px;">'+((CR_REFS.pilotes||[]).filter(function(p){return p.user_id;}).map(function(p){ var on=(d.autorises||[]).indexOf(p.id)>=0; return '<label style="font-size:12.5px;color:#333;display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" class="crAuth" value="'+p.id+'"'+(on?' checked':'')+'> '+e(p.nom)+'</label>'; }).join('')||'<span class="edit-hint">Aucun compte lié.</span>')+'</div></div>'
+      +crAccessBlock(d)
       +'</div></div>'
       // Préparation
       +'<div class="panel" style="padding:12px 16px;margin-top:12px;"><div class="sec-eyebrow" style="margin:0 0 6px;">1 · Préparation</div>'

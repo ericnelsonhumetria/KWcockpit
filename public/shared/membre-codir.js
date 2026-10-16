@@ -10,7 +10,7 @@
 
   /* Onglets que le profil peut accorder (pas Admin, pas Tableau de bord, pas Objectifs : jamais). */
   var GRANTABLE = [['cerebro_business','Cerebro Business'], ['cerebro_events','Cerebro Events'], ['cerebro_talents','Cerebro Talents'], ['capbp','Bonnes pratiques'],
-                   ['dojo','Dojo'], ['parcours','Parcours candidats'], ['plandaction','Réunions & Rituels et Actions'], ['humetria','Humetria']];
+                   ['dojo','Dojo'], ['parcours','Parcours candidats'], ['plandaction','Clap!'], ['humetria','Humetria']];
   var KEYS = GRANTABLE.map(function(a){ return a[0]; });
   var CEREBRO_SUBS = ['cerebro_business','cerebro_events','cerebro_talents'];
   window.CURRENT_CODIR = false;                                          /* la personne connectée porte-t-elle le profil ? (lu à chaque connexion) */
