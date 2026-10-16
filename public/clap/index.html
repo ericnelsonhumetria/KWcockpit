@@ -93,10 +93,6 @@
         <button class="add-btn sm ghost" onclick="logout()" style="color:#fff;border-color:rgba(255,255,255,.5);background:transparent;">Se déconnecter</button>
       </div>
     </div>
-    <div class="clap-tabs hidden" id="ctabs" role="tablist" aria-label="Sections">
-      <button type="button" class="clap-tab on" id="ctab_cr" role="tab" aria-selected="true" onclick="clapTab('cr')">Comptes-rendus &amp; Actions</button>
-      <button type="button" class="clap-tab" id="ctab_aic" role="tab" aria-selected="false" onclick="clapTab('aic')">AIC</button>
-    </div>
     <div class="clap-wrap"><div id="view"></div></div>
   </div>
 
@@ -126,7 +122,8 @@
     'rh':'sabrine','sabrine':'sabrine',
     'administration des affaires':'najoua','administration':'najoua','finance & admin':'najoua','finance':'najoua','najoua':'najoua',
     'transformation':'transformation',
-    'consultant':'consultant'
+    'consultant':'consultant',
+    'pmo':'pmo','project management officer':'pmo'
   };
   if(map[r]) return map[r];
   var e = (email||'').toLowerCase();
@@ -151,40 +148,30 @@
       SB_SESSION = data.session; CURRENT_EMAIL = email;
       try { const { data: acc } = await sb.from('user_access').select('is_admin, role').eq('email', email).maybeSingle(); CURRENT_ROLE = roleFromAccess(acc, email); }
       catch(e){ CURRENT_ROLE = roleFromAccess(null, email); }
-      document.getElementById('cwho').textContent = email;
+      document.getElementById('cwho').textContent = email; showWho(email);
       document.getElementById('clogin').classList.add('hidden');
       document.getElementById('capp').classList.remove('hidden');
       err.textContent = "";
-      const wantAic = location.hash === '#aic';   // lien direct vers l'AIC (favori, raccourci)
-      if(!wantAic && window.renderPlanAction) window.renderPlanAction('view');
-      await initTabs(wantAic);
+      if(window.renderPlanAction) window.renderPlanAction('view');   // Clap! : Réunions & Rituels · Actions · AIC (le lien #aic ouvre la feuille AIC)
     }
 
-    /* ---------- Onglets : Comptes-rendus & Actions (par défaut) | AIC (si accès : CEO ou membre d'un espace) ---------- */
-    let CLAP_TAB = 'cr';
-    function paintTabs(){
-      ['cr','aic'].forEach(function(t){ const b = document.getElementById('ctab_'+t); if(!b) return; b.classList.toggle('on', CLAP_TAB===t); b.setAttribute('aria-selected', CLAP_TAB===t ? 'true' : 'false'); });
-    }
-    async function initTabs(wantAic){
-      CLAP_TAB = 'cr'; paintTabs();
-      const bar = document.getElementById('ctabs'); bar.classList.add('hidden');
-      let ok = false;
-      try { ok = !!(window.clapAIC && await window.clapAIC.access()); } catch(e){ ok = false; }
-      if(ok && CURRENT_EMAIL){ bar.classList.remove('hidden'); if(wantAic){ clapTab('aic'); return; } }
-      if(wantAic && window.renderPlanAction) window.renderPlanAction('view');   // pas d'accès AIC : Clap! s'affiche comme avant
-    }
-    function clapTab(t){
-      if(CLAP_TAB === 'aic' && t !== 'aic' && window.clapAIC && window.clapAIC.busy() && !confirm("Une AIC est en cours. Quitter l'onglet AIC ? Le chrono continue : revenez sur l'onglet AIC pour la terminer.")) return;
-      CLAP_TAB = t; paintTabs();
-      if(t === 'aic'){ try { history.replaceState(null, '', '#aic'); } catch(e){} if(window.clapAIC) window.clapAIC.mount(); }
-      else { try { history.replaceState(null, '', location.pathname + location.search); } catch(e){} if(window.renderPlanAction) window.renderPlanAction('view'); }
+    /* ---------- Identité : le NOM de la personne (fiche Admin → Pilotes) et sa fonction, pas son e-mail ---------- */
+    const FONCTIONS = { eric:'CEO', cto:'CTO', paul:'Commerce', audrey:'Méthodes', juliette:'Mktg et Produit', communication:'Communication', sabrine:'RH', najoua:'Administration des affaires', consultant:'Consultant', transformation:'Transformation', pmo:'PMO' };
+    function prettyName(email){ return String(email||'').split('@')[0].split(/[._-]+/).filter(Boolean).map(function(x){ return x.charAt(0).toUpperCase()+x.slice(1); }).join(' '); }
+    async function showWho(email){
+      let nom = '';
+      try {
+        const uid = SB_SESSION && SB_SESSION.user && SB_SESSION.user.id, { data } = await SB.from('action_pilotes').select('nom,email,user_id'), list = data || [];
+        const hit = list.filter(function(p){ return uid && p.user_id === uid; })[0] || list.filter(function(p){ return p.email && String(p.email).trim().toLowerCase() === email; })[0];
+        nom = hit && hit.nom ? String(hit.nom).trim() : '';
+      } catch(e){}
+      document.getElementById('cwho').textContent = (nom || prettyName(email)) + (FONCTIONS[CURRENT_ROLE] ? ' · ' + FONCTIONS[CURRENT_ROLE] : '');
     }
 
     async function logout(){
       try { if(SB) await SB.auth.signOut(); } catch(e){}
       SB_SESSION = null; CURRENT_EMAIL = '';
       try { if(window.clapAIC) window.clapAIC.reset(); } catch(e){}
-      CLAP_TAB = 'cr'; document.getElementById('ctabs').classList.add('hidden');
       try { history.replaceState(null, '', location.pathname + location.search); } catch(e){}   // la déconnexion remet l'adresse à zéro (plus de #aic)
       document.getElementById('capp').classList.add('hidden');
       document.getElementById('clogin').classList.remove('hidden');
@@ -196,8 +183,8 @@
   </script>
 
   <!-- Module partagé (source unique cockpit <-> Clap) -->
-  <script src="/shared/cr-actions.js?v=8"></script>
+  <script src="/shared/cr-actions.js?v=10"></script>
   <!-- Module AIC partagé (même fichier que le Cockpit : mêmes données, mêmes droits) -->
-  <script src="/shared/aic-espaces.js?v=3"></script>
+  <script src="/shared/aic-espaces.js?v=5"></script>
 </body>
 </html>
