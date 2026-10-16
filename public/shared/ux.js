@@ -1,6 +1,6 @@
 /* COCKPIT KW — Ergonomie, étape 1 (public/shared/ux.js)
    Additif : une seule ligne <script> (index.html ET clap/index.html), après les autres modules. Pour revenir en arrière : retirer la ligne.
-   1. FOCUS CLAVIER VISIBLE : un anneau doré cerclé de bordeaux autour de l'élément atteint au clavier (Tab). Avant : 4 règles de focus pour
+   1. FOCUS CLAVIER VISIBLE : un anneau doré épais cerclé d'un liseré bordeaux plein (visible sur fond clair comme sur fond sombre) autour de l'élément atteint au clavier (Tab). Avant : 4 règles de focus pour
       tout le Cockpit, donc on ne voyait pas où l'on était.
    2. MESSAGES NON BLOQUANTS : les 65 alert() du Cockpit (boîte grise du navigateur qui fige la page) deviennent des messages discrets en bas à
       droite : se ferment seuls, au clic ou avec Échap, ne se superposent pas (4 au plus), restent lisibles par les lecteurs d'écran.
@@ -16,7 +16,7 @@
   var SMALL = ['7', '7.5', '8', '8.5', '9', '9.5', '10', '10.5'], sel = [];
   SMALL.forEach(function(v){ sel.push('[style*="font-size:' + v + 'px"]'); sel.push('[style*="font-size: ' + v + 'px"]'); });
   var CSS = ''
-    + ':focus-visible{outline:3px solid #E8A200 !important;outline-offset:2px !important;box-shadow:0 0 0 5px rgba(86,10,15,.45) !important;}'
+    + ':focus-visible{outline:3px solid #E8A200 !important;outline-offset:2px !important;box-shadow:0 0 0 6px #560A0F !important;}'
     + '@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important;scroll-behavior:auto !important;}}'
     + sel.join(',') + '{font-size:11px !important;}'
     + '#kwToasts{position:fixed;right:16px;bottom:16px;z-index:100000;display:flex;flex-direction:column;gap:8px;max-width:min(420px,calc(100vw - 32px));pointer-events:none;}'
