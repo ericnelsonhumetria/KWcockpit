@@ -10,7 +10,10 @@
    5. DOUBLON : « Synthèse financière · Indicateurs clés » répétait CA, EBITDA et trésorerie déjà affichés en haut. Les cartes « Réalisé » et « Atterrissage » sont
       repliées dans un bloc « détail » dont le résumé garde les 4 chiffres clés (un clic les déplie ; le choix est mémorisé). Trésorerie et encours restent visibles.
    6. AVERTISSEMENTS : les « ⚠ … ligne(s) carnet échue(s) … exclue(s) » et « ⚠ données vieilles de N j » sortent du paragraphe et deviennent un encadré visible,
-      toujours affiché, même quand le détail est replié. */
+      toujours affiché, même quand le détail est replié.
+   7. STABILITÉ : la page redessinait la synthèse financière ~5 fois par SECONDE en permanence (son propre observateur réagissait à ses propres modifications).
+      Invisible tant que le contenu était identique, mais chaque redessin remplaçait les éléments (clics perdus) et faisait sauter l'écran dès qu'un bloc était replié.
+      Le repli se fait donc dans le même instant que le redessin (jamais d'état « déplié » affiché), et un redessin n'est refait que si quelque chose a réellement changé. */
 (function(){
   'use strict';
   if (window.__kwDashUx) return; window.__kwDashUx = true;
@@ -96,11 +99,38 @@
     });
   }
 
+  /* ---------- 7. stabilité : repli immédiat + arrêt du rebouclage ---------- */
+  var foreign = 0, lastAt = 0, lastSig = '', lastZone = null, mo = null, WRAPPED = false;
+  function sig(){
+    try { return JSON.stringify([window.FIN_CA_REALISE, window.FIN_PROJ_SCENARIO, window.FINANCE_OBJECTIF, (window.FIN_PROJ_ROWS || []).length, window.FIN_DIAG && window.FIN_DIAG.opex_ebitda]); }
+    catch(e){ return String(Math.random()); }
+  }
+  function wrapRepaint(){
+    if (WRAPPED || typeof window.finSynthRepaint !== 'function' || window.finSynthRepaint.__kwDash) return WRAPPED;
+    var orig = window.finSynthRepaint, view = document.getElementById('view');
+    if (window.MutationObserver && view){ mo = new MutationObserver(function(r){ foreign += r.length; }); mo.observe(view, { childList:true, subtree:true }); }
+    var w = function(){
+      if (mo) foreign += mo.takeRecords().length;                        /* modifications déjà faites dans ce même instant par l'appelant */
+      var zone = document.getElementById('finSynthZone'), now = Date.now(), s = sig();
+      /* Rien n'a changé hors du redessin lui-même (ni page, ni données) depuis moins de 1,5 s : c'est l'écho de son propre observateur -> on ne redessine pas. */
+      if (mo && zone && zone === lastZone && foreign === 0 && s === lastSig && now - lastAt < 1500) return;
+      foreign = 0; var r;
+      try { r = orig.apply(this, arguments); }
+      finally {
+        try { reshape(); } catch(e){}                                      /* replié dans le même instant : l'écran ne montre jamais l'état déplié */
+        if (mo) mo.takeRecords();                                          /* les modifications du redessin ne comptent pas comme des changements extérieurs */
+        lastZone = document.getElementById('finSynthZone'); lastAt = Date.now(); lastSig = sig();
+      }
+      return r;
+    };
+    w.__kwDash = true; window.finSynthRepaint = w; WRAPPED = true; return true;
+  }
+
   /* ---------- installation ---------- */
   var timer = null;
-  function run(){ try { fab(); reshape(); tick(); } catch(e){ if (window.console) console.error('dashboard-ux', e); } }
+  function run(){ try { fab(); wrapRepaint(); if (!WRAPPED) reshape(); tick(); } catch(e){ if (window.console) console.error('dashboard-ux', e); } }
   function init(){
-    addCss(); run();
+    addCss(); wrapRepaint(); run();
     if (window.MutationObserver){
       var v = document.getElementById('view');
       if (v) new MutationObserver(function(){ clearTimeout(timer); timer = setTimeout(run, 80); }).observe(v, { childList:true, subtree:true });
@@ -110,5 +140,5 @@
   }
   addCss();
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
-  window.kwDashUx = { reshape:reshape, tick:tick, run:run };
+  window.kwDashUx = { reshape:reshape, tick:tick, run:run, wrap:wrapRepaint };
 })();
