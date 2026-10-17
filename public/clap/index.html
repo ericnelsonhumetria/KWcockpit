@@ -35,6 +35,17 @@
   .clap-tab:hover{ opacity:1; }
   .clap-tab.on{ opacity:1; border-bottom-color:var(--or); }
   .clap-tab:focus-visible{ outline:3px solid var(--or); outline-offset:-3px; }
+  /* bandeau v2 : collant ; les feuilles (Réunions & Rituels · Actions · AIC) y sont placées comme onglets ; la feuille ouverte se raccorde à la page */
+  .clap-bar{ position:sticky; top:0; z-index:20; box-shadow:0 2px 12px rgba(26,20,22,.18); }
+  .clap-brand{ display:flex; align-items:baseline; gap:12px; }
+  .clap-tag{ font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:rgba(255,255,255,.7); }
+  #cwho{ font-weight:600; }
+  #clapNav{ background:#4a080c; padding:6px 14px 0; display:flex; min-height:6px; }
+  #clapNav .kw-subtabs{ margin:0; border-bottom:0; max-width:1100px; width:100%; margin:0 auto; gap:4px; }
+  #clapNav .kw-subtab{ color:rgba(255,255,255,.82); border-bottom:0; margin-bottom:0; padding:10px 18px; border-radius:9px 9px 0 0; font-size:14.5px; }
+  #clapNav .kw-subtab:hover{ color:#fff; background:rgba(255,255,255,.12); }
+  #clapNav .kw-subtab.on{ background:var(--bg); color:var(--primary); font-weight:800; box-shadow:inset 0 3px 0 var(--or); }
+  #clapNav .kw-subtab:focus-visible{ outline:3px solid var(--or); outline-offset:-3px; }
   /* login */
   .login-wrap{ min-height:100vh; display:flex; align-items:center; justify-content:center; padding:16px; }
   .login-card{ background:#fff; border-radius:16px; box-shadow:0 20px 60px rgba(0,0,0,.15); padding:28px 26px; max-width:380px; width:100%; }
@@ -49,6 +60,9 @@
     .clap-head{ padding:10px 12px; flex-wrap:wrap; gap:8px; }
     .clap-logo{ font-size:18px; }
     #cwho{ display:none; }
+    .clap-tag{ display:none; }
+    #clapNav{ padding:4px 8px 0; }
+    #clapNav .kw-subtab{ padding:9px 12px; font-size:13.5px; }
     .clap-wrap{ padding:12px 10px 64px; }
     .sec-title{ font-size:16px; }
     .panel{ border-radius:10px; }
@@ -86,12 +100,15 @@
   </div>
 
   <div id="capp" class="hidden">
+    <div class="clap-bar">
     <div class="clap-head">
-      <div class="clap-logo">Clap <span>!</span></div>
+      <div class="clap-brand"><div class="clap-logo">Clap <span>!</span></div><div class="clap-tag">Kaizen Way · Réunions, actions, AIC</div></div>
       <div style="display:flex;align-items:center;gap:12px;font-size:13px;">
         <span id="cwho"></span>
         <button class="add-btn sm ghost" onclick="logout()" style="color:#fff;border-color:rgba(255,255,255,.5);background:transparent;">Se déconnecter</button>
       </div>
+    </div>
+    <nav id="clapNav" aria-label="Feuilles de Clap!"></nav>
     </div>
     <div class="clap-wrap"><div id="view"></div></div>
   </div>
@@ -210,12 +227,25 @@
   </script>
 
   <!-- Module partagé (source unique cockpit <-> Clap) -->
-  <script src="/shared/cr-actions.js?v=12"></script>
+  <script src="/shared/cr-actions.js?v=13"></script>
   <!-- Module AIC partagé (même fichier que le Cockpit : mêmes données, mêmes droits) -->
   <script src="/shared/aic-espaces.js?v=5"></script>
 <script src="/shared/ux.js?v=2"></script>
 <script src="/shared/dialogs.js?v=4"></script>
 <script src="/shared/prompts-ux.js?v=2"></script>
 <script src="/shared/acces-strict.js?v=1"></script>
+<script>
+  /* Bandeau : les onglets des feuilles, rendus en tête de #view par cr-actions.js, sont placés dans le bandeau ; le titre de la fenêtre suit. */
+  (function(){
+    var view = document.getElementById('view'), nav = document.getElementById('clapNav'); if (!view || !nav || !window.MutationObserver) return;
+    function place(){
+      var t = view.querySelector('[data-kw-subtabs]'); if (!t) return;
+      nav.innerHTML = ''; nav.appendChild(t);
+      var on = t.querySelector('.kw-subtab.on'); document.title = 'Clap! · ' + (on ? on.textContent : 'Réunions & Rituels');
+    }
+    new MutationObserver(place).observe(view, { childList:true });
+    place();
+  })();
+</script>
 </body>
 </html>

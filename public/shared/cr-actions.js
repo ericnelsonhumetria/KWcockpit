@@ -122,9 +122,23 @@
     try { PA_AIC_OK = !!(window.clapAIC && await window.clapAIC.access()); } catch(e){ PA_AIC_OK = false; }
     if(!PA_AIC_OK && PA_SHEET==='aic') PA_SHEET='actions';
   }
+  /* Feuilles de Clap! (Réunions & Rituels · Actions · AIC) : vrais onglets de second niveau (souligné bordeaux), distincts des onglets
+     du Cockpit (remplis). Dans l'app Clap! autonome, la page les place dans son bandeau (#clapNav). */
+  function paSubtabsCss(){
+    if(document.getElementById('kwSubtabsCss')) return;
+    var st=document.createElement('style'); st.id='kwSubtabsCss';
+    st.textContent='.kw-subtabs{display:flex;gap:2px;margin:0 0 14px;border-bottom:2px solid rgba(86,10,15,.14);overflow-x:auto;-webkit-overflow-scrolling:touch;}'
+      +'.kw-subtabs::-webkit-scrollbar{display:none;}'
+      +'.kw-subtab{background:none;border:0;border-bottom:3px solid transparent;margin-bottom:-2px;padding:9px 16px 8px;font:inherit;font-size:14px;font-weight:600;color:#6b5b58;cursor:pointer;white-space:nowrap;border-radius:6px 6px 0 0;}'
+      +'.kw-subtab:hover{color:#560A0F;background:rgba(86,10,15,.06);}'
+      +'.kw-subtab.on{color:#560A0F;font-weight:800;border-bottom-color:#560A0F;}'
+      +'.kw-subtab:focus-visible{outline:3px solid #EFB810;outline-offset:-3px;}';
+    document.head.appendChild(st);
+  }
   function paSheetToggle(){
-    function chip(val,label){ var on=PA_SHEET===val; return '<button onclick="paSetSheet(\''+val+'\')" type="button" style="font-size:13px;padding:6px 16px;border-radius:999px;border:1px solid '+(on?'#560A0F':'rgba(86,10,15,.28)')+';background:'+(on?'#560A0F':'#fff')+';color:'+(on?'#fff':'#560A0F')+';cursor:pointer;font-family:inherit;font-weight:'+(on?'700':'500')+';margin-right:8px;">'+label+'</button>'; }
-    return '<div style="display:flex;gap:4px;margin:2px 0 12px;">'+chip('cr','Réunions & Rituels')+chip('actions','Actions')+((PA_AIC_OK&&PA_ROOT==='view')?chip('aic','AIC'):'')+'</div>';
+    paSubtabsCss();
+    function chip(val,label){ var on=PA_SHEET===val; return '<button role="tab" aria-selected="'+on+'" class="kw-subtab'+(on?' on':'')+'" data-sheet="'+val+'" onclick="paSetSheet(\''+val+'\')" type="button">'+label+'</button>'; }
+    return '<div class="kw-subtabs" role="tablist" aria-label="Feuilles de Clap!" data-kw-subtabs="1">'+chip('cr','Réunions & Rituels')+chip('actions','Actions')+((PA_AIC_OK&&PA_ROOT==='view')?chip('aic','AIC'):'')+'</div>';
   }
   function kwAsk(o){ if(typeof window.kwConfirm==='function') return window.kwConfirm(o); return Promise.resolve(window.confirm(o.message)); }   /* vrai dialogue si dialogs.js est chargé, boîte du navigateur sinon */
   function paQuitAicOk(){
