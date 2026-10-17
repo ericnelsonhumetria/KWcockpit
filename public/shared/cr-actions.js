@@ -138,7 +138,7 @@
   function paSheetToggle(){
     paSubtabsCss();
     function chip(val,label){ var on=PA_SHEET===val; return '<button role="tab" aria-selected="'+on+'" class="kw-subtab'+(on?' on':'')+'" data-sheet="'+val+'" onclick="paSetSheet(\''+val+'\')" type="button">'+label+'</button>'; }
-    return '<div class="kw-subtabs" role="tablist" aria-label="Feuilles de Clap!" data-kw-subtabs="1">'+chip('cr','Réunions & Rituels')+chip('actions','Actions')+((PA_AIC_OK&&PA_ROOT==='view')?chip('aic','AIC'):'')+'</div>';
+    return '<div class="kw-subtabs" role="tablist" aria-label="Feuilles de Clap!" data-kw-subtabs="1">'+chip('cr','Réunions & Rituels')+chip('actions','Actions')+(window.clapCapture?chip('capture','Capture'):'')+((PA_AIC_OK&&PA_ROOT==='view')?chip('aic','AIC'):'')+'</div>';
   }
   function kwAsk(o){ if(typeof window.kwConfirm==='function') return window.kwConfirm(o); return Promise.resolve(window.confirm(o.message)); }   /* vrai dialogue si dialogs.js est chargé, boîte du navigateur sinon */
   function paQuitAicOk(){
@@ -171,6 +171,7 @@
     var v=document.getElementById(PA_ROOT); if(!v) return;
     if(PA_SHEET==='aic' && PA_AIC_OK && PA_ROOT==='view' && window.clapAIC){ v.innerHTML=paSheetToggle()+'<div id="aicSheet"></div>'; window.clapAIC.mount('aicSheet'); return; }
     if(PA_SHEET==='cr'){ v.innerHTML=paSheetToggle()+'<div id="crSheet"></div>'; if(window.renderCRSheet) window.renderCRSheet('crSheet'); return; }
+    if(PA_SHEET==='capture' && window.clapCapture){ v.innerHTML=paSheetToggle()+'<div id="capSheet"></div>'; window.clapCapture.mount('capSheet'); return; }   /* feuille Capture (shared/capture.js) */
     v.innerHTML=paSheetToggle()+paShell(paCaptureHtml() + paFormZoneHtml() + paControlsHtml() + '<div id="paResults"></div>');
     paRenderResults();
   }
