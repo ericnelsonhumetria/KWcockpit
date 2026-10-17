@@ -1,4 +1,4 @@
-/* COCKPIT KW — Page Admin en pavés par thématique (public/shared/admin-ux.js) — v2
+/* COCKPIT KW — Page Admin en pavés par thématique (public/shared/admin-ux.js) — v3 (Finance : + valorisations des quick wins)
    Additif : une seule ligne <script> dans index.html, APRÈS dialogs.js (et avant session-restore.js). Retour arrière : remettre la v1 (?v=1).
    RIEN n'est supprimé : aucun bouton, champ ni enregistrement ne change de fonctionnement. Les blocs existants sont seulement RANGÉS.
    1. ACCUEIL EN PAVÉS : l'Admin s'ouvre sur une grille de pavés, un par thématique, chacun avec son état en un coup d'œil :
@@ -19,7 +19,7 @@
     { k:'access',   ico:'🔐', t:'Droits d’accès',  d:'Onglets ouverts par fonction, profil Membre Codir, cartes Obeya.' },
     { k:'aic',      ico:'🎯', t:'AIC',                  d:'Référentiel des thématiques et indicateurs, structures, bilans et sujets.' },
     { k:'relances', ico:'✉️', t:'Relances & e-mails',   d:'Rappel par mail des actions en cours, test d’envoi.' },
-    { k:'finance',  ico:'💶', t:'Finance',              d:'Objectif de CA annuel (barre de progression, synthèse direction).' },
+    { k:'finance',  ico:'💶', t:'Finance',              d:'Objectif de CA annuel, valorisations standard des quick wins.' },
     { k:'autres',   ico:'🧩', t:'Autres réglages',      d:'Blocs ajoutés par d’autres modules.' }
   ];
   var KEYS = THEMES.map(function(x){ return x.k; });
@@ -86,7 +86,7 @@
   function tagOf(c){
     var id = c.id || '', ti = c.querySelector && c.querySelector('.sec-title'), txt = ti ? ti.textContent : '';
     if (id === 'adminAccessZone' || id === 'adminCodirZone') return 'access';
-    if (id === 'caObjZone') return 'finance';
+    if (id === 'caObjZone' || id === 'qwValoZone') return 'finance';
     if (id === 'aicAdmin' || id === 'aicStruct' || id === 'aicAdm2' || /^aic/i.test(id)) return 'aic';
     if (/Relance/i.test(txt)) return 'relances';
     if (/Inviter|Utilisateur/i.test(txt)) return 'users';
