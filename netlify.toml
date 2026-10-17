@@ -103,3 +103,12 @@
 # « en attente » (LinkedIn prépare les données) ou « en erreur » (nouvel essai rapide).
 [functions."cerebro-linkedin-weekly"]
   schedule = "15 5 * * *"
+
+# Clap! : notifications « actions en retard » sur le téléphone (Web Push). Temps réel : déclencheur SQL -> push-actions.
+[[redirects]]
+  from = "/api/push-actions"
+  to = "/.netlify/functions/push-actions"
+  status = 200
+# Peu après minuit (heure de Paris) les échéances de la veille passent « en retard » : mise à jour des téléphones (23:10 et 06:10 UTC)
+[functions."push-actions-daily"]
+  schedule = "10 6,23 * * *"
