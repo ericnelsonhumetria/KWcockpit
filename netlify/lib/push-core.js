@@ -92,7 +92,7 @@ async function sync(db, cfg, which, opts) {
     const items = late.filter(a => mine.has(String(a.pilote_id)))
       .sort((a, b) => String(a.echeance).localeCompare(String(b.echeance)) || (a.numero || 0) - (b.numero || 0));
     const etat = items.map(a => a.id).sort().join(',') || '0';
-    if (!opts.force && s.dernier_etat === etat) { out.inchanges++; continue; }
+    if ((!opts.force || etat === '0') && s.dernier_etat === etat) { out.inchanges++; continue; }   // à zéro, jamais de renvoi : pas de notification « plus rien » répétée
     const payload = JSON.stringify({ t: 'retards', n: items.length, d: today,
       items: items.slice(0, MAX_ITEMS).map(a => ({ id: a.id, no: a.numero || null, l: String(a.libelle || '').slice(0, 140), e: a.echeance })) });
     try {

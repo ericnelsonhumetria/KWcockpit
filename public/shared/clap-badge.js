@@ -1,4 +1,4 @@
-/* COCKPIT KW — Pastille rouge « actions en retard » sur Clap! (public/shared/clap-badge.js)
+/* COCKPIT KW — Pastille rouge « actions en retard » sur Clap! (public/shared/clap-badge.js) — v2 : même règle de calcul que les notifications du téléphone
    Additif : une seule ligne <script> (index.html ET clap/index.html), après cr-actions.js, avant session-restore.js. Retour arrière : retirer la ligne.
    Sur le modèle de LinkedIn : un chiffre blanc sur fond rouge = le nombre de MES actions en retard (je suis pilote, échéance dépassée,
    statut À faire / En cours / En attente, non archivée). Rien ne s'affiche à 0. Au-delà de 99 : « 99+ ».
@@ -12,7 +12,8 @@
   var RED = '#CC1016', COUNT = 0, MYPIL = null, MYUID = null, busy = false, last = 0, tmr = null;
   function db(){ try { return (typeof SB !== 'undefined' && SB) ? SB : null; } catch(e){ return null; } }
   function sess(){ try { return (typeof SB_SESSION !== 'undefined' && SB_SESSION) ? SB_SESSION : null; } catch(e){ return null; } }
-  function today(){ var d = new Date(); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
+  /* Date du jour À PARIS, comme le serveur des notifications (une échéance d'hier est en retard, celle d'aujourd'hui pas encore) */
+  function today(){ try { return new Intl.DateTimeFormat('en-CA', { timeZone:'Europe/Paris', year:'numeric', month:'2-digit', day:'2-digit' }).format(new Date()); } catch(e){ var d = new Date(); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); } }
 
   var CSS = ''
     /* l'attribut data-kwbadge porte le chiffre : le texte des onglets n'est jamais modifié (les autres modules le réécrivent) */
@@ -42,28 +43,29 @@
     try { if (navigator.setAppBadge){ if (COUNT > 0) navigator.setAppBadge(COUNT).catch(function(){}); else if (navigator.clearAppBadge) navigator.clearAppBadge().catch(function(){}); } } catch(e){}
   }
 
-  async function myPilote(){
-    var s = sess(), uid = s && s.user && s.user.id, em = s && s.user && String(s.user.email || '').toLowerCase();
-    if (!uid) return null;
+  /* MES fiches pilote : toutes celles rattachées à mon compte OU à mon e-mail (même règle que le serveur des notifications) */
+  async function myPilotes(){
+    var s = sess(), uid = s && s.user && s.user.id, em = s && s.user && String(s.user.email || '').trim().toLowerCase();
+    if (!uid) return [];
     if (MYPIL && MYUID === uid) return MYPIL;
-    MYUID = uid; MYPIL = null;
     var r = await db().from('action_pilotes').select('id,user_id,email');
-    var rows = (r && r.data) || [];
-    var p = rows.filter(function(x){ return x.user_id === uid; })[0] || rows.filter(function(x){ return em && String(x.email || '').toLowerCase() === em; })[0];
-    MYPIL = p ? p.id : null; return MYPIL;
+    if (r && r.error) throw r.error;
+    MYUID = uid;
+    MYPIL = ((r && r.data) || []).filter(function(x){ return (x.user_id && String(x.user_id) === String(uid)) || (em && String(x.email || '').trim().toLowerCase() === em); }).map(function(x){ return String(x.id); });
+    return MYPIL;
   }
   async function refresh(force){
     if (busy || !db() || !sess()) return;
     if (!force && Date.now() - last < 20000) return;
     busy = true; last = Date.now();
     try {
-      var pid = await myPilote();
-      if (!pid){ COUNT = 0; paint(); return; }
-      var r = await db().from('actions').select('id,statut,echeance,archived_at,pilote_id').is('archived_at', null).eq('pilote_id', pid)
-        .in('statut', ['a_faire', 'en_cours', 'en_attente']).lt('echeance', today());
-      if (r && r.error) throw r.error;
+      var pids = await myPilotes();
+      if (!pids.length){ COUNT = 0; paint(); return; }
       var t = today();
-      COUNT = ((r && r.data) || []).filter(function(a){ return a && a.echeance && a.echeance < t && !a.archived_at && a.pilote_id === pid && /^(a_faire|en_cours|en_attente)$/.test(a.statut); }).length;
+      var r = await db().from('actions').select('id,statut,echeance,archived_at,pilote_id').is('archived_at', null).in('pilote_id', pids)
+        .in('statut', ['a_faire', 'en_cours', 'en_attente']).lt('echeance', t);
+      if (r && r.error) throw r.error;
+      COUNT = ((r && r.data) || []).filter(function(a){ return a && a.echeance && String(a.echeance).slice(0, 10) < t && !a.archived_at && pids.indexOf(String(a.pilote_id)) >= 0 && /^(a_faire|en_cours|en_attente)$/.test(a.statut); }).length;
       paint();
     } catch(e){ /* silencieux : la pastille garde sa dernière valeur */ }
     finally { busy = false; }

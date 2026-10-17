@@ -1,4 +1,4 @@
-/* COCKPIT KW — Clap! : notifications « actions en retard » sur le téléphone (public/shared/clap-push.js)
+/* COCKPIT KW — Clap! : notifications « actions en retard » sur le téléphone (public/shared/clap-push.js) — v2 : resynchronisation complète à chaque ouverture
    Additif : une seule ligne <script> dans clap/index.html, après clap-badge.js. Retour arrière : retirer la ligne.
    · Bouton cloche dans l'en-tête de Clap! : « Activer les notifications » → autorisation du navigateur, abonnement de CE téléphone.
    · Ensuite, chaque changement d'une de MES actions (statut, échéance, pilote, archivage) met à jour les notifications en quelques secondes,
@@ -100,10 +100,21 @@
     try {
       var reg = await register();
       ST.sub = await reg.pushManager.getSubscription();
+      try { (await reg.getNotifications({ tag: 'clap-ok' })).forEach(function(n){ n.close(); }); } catch(e){}   /* « plus aucune action en retard » : lue, on la retire */
       paint();
-      if (ST.sub && Notification.permission === 'granted' && !ST.synced){ ST.synced = true; await save(ST.sub); await api('POST', { action: 'sync' }); }
+      if (ST.sub && Notification.permission === 'granted' && !ST.synced){ ST.synced = true; await save(ST.sub); await resync(); }
     } catch(e){ paint(); if (window.console) console.warn('clap-push', e); }
   }
+
+  /* À chaque ouverture ou retour sur Clap! : on renvoie l'état complet au téléphone (force), pour rétablir une notification balayée
+     et garder le chiffre de l'icône égal à la pastille de l'application. Au plus une fois par minute. */
+  var lastSync = 0;
+  async function resync(){
+    if (!ST.sub || Notification.permission !== 'granted' || Date.now() - lastSync < 60000) return;
+    lastSync = Date.now();
+    try { await api('POST', { action: 'sync', force: true }); } catch(e){}
+  }
+  document.addEventListener('visibilitychange', function(){ if (!document.hidden) resync(); });
 
   /* Toucher une notification : ouvrir la feuille Actions */
   function openActions(){ try { if (typeof window.paSetSheet === 'function') window.paSetSheet('actions'); } catch(e){} }

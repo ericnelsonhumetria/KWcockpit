@@ -54,7 +54,9 @@ self.addEventListener('push', (event) => {
 });
 
 self.addEventListener('notificationclick', (event) => {
-  event.notification.close();
+  /* une action en retard reste affichée tant qu'elle est en retard (le chiffre de l'icône reste juste) ; les autres se ferment */
+  const tg = event.notification.tag || '';
+  if (tg.indexOf(PREFIX) !== 0) event.notification.close();
   const url = (event.notification.data && event.notification.data.url) || '/clap/';
   event.waitUntil((async () => {
     const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
