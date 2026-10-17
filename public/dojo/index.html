@@ -16,6 +16,19 @@
   window.SUPABASE_URL = "https://omftqlvkmjlxoinruayr.supabase.co";
   window.SUPABASE_ANON_KEY = "sb_publishable_RgKYatx7zHx_SJvrvoyt2w_fXhLKQ1w";
   window.KW_SESSION = null;
+  /* Droits d'accès : décidés UNIQUEMENT par le Cockpit (Admin → Accès par fonction, profil Membre Codir).
+     Le Dojo s'ouvre dans l'onglet Dojo du Cockpit ; ouvert seul (lien direct), il renvoie au Cockpit qui ouvre l'onglet Dojo. */
+  window.KW_ACCES = (function(){
+    try {
+      var p = window.parent;
+      if (p && p !== window && p.location.origin === location.origin && typeof p.kwDojoAcces === 'function') return p.kwDojoAcces();
+    } catch(e){}
+    return null;
+  })();
+  if (!window.KW_ACCES && window.top === window){
+    var q = new URLSearchParams(location.search).get('formateur') === '1' ? '&formateur=1' : '';
+    location.replace('/#dojo' + q);
+  }
   window.KW_AUTH_READY = (async function(){
     try {
       if(!window.supabase) return null;
@@ -867,6 +880,7 @@ function App() {
   const [pwdLoading, setPwdLoading] = useState(false);
   const [authReady, setAuthReady] = useState(false);   // session Supabase vérifiée
   const [session,   setSession]   = useState(null);     // session Cockpit partagée
+  const [acces,     setAcces]     = useState(window.KW_ACCES);   // { ok, nom, email } fourni par le Cockpit
   const [tourTime,  setTourTime]  = useState(0);   // seconds
   const [debTime,   setDebTime]   = useState(0);
   const [tourActive, setTourActive] = useState(false);
@@ -898,13 +912,20 @@ function App() {
       if(done) return;
       setSession(s || null);
       setProxyOk(true); // proxy serveur toujours utilisé
-      // dérive le nom du consultant depuis l'email de la session
-      if(s && s.user && s.user.email){
+      // Nom : celui du Cockpit (fiche Admin → Pilotes) ; à défaut, déduit de l'e-mail de la session
+      const a = window.KW_ACCES;
+      const nomCockpit = a && a.nom ? String(a.nom).trim() : '';
+      if(nomCockpit){
+        const parts = nomCockpit.split(/\s+/);
+        setPrenom(parts[0]||''); setNom(parts.slice(1).join(' ')||'');
+      } else if(s && s.user && s.user.email){
         const local = s.user.email.split('@')[0];
         const parts = local.split(/[._-]/);
         if(parts[0]) setPrenom(parts[0].charAt(0).toUpperCase()+parts[0].slice(1));
         if(parts[1]) setNom(parts[1].charAt(0).toUpperCase()+parts[1].slice(1));
       }
+      // Déjà identifié dans le Cockpit : pas d'écran d'identification, on va droit aux scénarios
+      if(s && a && a.ok) setPhase('selector');
       setAuthReady(true);
     });
     return ()=>{ done = true; };
@@ -1062,6 +1083,22 @@ function App() {
       <div style={{...mono,fontSize:'12px',color:G.dim,letterSpacing:'1px'}}>VÉRIFICATION DE LA SESSION…</div>
     </div>
   );
+  if (session && (!acces || !acces.ok)) return (
+    <div style={{background:G.bg,minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',padding:'24px'}}>
+      <div style={{width:'100%',maxWidth:'380px'}}>
+        <div style={{textAlign:'center',marginBottom:'28px'}}>
+          <Logo size={52}/>
+          <h1 style={{fontSize:'20px',fontWeight:600,color:G.text,marginBottom:'4px',marginTop:'14px'}}>Dojo · Kaizen Way</h1>
+        </div>
+        <div style={{...pnl,padding:'24px 22px',textAlign:'center'}}>
+          <div style={{...mono,fontSize:'11px',color:G.gold,letterSpacing:'2.5px',marginBottom:'16px'}}>ACCÈS NON AUTORISÉ</div>
+          <p style={{fontSize:'14px',color:G.text,lineHeight:1.5}}>
+            Votre fonction n'a pas accès au Dojo. L'accès se règle dans le Cockpit : Admin → Accès par fonction (ou profil Membre Codir).
+          </p>
+        </div>
+      </div>
+    </div>
+  );
   if (!session) return (
     <div style={{background:G.bg,minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',padding:'24px'}}>
       <div style={{width:'100%',maxWidth:'380px'}}>
@@ -1081,7 +1118,29 @@ function App() {
     </div>
   );
 
-  // LOGIN
+  // Reprise d'un résultat non soumis (brouillon local)
+  const restoreDraft = (draft)=>{
+            const p = draft.consultant.split(' ')[0]||'';
+            const n = draft.consultant.split(' ').slice(1).join(' ')||'';
+            setPrenom(p); setNom(n); setPendingDraft(draft);
+            // Déclencher automatiquement le resubmit si consultant identifié
+            if (p && n) {
+              const found = SCENARIOS.find(s=>s.nom===draft.scenario);
+              if (found) {
+                setSc(found);
+                const restoredMsgs = draft.transcript.split('\n\n').filter(l=>l.trim()).map(line => {
+                  const isUser = line.startsWith('CONSULTANT KW:');
+                  return { role: isUser?'user':'assistant', content: line.replace(/^[^:]+:\s*/,'') };
+                });
+                setMsgs(restoredMsgs);
+                setNotes(draft.notes||'');
+                setPhase('evaluation');
+                setTimeout(() => doResubmit(found, draft), 300);
+              }
+            }
+          };
+
+  // LOGIN (n'apparaît plus quand on vient du Cockpit : l'identité est celle du Cockpit)
   if (phase==='login') return (
     <div style={{background:G.bg,minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',padding:'24px'}}>
       <div style={{width:'100%',maxWidth:'390px'}}>
@@ -1107,26 +1166,7 @@ function App() {
             </div>
           </div>
           <Btn onClick={doLogin} disabled={!canLogin} full>ACCÉDER AUX SIMULATIONS →</Btn>
-          <DraftRecovery onRestore={(draft)=>{
-            const p = draft.consultant.split(' ')[0]||'';
-            const n = draft.consultant.split(' ').slice(1).join(' ')||'';
-            setPrenom(p); setNom(n); setPendingDraft(draft);
-            // Déclencher automatiquement le resubmit si consultant identifié
-            if (p && n) {
-              const found = SCENARIOS.find(s=>s.nom===draft.scenario);
-              if (found) {
-                setSc(found);
-                const restoredMsgs = draft.transcript.split('\n\n').filter(l=>l.trim()).map(line => {
-                  const isUser = line.startsWith('CONSULTANT KW:');
-                  return { role: isUser?'user':'assistant', content: line.replace(/^[^:]+:\s*/,'') };
-                });
-                setMsgs(restoredMsgs);
-                setNotes(draft.notes||'');
-                setPhase('evaluation');
-                setTimeout(() => doResubmit(found, draft), 300);
-              }
-            }
-          }}/>
+          <DraftRecovery onRestore={restoreDraft}/>
         </div>
       </div>
     </div>
@@ -1143,6 +1183,7 @@ function App() {
           <div style={{...mono,fontSize:'13px',color:G.dim}}>{name}</div>
         </div>
       </div>
+      <DraftRecovery onRestore={restoreDraft}/>
       <h1 style={{fontSize:'23px',fontWeight:600,marginBottom:'4px',color:G.text}}>Choisissez votre scénario</h1>
       <p style={{...serif,fontSize:'16px',color:G.faint,fontStyle:'italic',marginBottom:'24px'}}>5 profils · 6 scènes · débrief IA · évaluation KW</p>
       <div style={{display:'flex',flexDirection:'column',gap:'6px'}}>

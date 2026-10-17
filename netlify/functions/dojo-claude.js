@@ -6,6 +6,23 @@
 
 const { createClient } = require('@supabase/supabase-js');
 
+// Droits : les MÊMES que l'onglet Dojo du Cockpit (Admin → Accès par fonction, profil Membre Codir). Un rôle inconnu n'a aucun accès.
+const ROLE_MAP = {
+  'direction':'eric','ceo':'eric','eric':'eric','cto':'cto','si':'eric','communication':'communication','comm':'communication',
+  'commerce':'paul','paul':'paul',
+  'mktg et produit':'juliette','marketing':'juliette','marketing & communication':'juliette','juliette':'juliette',
+  'méthodes':'audrey','methodes':'audrey','réalisation & compétences':'audrey','realisation':'audrey','audrey':'audrey',
+  'rh':'sabrine','sabrine':'sabrine',
+  'administration des affaires':'najoua','administration':'najoua','finance & admin':'najoua','finance':'najoua','najoua':'najoua',
+  'transformation':'transformation','consultant':'consultant','pmo':'pmo','project management officer':'pmo',
+};
+// Valeur par défaut de l'onglet Dojo quand la matrice d'Admin ne dit rien (copie de tabDefault du Cockpit, + PMO = Clap! seul)
+function dojoDefault(code) {
+  if (code === 'consultant' || code === 'communication' || code === 'pmo') return false;
+  if (code === 'cto') return true;
+  return code !== 'najoua' && code !== 'paul' && code !== 'juliette';
+}
+
 async function requireAuth(authHeader) {
   if (!authHeader) return { ok: false, code: 401, msg: 'Non authentifié' };
   const token = authHeader.replace('Bearer ', '').trim();
@@ -14,7 +31,24 @@ async function requireAuth(authHeader) {
   });
   const { data, error } = await sb.auth.getUser(token);
   if (error || !data?.user) return { ok: false, code: 401, msg: 'Token invalide' };
-  return { ok: true, email: data.user.email };
+  const email = String(data.user.email || '').trim().toLowerCase();
+  const refus = { ok: false, code: 403, msg: 'Accès au Dojo non autorisé pour votre fonction (Cockpit : Admin → Accès par fonction).' };
+
+  let ua;
+  try { ({ data: ua } = await sb.from('user_access').select('*').eq('email', email).maybeSingle()); } catch (e) { ua = null; }
+  if (!ua) return refus;
+  const code = ua.is_admin === true ? 'eric' : ROLE_MAP[String(ua.role || '').toLowerCase().trim()];
+  if (!code) return refus;
+
+  let tabs = {};
+  try {
+    const { data: ra } = await sb.from('role_access').select('role,tabs').in('role', [code, 'codir']);
+    (ra || []).forEach((r) => { tabs[r.role] = r.tabs || {}; });
+  } catch (e) { tabs = {}; }
+  const own = tabs[code] && typeof tabs[code].dojo === 'boolean' ? tabs[code].dojo : dojoDefault(code);
+  const codir = ua.codir === true && tabs.codir && tabs.codir.dojo === true;
+  if (!own && !codir) return refus;
+  return { ok: true, email };
 }
 
 exports.handler = async (event) => {
