@@ -1181,6 +1181,8 @@ function App() {
         <div style={{textAlign:'right'}}>
           <div style={{...mono,fontSize:'10px',color:G.faint,letterSpacing:'2px'}}>CONSULTANT</div>
           <div style={{...mono,fontSize:'13px',color:G.dim}}>{name}</div>
+          {acces&&acces.resultats&&<button onClick={()=>{ window.location.href='/dojo/resultats.html'; }}
+            style={{...mono,marginTop:'8px',fontSize:'10px',letterSpacing:'1px',padding:'5px 10px',cursor:'pointer',borderRadius:'2px',border:'1px solid '+G.burg,background:'#fff',color:G.burg}}>📊 RÉSULTATS</button>}
         </div>
       </div>
       <DraftRecovery onRestore={restoreDraft}/>
