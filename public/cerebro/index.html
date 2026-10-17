@@ -25,7 +25,7 @@
   // ── Stockage CEREBRO : Supabase (remplace localStorage) ─────────────────────
   // Même interface que window.storage (get/set/delete/list) : le code React ne change pas.
   // Données d'équipe (Business, Events) → cerebro_team_store, partagées selon le rôle.
-  // Données People (relations LinkedIn, vivier…) → cerebro_user_store, privées à chacun.
+  // Données Talents (relations LinkedIn, vivier…) → cerebro_user_store, privées à chacun.
   // Une copie locale est gardée en secours ; si Supabase échoue, un bandeau le signale.
   (function(){
     var PRIVATE = ['humetria:radar:talents','humetria:radar:playbook','humetria:radar:network','humetria:radar:netkw','humetria:radar:contacts','humetria:radar:netcrit','humetria:radar:netmarks'];
@@ -286,6 +286,20 @@ function fitScore(tags, fit) {
   }
   return sw ? Math.round(s / sw) : 0;
 }
+
+// Un critère de l'évaluation initiale s'applique-t-il à ce contact ? (case cochée à la main, ou mot-clé trouvé dans le poste / l'entreprise)
+function critApplies(c, k, marks) {
+  if (k.type === "flag") return !!(((marks || {})[profileId(c)] || {})[k.id]);
+  const hay = ((c.position || "") + " " + (c.company || "")).toLowerCase();
+  return String(k.kw || "").split(/[\n,]/).map(x => x.trim().toLowerCase()).filter(Boolean).some(x => hay.includes(x));
+}
+// Ce que mesure chaque critère d'origine du vivier : c'est TA note, posée à la main sur chaque profil (aucune IA ici).
+const FIT_HELP = {
+  gemba: "pratique du Go Gemba® : terrain, standards, management visuel. oui / partielle / non.",
+  humility: "écoute les opérateurs, fait briller l'équipe, reconnaît ses erreurs, ne donne pas de leçons. oui / ? (pas d'avis) / non.",
+  lean: "profondeur de pratique lean / excellence opérationnelle. forte / moyenne / faible.",
+  relation: "chaleur de votre relation aujourd'hui (ne se lit pas dans des posts). chaude / tiède / froide.",
+};
 
 const CHANNELS = [
   { k: "linkedin_connect", l: "Connexion LinkedIn" },
@@ -767,6 +781,10 @@ function RadarComptes() {
   const [netErr, setNetErr] = useState("");
   const [importMsg, setImportMsg] = useState("");
   const [draftingId, setDraftingId] = useState("");
+  const [postsFor, setPostsFor] = useState("");          // profil du vivier dont le panneau « posts » est ouvert
+  const [postsText, setPostsText] = useState("");
+  const [analyzingId, setAnalyzingId] = useState("");
+  const [webBatch, setWebBatch] = useState(null);       // { done, total } pendant l'évaluation de tout le vivier
   const [showKw, setShowKw] = useState(false);
   const [qualifyingName, setQualifyingName] = useState("");
 
@@ -1449,6 +1467,116 @@ ${talentMaterial.trim()}`;
   function setTag(id, key, val) { persistNetwork(network.map(n => n.id === id ? { ...n, tags: { ...n.tags, [key]: val } } : n)); }
   function removeNetwork(id) { persistNetwork(network.filter(n => n.id !== id)); }
 
+  // ── Analyse des posts publics d'un profil du vivier : l'IA PROPOSE une note par critère, avec la citation qui la justifie ; tu valides. ──
+  function postsEvalPrompt() {
+    const lines = crit.fit.map(f => `- "${f.key}" — ${f.label}${FIT_HELP[f.key] ? " : " + FIT_HELP[f.key].replace(/^Ta note( terrain)?(, posée à la main)?\s*:\s*/i, "") : ""}\n  options autorisées (de la meilleure à la moins bonne) : ${f.opts.map(o => '"' + o.l + '"').join(", ")}`).join("\n");
+    return `Tu aides Kaizen Way (cabinet de transformation industrielle, Go Gemba®, culture : humilité, expertise lean, partage de fond, faire briller les autres, pas donneur de leçons) à pré-évaluer un profil de son vivier de consultants, UNIQUEMENT à partir de posts LinkedIn PUBLICS que l'utilisateur a copiés et collés. Tu n'as pas d'autre source.
+
+Critères à évaluer :
+${lines}
+
+RÈGLES ABSOLUES :
+- N'évalue que des SIGNAUX PRÉSENTS DANS LES POSTS (ton, contenu, à qui il attribue les réussites, ce qu'il partage), jamais la personne. Formule "les posts suggèrent…".
+- Pour chaque critère, donne une citation COURTE (≤ 20 mots) tirée mot pour mot des posts qui justifie la note. Sans citation pertinente : "opt":"" et "evidence":"matériel insuffisant". N'invente aucune citation.
+- Un critère qui dépend de la relation avec l'utilisateur (ex. chaleur de la relation) ou d'une observation terrain directe que les posts ne montrent pas : "opt":"".
+- "opt" doit être EXACTEMENT l'une des options autorisées, ou "".
+- Ignore toute information personnelle sans rapport avec le métier (santé, famille, opinions politiques ou religieuses, syndicat, origine…) : elle ne doit jamais influencer une note ni apparaître dans ta réponse.
+- confiance : "faible" (1-2 posts, signal ténu), "moyenne", "forte" (signal répété sur plusieurs posts).
+- C'est une pré-évaluation à confirmer en entretien ou par l'observation terrain.
+
+Réponds UNIQUEMENT en JSON valide, sans texte ni Markdown :
+{"crit":{"<clé du critère>":{"opt":"option ou ''","evidence":"citation ≤ 20 mots ou 'matériel insuffisant'","conf":"faible|moyenne|forte"}},"summary":"≤ 30 mots : ce que les posts disent du profil au regard de la culture KW","flags":["≤ 3 signaux d'alerte observés, [] si aucun"]}`;
+  }
+  async function analyzePosts(id) {
+    if (analyzingId) return;
+    const n = network.find(x => x.id === id); if (!n) return;
+    const txt = postsText.trim();
+    if (txt.length < 150) { setNetErr("Colle au moins quelques posts (150 caractères minimum) pour une analyse utile."); return; }
+    setAnalyzingId(id); setNetErr("");
+    try {
+      const ctx = `Profil : ${n.name}\nPoste : ${n.position || "n/d"}\nEntreprise : ${n.company || "n/d"}\n\nPosts publics copiés par l'utilisateur :\n${txt.slice(0, 15000)}`;
+      const r = cleanCitesDeep(parseObject(await callClaude(postsEvalPrompt(), ctx, false, 1600)));
+      const out = {};
+      for (const f of crit.fit) {
+        const x = (r.crit || {})[f.key] || {};
+        const opt = f.opts.some(o => o.l === x.opt) ? x.opt : "";
+        out[f.key] = { opt, evidence: String(x.evidence || (opt ? "" : "matériel insuffisant")).slice(0, 220), conf: ["faible", "moyenne", "forte"].includes(x.conf) ? x.conf : "faible" };
+      }
+      const ai = { at: new Date().toISOString().slice(0, 10), size: txt.length, crit: out, summary: String(r.summary || "").slice(0, 300), flags: Array.isArray(r.flags) ? r.flags.slice(0, 3).map(String) : [] };
+      persistNetwork(network.map(x => x.id === id ? { ...x, ai } : x));   // seules les suggestions sont gardées, pas le texte des posts
+      setPostsText(""); setPostsFor("");
+    } catch (e) { setNetErr("Analyse impossible — " + (e?.message || "erreur")); }
+    finally { setAnalyzingId(""); }
+  }
+  // ── Évaluation en UN CLIC d'après la présence publique (recherche web) : articles, interviews, conférences, podcasts, posts indexés. ──
+  function webEvalPrompt() {
+    const lines = crit.fit.map(f => `- "${f.key}" — ${f.label}${FIT_HELP[f.key] ? " : " + FIT_HELP[f.key] : ""}\n  options autorisées (de la meilleure à la moins bonne) : ${f.opts.map(o => '"' + o.l + '"').join(", ")}`).join("\n");
+    return `Nous sommes le ${todayFr()}. Tu aides Kaizen Way (cabinet de transformation industrielle, Go Gemba®, culture : humilité, expertise lean, partage de fond, faire briller les autres, pas donneur de leçons) à pré-évaluer un profil de son vivier de consultants.
+
+UTILISE LA RECHERCHE WEB pour trouver ses prises de parole PUBLIQUES et PROFESSIONNELLES : articles qu'il a écrits, interviews, conférences, podcasts, témoignages clients, publications, posts LinkedIn publics indexés par les moteurs. Cherche "prénom nom" avec son entreprise et son métier.
+
+IDENTITÉ D'ABORD : ne retiens une source que si elle concerne CERTAINEMENT cette personne (même nom ET même entreprise ou même parcours). En cas d'homonyme possible ou de doute, écarte la source. Si aucune source sûre : "identite":"incertaine" et aucune note.
+
+Critères à évaluer :
+${lines}
+
+RÈGLES ABSOLUES :
+- N'évalue que des SIGNAUX PRÉSENTS DANS LES SOURCES TROUVÉES (ton, contenu, à qui il attribue les réussites, ce qu'il partage), jamais la personne. Formule "ses prises de parole suggèrent…".
+- Pour chaque critère noté : une citation COURTE (≤ 20 mots) tirée de la source, et l'URL de cette source, réellement présente dans tes résultats de recherche. Sans source pertinente : "opt":"", "evidence":"aucune source publique pertinente". N'invente ni citation ni URL.
+- Un critère qui dépend de la relation avec l'utilisateur ou d'une observation terrain directe : "opt":"".
+- "opt" doit être EXACTEMENT l'une des options autorisées, ou "".
+- Ignore toute information personnelle sans rapport avec le métier (santé, famille, opinions politiques ou religieuses, syndicat, origine…) : elle ne doit jamais influencer une note ni apparaître dans ta réponse.
+- confiance : "faible" (une source, signal ténu), "moyenne", "forte" (signal répété sur plusieurs sources).
+- C'est une pré-évaluation à confirmer en entretien ou par l'observation terrain.
+- Aucune balise (pas de <cite>) : du texte brut uniquement.
+
+Réponds UNIQUEMENT en JSON valide, sans texte ni Markdown :
+{"identite":"sure|incertaine","crit":{"<clé du critère>":{"opt":"option ou ''","evidence":"citation ≤ 20 mots ou 'aucune source publique pertinente'","url":"https://… ou ''","conf":"faible|moyenne|forte"}},"summary":"≤ 30 mots","flags":["≤ 3 signaux d'alerte observés, [] si aucun"],"sources":[{"title":"titre court","url":"https://…"}]}`;
+  }
+  const httpUrl = u => { try { const x = new URL(String(u || "")); return (x.protocol === "https:" || x.protocol === "http:") ? x.href : ""; } catch (e) { return ""; } };
+  function patchNetwork(id, patch) { setNetwork(prev => { const nv = prev.map(x => x.id === id ? { ...x, ...patch } : x); save(NETWORK_KEY, nv); return nv; }); }
+  async function webEvalOne(n) {
+    const ctx = `Personne : ${n.name}\nPoste : ${n.position || "n/d"}\nEntreprise : ${n.company || "n/d"}`;
+    const r = cleanCitesDeep(parseObject(await callClaude(webEvalPrompt(), ctx, true, 4000, { requireSearch: true, maxUses: 6 })));
+    const sure = r.identite !== "incertaine", out = {};
+    for (const f of crit.fit) {
+      const x = (r.crit || {})[f.key] || {};
+      const opt = sure && f.opts.some(o => o.l === x.opt) ? x.opt : "";
+      out[f.key] = { opt, evidence: String(x.evidence || (opt ? "" : "aucune source publique pertinente")).slice(0, 220), url: opt ? httpUrl(x.url) : "", conf: ["faible", "moyenne", "forte"].includes(x.conf) ? x.conf : "faible" };
+    }
+    const sources = (Array.isArray(r.sources) ? r.sources : []).map(x => ({ title: String((x && x.title) || "").slice(0, 120), url: httpUrl(x && x.url) })).filter(x => x.url).slice(0, 8);
+    return { at: new Date().toISOString().slice(0, 10), via: "web", identite: sure ? "sure" : "incertaine", crit: out, summary: sure ? String(r.summary || "").slice(0, 300) : "Aucune source publique ne concerne certainement cette personne (homonymes possibles) : rien n'est proposé.", flags: sure && Array.isArray(r.flags) ? r.flags.slice(0, 3).map(String) : [], sources };
+  }
+  async function webEval(id) {
+    if (analyzingId || webBatch) return;
+    const n = network.find(x => x.id === id); if (!n) return;
+    setAnalyzingId(id); setNetErr("");
+    try { patchNetwork(id, { ai: await webEvalOne(n) }); }
+    catch (e) { setNetErr("Évaluation de " + n.name + " impossible — " + (e?.message === "NO_SEARCH" ? "la recherche web n'a pas abouti, réessaie" : (e?.message || "erreur"))); }
+    finally { setAnalyzingId(""); }
+  }
+  async function webEvalAll() {
+    if (analyzingId || webBatch) return;
+    const todo = network.filter(n => !n.ai);
+    if (!todo.length) { setNetErr("Tous les profils du vivier ont déjà une évaluation (utilise « Réévaluer » sur un profil)."); return; }
+    if (!window.confirm("Évaluer " + todo.length + " profil" + (todo.length > 1 ? "s" : "") + " d'après leur présence publique ? Compte environ 1 minute par profil ; tu peux continuer à travailler pendant ce temps.")) return;
+    setNetErr(""); let ko = 0;
+    for (let i = 0; i < todo.length; i++) {
+      setWebBatch({ done: i, total: todo.length }); setAnalyzingId(todo[i].id);
+      try { patchNetwork(todo[i].id, { ai: await webEvalOne(todo[i]) }); } catch (e) { ko++; }
+    }
+    setAnalyzingId(""); setWebBatch(null);
+    if (ko) setNetErr(ko + " profil" + (ko > 1 ? "s" : "") + " n'ont pas pu être évalués : relance « Évaluer » sur ces profils.");
+  }
+  function applyAi(id, key) {
+    persistNetwork(network.map(n => {
+      if (n.id !== id || !n.ai) return n;
+      const tags = { ...(n.tags || {}) };
+      for (const f of crit.fit) { if (key && f.key !== key) continue; const s = n.ai.crit && n.ai.crit[f.key]; if (s && s.opt) tags[f.key] = s.opt; }
+      return { ...n, tags };
+    }));
+  }
+
   function reconnectPrompt() {
     return `Tu rédiges, pour Eric (fondateur du cabinet Kaizen Way — transformation industrielle, Go Gemba®, ICM® r=0.83), un message de REPRISE DE CONTACT à une personne de son réseau (ex-client, ex-collègue, alumni) qu'il envisage de recruter comme consultant en transformation, ou à qui demander une recommandation.
 
@@ -1635,7 +1763,7 @@ Signaux : ${(result.signals || []).join(" ; ") || "—"}`;
         <div className="hr-tabs">
           {CEREBRO_ALLOWED.indexOf("comptes") >= 0 && <button className={tab === "comptes" ? "on" : ""} onClick={() => setTab("comptes")}>Business</button>}
           {CEREBRO_ALLOWED.indexOf("evenements") >= 0 && <button className={tab === "evenements" ? "on" : ""} onClick={() => setTab("evenements")}>Events</button>}
-          {CEREBRO_ALLOWED.indexOf("talents") >= 0 && <button className={tab === "talents" ? "on" : ""} onClick={() => setTab("talents")}>People</button>}
+          {CEREBRO_ALLOWED.indexOf("talents") >= 0 && <button className={tab === "talents" ? "on" : ""} onClick={() => setTab("talents")}>Talents</button>}
         </div>
 
         {tab === "comptes" && (<>
@@ -2063,7 +2191,7 @@ Signaux : ${(result.signals || []).join(" ; ") || "—"}`;
 
         {/* Import réseau */}
         <div className="hr-card cerebro">
-          <p className="hr-cerebro-title">◎ CEREBRO PEOPLE</p>
+          <p className="hr-cerebro-title">◎ CEREBRO TALENTS</p>
           <p className="hr-cerebro-sub">Tes ex-clients, alumni et contacts des 50+ sites — là où tu as déjà vu qui fitte. Importe l'export de tes relations LinkedIn : ta donnée, pas du scraping.</p>
           <label className="hr-btn" style={{ display: "inline-block" }}>
             Importer un CSV (relations LinkedIn / HubSpot)
@@ -2091,9 +2219,10 @@ Signaux : ${(result.signals || []).join(" ; ") || "—"}`;
             </div>
             <div className="hr-crit-grid">
               <div>
-                {critTab === "initial" ? (<>
+                {critTab === "initial" ? (() => { const ms = getMatches(); const nApp = k => ms.filter(c => critApplies(c, k, marks)).length; const anyApp = crit.initial.crits.some(k => clampW(k.w) > 0 && nApp(k) > 0); return (<>
                   <div className="hr-crit-row">
-                    <div><b className="hr-crit-name">Intitulé du poste</b><span className="hr-crit-sub">affinité lean / transformation / excellence op, calculée automatiquement sur l'intitulé</span></div>
+                    <div><b className="hr-crit-name">Intitulé du poste</b><span className="hr-crit-sub">affinité lean / transformation / excellence op, calculée automatiquement sur l'intitulé</span>
+                      <span className="hr-crit-sub" style={{ color: anyApp ? "var(--mute)" : "var(--amber)" }}>{anyApp ? "Référence du score : son poids compte face aux critères qui s'appliquent." : "Aucun critère ne s'applique encore : le score = l'intitulé seul, ce curseur ne change donc rien pour l'instant."}</span></div>
                     <input type="range" className="hr-range" min="0" max="100" value={crit.initial.baseW} aria-label="Poids de l'intitulé du poste" onChange={e => { startAdjust(); updInit({ baseW: clampW(e.target.value) }); }} />
                     <span className="hr-crit-val">{crit.initial.baseW}</span>
                     <span />
@@ -2107,6 +2236,7 @@ Signaux : ${(result.signals || []).join(" ; ") || "—"}`;
                             <option value="flag">Case à cocher : marque posée à la main sur chaque profil</option>
                             <option value="kw">Mots-clés : cherchés dans l'intitulé du poste et l'entreprise</option>
                           </select>
+                          {(() => { const n = nApp(k); return <span className="hr-crit-sub" style={{ color: n ? "var(--cyan)" : "var(--amber)" }}>{n ? "s'applique à " + n + " contact" + (n > 1 ? "s" : "") + " sur " + ms.length : (k.type === "flag" ? "aucun contact coché : sans effet tant que tu ne coches pas « " + (k.label || "ce critère") + " » sous un profil" : "aucun contact ne contient ces mots-clés : sans effet pour l'instant")}</span>; })()}
                         </div>
                         <input type="range" className="hr-range" min="0" max="100" value={k.w} aria-label={"Poids : " + (k.label || "critère")} onChange={e => { startAdjust(); updInitCrit(k.id, { w: clampW(e.target.value) }); }} />
                         <span className="hr-crit-val">{k.w}</span>
@@ -2117,13 +2247,16 @@ Signaux : ${(result.signals || []).join(" ; ") || "—"}`;
                   ))}
                   <div style={{ marginTop: 12 }}><button className="hr-mini" onClick={addInitCrit}>+ Ajouter un critère</button></div>
                   <p className="hr-caption" style={{ margin: "10px 0 0" }}>« Case à cocher » : le poids s'ajoute aux profils où tu coches le critère (boutons sous chaque profil). « Mots-clés » : il s'ajoute automatiquement aux profils dont l'intitulé ou l'entreprise contient un mot-clé. « Open to work » ne figure ni dans l'export LinkedIn ni dans son API : clique « Voir le profil ↗ » sous un contact (la page s'ouvre dans ton navigateur, où tu es connecté à LinkedIn) et regarde la photo, puis coche la puce ; la date de ta marque s'affiche. Si la personne a réservé ce statut aux recruteurs, il reste invisible. Une colonne « Open to work » dans ton CSV est reprise automatiquement. Un profil sans le critère garde son score.</p>
-                </>) : (<>
+                </>); })() : (<>
                   {crit.fit.map(f => {
                     const tot = crit.fit.reduce((acc, x) => acc + clampW(x.w), 0) || 1;
+                    const nNote = network.filter(n => n.tags && (f.opts || []).some(o => o.l === n.tags[f.key])).length;
                     return (
                       <div key={f.key}>
                         <div className="hr-crit-row">
-                          <div><input className="hr-input hr-crit-inp" value={f.label} placeholder="Nom du critère" aria-label="Nom du critère" onChange={e => updFit(f.key, { label: e.target.value })} /></div>
+                          <div><input className="hr-input hr-crit-inp" value={f.label} placeholder="Nom du critère" aria-label="Nom du critère" onChange={e => updFit(f.key, { label: e.target.value })} />
+                            <span className="hr-crit-sub">{"Ta note, posée à la main sur chaque profil du vivier — ou suggérée d'après ses posts, puis validée par toi" + (FIT_HELP[f.key] ? " : " + FIT_HELP[f.key] : ".")}</span>
+                            <span className="hr-crit-sub" style={{ color: nNote ? "var(--cyan)" : "var(--amber)" }}>{network.length === 0 ? "vivier vide : ajoute des profils (« + Vivier »)" : nNote ? "noté sur " + nNote + " profil" + (nNote > 1 ? "s" : "") + " du vivier sur " + network.length + (nNote < network.length ? " · les autres comptent 50" : "") : "aucun profil noté : tous comptent 50, ce curseur n'a pas encore d'effet"}</span></div>
                           <input type="range" className="hr-range" min="0" max="100" value={f.w} aria-label={"Poids : " + (f.label || "critère")} onChange={e => { startAdjust(); updFit(f.key, { w: clampW(e.target.value) }); }} />
                           <span className="hr-crit-val">{f.w}<small> · {Math.round(clampW(f.w) / tot * 100)} %</small></span>
                           {f.builtin ? <span /> : <button className="hr-del" onClick={() => delFit(f.key)} title="Supprimer ce critère">×</button>}
@@ -2213,6 +2346,11 @@ Signaux : ${(result.signals || []).join(" ; ") || "—"}`;
         {network.length > 0 && (
           <div>
             <p className="hr-section-title" style={{ padding: "0 4px" }}>Vivier · {network.length}</p>
+            <div style={{ padding: "0 4px 8px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+              <button className="hr-mini" onClick={webEvalAll} disabled={!!analyzingId || !!webBatch}>{webBatch ? <><span className="hr-spin" />Évaluation {webBatch.done + 1} / {webBatch.total}…</> : "Évaluer tout le vivier d'après leur présence publique ▸"}</button>
+              <span className="hr-caption" style={{ margin: 0 }}>Recherche web : articles, interviews, conférences, podcasts, posts publics indexés. Les notes sont proposées avec leur source ; rien n'est appliqué sans ton clic.</span>
+            </div>
+            {netErr && <p className="hr-err" style={{ padding: "0 4px" }}>{netErr}</p>}
             {fitRanked().map(({ n, sc }) => {
               const v = talentVerdict(sc);
               const openOn = (marks[n.id] || {}).open; const openLbl = ((crit.initial.crits.find(k => k.id === "open")) || {}).label || "Open to work";
@@ -2236,10 +2374,43 @@ Signaux : ${(result.signals || []).join(" ; ") || "—"}`;
                       </div>
                     </div>
                   ))}
+                  {n.ai && (() => {
+                    const pend = crit.fit.filter(f => { const s = n.ai.crit[f.key]; return s && s.opt && n.tags[f.key] !== s.opt; });
+                    const confCol = c => c === "forte" ? "var(--green)" : c === "moyenne" ? "var(--cyan)" : "var(--mute)";
+                    return (
+                      <div className="hr-variant" style={{ marginTop: 10 }}>
+                        <p className="hr-variant-label"><span>Suggestions d'après {n.ai.via === "web" ? "sa présence publique" : "ses posts"} · {new Date(n.ai.at).toLocaleDateString("fr-FR")}</span>
+                          {pend.length > 0 && <button className="hr-copy" onClick={() => applyAi(n.id)}>tout appliquer ({pend.length})</button>}</p>
+                        {n.ai.summary && <p className="hr-cb-persona" style={{ margin: "2px 0 6px" }}>{n.ai.summary}</p>}
+                        {crit.fit.map(f => { const sg = n.ai.crit[f.key]; if (!sg) return null; const same = sg.opt && n.tags[f.key] === sg.opt; return (
+                          <div key={f.key} style={{ display: "grid", gridTemplateColumns: "minmax(120px,0.8fr) minmax(0,2fr) auto", gap: 10, alignItems: "baseline", padding: "5px 0", borderTop: "1px solid var(--line)", fontSize: 13 }}>
+                            <span><b>{f.label}</b><br /><span style={{ color: sg.opt ? "var(--paper)" : "var(--mute)" }}>{sg.opt || "non évaluable"}</span>{sg.opt && <span style={{ color: confCol(sg.conf), fontSize: 11 }}> · confiance {sg.conf}</span>}</span>
+                            <span style={{ color: "var(--mute)", fontStyle: sg.opt ? "italic" : "normal" }}>{sg.opt ? "« " + sg.evidence + " »" : sg.evidence}{sg.url && <> <a href={sg.url} target="_blank" rel="noopener noreferrer" style={{ color: "var(--cyan)", fontStyle: "normal" }}>source ↗</a></>}</span>
+                            <span>{sg.opt ? (same ? <span style={{ color: "var(--green)", fontSize: 12 }}>✓ appliqué</span> : <button className="hr-link" onClick={() => applyAi(n.id, f.key)}>appliquer</button>) : null}</span>
+                          </div>); })}
+                        {n.ai.flags && n.ai.flags.length > 0 && <p className="hr-cb-persona" style={{ color: "var(--amber)", marginTop: 6 }}>Signaux d'alerte : {n.ai.flags.join(" · ")}</p>}
+                        {n.ai.sources && n.ai.sources.length > 0 && <p className="hr-cb-persona" style={{ marginTop: 6, wordBreak: "break-word" }}>Sources : {n.ai.sources.map((x, i) => <span key={i}>{i ? " · " : ""}<a href={x.url} target="_blank" rel="noopener noreferrer" style={{ color: "var(--cyan)" }}>{x.title || new URL(x.url).hostname}</a></span>)}</p>}
+                        <p className="hr-caption" style={{ margin: "6px 0 0" }}>{n.ai.via === "web" ? "Pré-évaluation d'après des sources publiques (vérifie qu'elles concernent bien cette personne)" : "Pré-évaluation à partir de " + (n.ai.size || 0).toLocaleString("fr-FR") + " caractères de posts"} : à confirmer en entretien ou sur le terrain. Rien n'est appliqué sans ton clic.</p>
+                      </div>
+                    );
+                  })()}
+                  {postsFor === n.id && (
+                    <div style={{ marginTop: 10 }}>
+                      <textarea className="hr-textarea" style={{ minHeight: 140 }} value={postsText} onChange={e => setPostsText(e.target.value)} disabled={analyzingId === n.id}
+                        placeholder={"Colle ici 3 à 10 posts publics récents de " + n.name + " (copiés depuis son profil LinkedIn, onglet Activité). Plus il y en a, plus l'analyse est fiable."} />
+                      <p className="hr-caption" style={{ margin: "6px 0 8px" }}>Uniquement des posts publics à caractère professionnel. Le texte est envoyé à l'IA pour l'analyse puis n'est pas conservé : seules les suggestions et leurs citations le sont. Dans une démarche de recrutement, la personne doit être informée des méthodes utilisées.</p>
+                      <button className="hr-mini" onClick={() => analyzePosts(n.id)} disabled={!!analyzingId || postsText.trim().length < 150}>
+                        {analyzingId === n.id ? <><span className="hr-spin" />Analyse…</> : "Analyser les posts ▸"}
+                      </button>
+                      <button className="hr-link" style={{ marginLeft: 14 }} onClick={() => { setPostsFor(""); setPostsText(""); }}>annuler</button>
+                    </div>
+                  )}
                   <div className="hr-cb-actions">
+                    <button className="hr-mini" style={{ marginRight: 10 }} onClick={() => webEval(n.id)} disabled={!!analyzingId || !!webBatch}>{analyzingId === n.id ? <><span className="hr-spin" />Recherche…</> : (n.ai ? "Réévaluer ▸" : "Évaluer d'après sa présence publique ▸")}</button>
                     <button className="hr-mini" onClick={() => draftReconnect(n.id)} disabled={draftingId === n.id}>
                       {draftingId === n.id ? <><span className="hr-spin" />…</> : (n.draft ? "Régénérer la reprise ▸" : "Rédiger la reprise de contact ▸")}
                     </button>
+                    {postsFor !== n.id && <button className="hr-link" style={{ marginRight: 12 }} onClick={() => { setPostsFor(n.id); setPostsText(""); }} disabled={!!analyzingId}>ou coller des posts</button>}
                     {(() => { const l = liLinkFor(contacts.find(x => profileId(x) === n.id) || n); return <a className="hr-lilink" style={{ marginLeft: 12 }} href={l.href} target="_blank" rel="noopener noreferrer">{l.direct ? "Voir le profil ↗" : "Chercher sur LinkedIn ↗"}</a>; })()}
                   </div>
                   {Array.isArray(n.draft) && n.draft.map((d, i) => (
@@ -2251,7 +2422,7 @@ Signaux : ${(result.signals || []).join(" ; ") || "—"}`;
                 </div>
               );
             })}
-            <p className="hr-caption">Score = TON évaluation terrain (tu as vu ces gens travailler), pondérée par les critères ci-dessus, pas une devinette de l'IA. Remplace tout [marqueur] par votre projet réel avant d'envoyer.</p>
+            <p className="hr-caption">Score = TON évaluation (terrain, ou suggestions d'après les posts que tu as appliquées), pondérée par les critères ci-dessus. Une suggestion non appliquée ne compte pas. Remplace tout [marqueur] par votre projet réel avant d'envoyer.</p>
           </div>
         )}
 
