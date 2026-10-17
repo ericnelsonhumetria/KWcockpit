@@ -6,8 +6,12 @@
    Si dialogs.js n'est pas chargé, rien n'est modifié.
    PROMPT remplacés (13 fonctions) : plan de route technique (ajout, modification, sous-étape), jalons de projet, missions du plan de charge (ajout, affectation d'un consultant
    par e-mail), consultants et compétences de la matrice, éléments de la bibliothèque (ajout, renommage), prospects Humetria (ajout, modification), flèche entre blocs.
+   v2 (+ Clap!) : la même ligne est ajoutée à clap/index.html. PROMPT en plus : nouvelle thématique (Actions), lien et intégration dans l'éditeur Humetria,
+   action reliée à un bloc ou à un prospect Humetria. CONFIRM en plus : archiver une mission, un site ou un sujet d'AIC, terminer l'Obeya, quitter l'onglet
+   Obeya en séance, envoyer les relances. COPIE : « Copier » (CR, préparation, lien candidat) copie directement et l'annonce, sans fenêtre grise.
+   Reste natif, volontairement : la reprise d'une dictée non enregistrée (sa question est dans un bloc qui avalerait l'interruption).
    CONFIRM remplacés (23 fonctions) : toutes les suppressions et retraits simples. Laissés tels quels, volontairement : ceux où une action a lieu AVANT la question
-   (fin de la visite guidée Humetria, initialisation de l'Obeya Humetria), l'envoi des relances par mail et l'ajout de charges prévisionnelles. */
+   (fin de la visite guidée Humetria, initialisation de l'Obeya Humetria) et l'ajout de charges prévisionnelles. */
 (function(){
   'use strict';
   if (window.__kwPrx) return; window.__kwPrx = true;
@@ -38,6 +42,11 @@
     humetriaEditProspect:{ n:5, title:'Modifier le prospect', ok:'Enregistrer', fields:[
       { m:/^Nom/i, label:'Nom', required:true }, { m:/^Contact/i, label:'Contact' }, { m:/^Statut/i, label:'Statut', type:'select', options:STAT },
       { m:/^Note/i, label:'Note', type:'textarea' }, { m:/Prochaine/i, label:'Prochaine action' } ] },
+    paNewTheme:{ n:1, title:'Nouvelle thématique', ok:'Créer', replayCancel:true, fields:[{ m:/./, label:'Nom de la thématique', required:true }] },
+    humRtLink:{ n:1, title:'Insérer un lien', ok:'Insérer', fields:[{ m:/./, label:'Adresse (URL)', type:'url', required:true }] },
+    humRtEmbed:{ n:1, title:'Intégrer un contenu', ok:'Intégrer', fields:[{ m:/./, label:'Adresse (URL)', type:'url', required:true, hint:'YouTube, Vimeo, Loom, Figma, Google Docs / Slides / Sheets, Miro ou image.' }] },
+    humetriaNewAction:{ n:1, title:'Nouvelle action', ok:'Créer l\u2019action', fields:[{ m:/./, required:true }] },
+    humProspectNewAction:{ n:1, title:'Nouvelle action', ok:'Créer l\u2019action', fields:[{ m:/./, required:true }] },
     humAddConnector:{ n:1, title:'Flèche entre deux blocs', ok:'Créer la flèche', fields:[{ m:/./, label:'Libellé de la flèche (facultatif)', hint:'Exemples : « bloque », « alimente ».' }] }
   };
   function mkField(spec, a, i){
@@ -60,7 +69,7 @@
       if (!asked.length){ held.forEach(function(m){ window.alert(m); }); return; }   /* la fonction n'a rien à demander (garde atteinte) : ce qu'elle voulait dire est dit */
       var fields = asked.map(function(a, i){ return mkField(spec, a, i); });
       return window.kwDialog({ title:spec.title, message:spec.message, fields:fields, confirmLabel:spec.ok || 'Valider' }).then(function(res){
-        if (!res) return;                                                             /* Annuler = prompt() qui renvoie null : la fonction d'origine ne fait rien */
+        if (!res){ if (spec.replayCancel){ window.prompt = function(){ return null; }; try { return orig.apply(self, args); } finally { window.prompt = real; } } return; }                                                             /* Annuler = prompt() qui renvoie null : la fonction d'origine ne fait rien */
         var ans = fields.map(function(f){ return res[f.name]; }), k = 0;
         window.prompt = function(){ var v = ans[k++]; return v == null ? '' : String(v); };
         try { return orig.apply(self, args); } finally { window.prompt = real; }
@@ -73,8 +82,10 @@
     refuserObj:'Refuser cet objectif', removeConsultant:'Retirer le consultant', removeSkill:'Retirer la compétence', removeLivrable:'Supprimer cet élément', removeProjet:'Supprimer le projet',
     integrerBPStandard:'Intégrer comme standard', ecarterBPSuggestion:'Écarter la suggestion', pdccDelMission:'Supprimer la mission', pdccDelConsultant:'Retirer le consultant', archiveCandidat:'Archiver le candidat',
     finProjDelete:'Supprimer cette ligne', roadmapDel:'Supprimer le chantier', humetriaDelBloc:'Supprimer le bloc', humetriaDelFile:'Supprimer le fichier', humetriaDelProspect:'Supprimer le prospect',
-    humDelConnector:'Supprimer la flèche', humCmtDel:'Supprimer le commentaire' };
-  var SOFT = { finMarkSelectedPaye:1, finMarkPaye:1, integrerBPStandard:1, ecarterBPSuggestion:1, archiveCandidat:1, pdcResetOne:1 };   /* non destructifs : bouton non rouge */
+    humDelConnector:'Supprimer la flèche', humCmtDel:'Supprimer le commentaire',
+    aicxArchive:function(m){ return /mission/i.test(m) ? 'Archiver la mission' : 'Archiver le site'; }, aicxSujetArchive:'Archiver le sujet', obxEnd:'Terminer l\u2019Obeya',
+    switchTab:function(m){ return /Obeya/.test(m) ? 'Quitter l\u2019Obeya' : 'Confirmer'; }, paRelanceSend:'Envoyer les relances' };
+  var SOFT = { finMarkSelectedPaye:1, finMarkPaye:1, integrerBPStandard:1, ecarterBPSuggestion:1, archiveCandidat:1, aicxArchive:1, aicxSujetArchive:1, obxEnd:1, switchTab:1, paRelanceSend:1, pdcResetOne:1 };   /* non destructifs : bouton non rouge */
   function viaConfirm(name, title){
     var orig = window[name]; if (typeof orig !== 'function' || orig.__kwPrx || typeof window.kwConfirm !== 'function') return false;
     var w = function(){
@@ -83,7 +94,8 @@
       window.confirm = function(m){ msg = String(m == null ? '' : m); throw ABORT; };
       try { swallow(orig.apply(self, args)); } catch(e){ window.confirm = real; window.alert = realAlert; if (e !== ABORT) throw e; } finally { window.confirm = real; window.alert = realAlert; }
       if (msg === null){ held.forEach(function(m){ window.alert(m); }); return; }   /* aucune question posée : la fonction s'est déroulée comme avant */
-      return window.kwConfirm({ title:title, message:msg, confirmLabel:title.split(' ')[0], danger:!SOFT[name] }).then(function(yes){
+      var ttl = typeof title === 'function' ? title(msg) : title;
+      return window.kwConfirm({ title:ttl, message:msg, confirmLabel:ttl.split(' ')[0], danger:!SOFT[name] }).then(function(yes){
         if (!yes) return;
         window.confirm = function(){ return true; };
         try { return orig.apply(self, args); } finally { window.confirm = real; }
@@ -104,12 +116,39 @@
     };
     w.__kwPrx = true; window.pdccAffPick = w;
   }
+  /* ---- « Copier » : la fenêtre grise servait seulement à montrer le texte. On copie, on l'annonce ; si le navigateur refuse, le texte s'affiche à copier à la main ---- */
+  function copyText(t, what){
+    t = String(t == null ? '' : t);
+    if (!t){ if (window.kwToast) window.kwToast('Rien à copier : ' + what + ' vide.', 'info'); return; }
+    function ok(){ if (window.kwToast) window.kwToast(what.charAt(0).toUpperCase() + what.slice(1) + ' copié dans le presse-papiers \u2713', 'ok'); }
+    function manual(){ window.kwDialog({ title:'Copier ' + what, message:'La copie automatique est bloquée par le navigateur : sélectionnez le texte (Ctrl/Cmd+A) puis copiez-le (Ctrl/Cmd+C).', fields:[{ name:'t', label:'Texte', type:'textarea', value:t }], confirmLabel:'Fermer', cancelLabel:'Annuler' }); }
+    function legacy(){ try { var ta = document.createElement('textarea'); ta.value = t; ta.setAttribute('readonly', ''); ta.style.cssText = 'position:fixed;left:-9999px;'; document.body.appendChild(ta); ta.select(); var r = document.execCommand('copy'); ta.remove(); if (r) ok(); else manual(); } catch(e){ manual(); } }
+    try { if (navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(t).then(ok, legacy); return; } } catch(e){}
+    legacy();
+  }
+  function wrapCopies(){
+    if (typeof window.kwDialog !== 'function') return;
+    [['crCopy', 'compte-rendu'], ['crCopyPrep', 'préparation'], ['copyLien', 'lien']].forEach(function(c){
+      var orig = window[c[0]]; if (typeof orig !== 'function' || orig.__kwPrx) return;
+      var w = function(){                     /* la fonction d'origine prépare le texte puis l'affiche dans prompt() : on récupère ce texte au passage */
+        var real = window.prompt, text = null;
+        window.prompt = function(m, d){ text = d == null ? '' : String(d); return null; };
+        try { orig.apply(this, arguments); } finally { window.prompt = real; }
+        if (text !== null) copyText(text, c[1]);
+      };
+      w.__kwPrx = true; window[c[0]] = w;
+    });
+  }
   /* ---- addItemBiblio : la question nomme l'élément et la phase ; on la reprend dans le titre du formulaire ---- */
+  var DONE = { prompt:[], confirm:[] }, SEEN = {};                       /* une fonction n'est reprise qu'une fois, même si un module la ré-enveloppe ensuite */
   function install(){
-    var done = { prompt:[], confirm:[] };
-    Object.keys(PROMPTS).forEach(function(n){ if (viaPrompt(n, PROMPTS[n])) done.prompt.push(n); });
-    Object.keys(CONFIRMS).forEach(function(n){ if (viaConfirm(n, CONFIRMS[n])) done.confirm.push(n); });
-    wrapAffPick(); window.kwPromptsUx = done; return done;
+    Object.keys(PROMPTS).forEach(function(n){ if (!SEEN[n] && viaPrompt(n, PROMPTS[n])){ SEEN[n] = 1; DONE.prompt.push(n); } });
+    Object.keys(CONFIRMS).forEach(function(n){ if (!SEEN[n] && viaConfirm(n, CONFIRMS[n])){ SEEN[n] = 1; DONE.confirm.push(n); } });
+    wrapAffPick(); wrapCopies(); window.kwPromptsUx = DONE; return DONE;
   }
   install();
+  /* v2 : une partie des fonctions (plan de route technique, Humetria) est définie PLUS BAS dans index.html, après cette balise : en v1 elles n'étaient
+     jamais reprises. On repasse donc une fois la page entièrement lue (sans effet sur celles déjà reprises). */
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install); else setTimeout(install, 0);
+  window.addEventListener('load', install);
 })();
