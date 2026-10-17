@@ -25,7 +25,7 @@
     + '.kwDlg.danger{border-top-color:#c0392b;}'
     + '.kwDlg h2{margin:0 0 6px;font-size:17px;color:#560A0F;}.kwDlg .kwMsg{margin:0 0 12px;color:#4a3a38;white-space:pre-line;}'
     + '.kwDlg label{display:block;font-size:12px;font-weight:600;color:#6b5b58;margin:10px 0 3px;}'
-    + '.kwDlg input,.kwDlg select{width:100%;box-sizing:border-box;font:inherit;font-size:14px;padding:8px 10px;border:1px solid rgba(86,10,15,.35);border-radius:8px;background:#fff;color:#2b1a1a;}'
+    + '.kwDlg input,.kwDlg select,.kwDlg textarea{width:100%;box-sizing:border-box;font:inherit;font-size:14px;padding:8px 10px;border:1px solid rgba(86,10,15,.35);border-radius:8px;background:#fff;color:#2b1a1a;}.kwDlg textarea{resize:vertical;min-height:70px;}'
     + '.kwDlg .kwHint{font-size:12px;color:#6b5b58;margin-top:3px;}.kwDlg .kwErr{font-size:13px;color:#c0392b;font-weight:600;margin-top:10px;min-height:1px;}'
     + '.kwDlg .kwBtns{display:flex;justify-content:flex-end;gap:8px;margin-top:16px;flex-wrap:wrap;}'
     + '.kwDlg .kwBtn{font:600 14px system-ui,sans-serif;padding:9px 16px;border-radius:8px;border:1px solid #560A0F;background:#560A0F;color:#fff;cursor:pointer;}'
@@ -44,9 +44,16 @@
       if (opt.message) box.appendChild(el('p', { 'class':'kwMsg', text:opt.message }));
       var inputs = {};
       fields.forEach(function(f, i){
-        var id = uid + 'f' + i; box.appendChild(el('label', { 'for':id, text:f.label + (f.required ? ' *' : '') }));
+        var id = uid + 'f' + i;
+        if (f.type === 'checkbox'){                       /* case à cocher : renvoie vrai / faux */
+          var cb = el('input', { id:id, type:'checkbox', style:'width:auto;margin-top:3px;flex:0 0 auto;' }); cb.checked = !!f.value;
+          var cl = el('label', { 'for':id, style:'display:flex;gap:8px;align-items:flex-start;font-weight:500;color:#2b1a1c;margin:12px 0 0;font-size:13.5px;' }, [cb, el('span', { text:f.label })]);
+          inputs[f.name] = cb; box.appendChild(cl); return;
+        }
+        box.appendChild(el('label', { 'for':id, text:f.label + (f.required ? ' *' : '') }));
         var inp;
-        if (f.type === 'select'){ inp = el('select', { id:id }); (f.options || []).forEach(function(o){ var op = el('option', { value:o, text:o }); if (o === f.value) op.selected = true; inp.appendChild(op); }); }
+        if (f.type === 'select'){ inp = el('select', { id:id }); (f.options || []).forEach(function(o){ var val = (o && typeof o === 'object') ? o.value : o, lab = (o && typeof o === 'object') ? (o.label || o.value) : o; var op = el('option', { value:val, text:lab }); if (String(val) === String(f.value)) op.selected = true; inp.appendChild(op); }); }
+        else if (f.type === 'textarea'){ inp = el('textarea', { id:id, rows:'3' }); inp.value = f.value == null ? '' : f.value; if (f.placeholder) inp.setAttribute('placeholder', f.placeholder); }
         else { inp = el('input', { id:id, type:f.type || 'text' }); if (f.value != null) inp.value = f.value; if (f.placeholder) inp.setAttribute('placeholder', f.placeholder); inp.setAttribute('autocomplete', 'off'); }
         if (f.required) inp.setAttribute('aria-required', 'true');
         inputs[f.name] = inp; box.appendChild(inp);
@@ -64,7 +71,8 @@
       function submit(){
         var vals = {};
         for (var i = 0; i < fields.length; i++){
-          var f = fields[i], v = inputs[f.name].value; if (f.type !== 'select') v = v.trim();
+          var f = fields[i]; if (f.type === 'checkbox'){ vals[f.name] = !!inputs[f.name].checked; continue; }
+          var v = inputs[f.name].value; if (f.type !== 'select') v = v.trim();
           if (f.required && !v){ err.textContent = f.label + ' : champ obligatoire.'; inputs[f.name].focus(); return; }
           if (f.type === 'email' && v && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)){ err.textContent = 'Adresse e-mail invalide.'; inputs[f.name].focus(); return; }
           vals[f.name] = v;
