@@ -126,9 +126,13 @@
     function chip(val,label){ var on=PA_SHEET===val; return '<button onclick="paSetSheet(\''+val+'\')" type="button" style="font-size:13px;padding:6px 16px;border-radius:999px;border:1px solid '+(on?'#560A0F':'rgba(86,10,15,.28)')+';background:'+(on?'#560A0F':'#fff')+';color:'+(on?'#fff':'#560A0F')+';cursor:pointer;font-family:inherit;font-weight:'+(on?'700':'500')+';margin-right:8px;">'+label+'</button>'; }
     return '<div style="display:flex;gap:4px;margin:2px 0 12px;">'+chip('cr','Réunions & Rituels')+chip('actions','Actions')+((PA_AIC_OK&&PA_ROOT==='view')?chip('aic','AIC'):'')+'</div>';
   }
-  function paQuitAicOk(){ return !(PA_SHEET==='aic' && window.clapAIC && window.clapAIC.busy && window.clapAIC.busy()) || confirm("Une AIC est en cours. Quitter l'onglet AIC ? Le chrono continue : revenez sur l'onglet AIC pour la terminer."); }
-  window.paSetSheet=function(v){
-    if(v!=='aic' && !paQuitAicOk()) return;
+  function kwAsk(o){ if(typeof window.kwConfirm==='function') return window.kwConfirm(o); return Promise.resolve(window.confirm(o.message)); }   /* vrai dialogue si dialogs.js est chargé, boîte du navigateur sinon */
+  function paQuitAicOk(){
+    if(!(PA_SHEET==='aic' && window.clapAIC && window.clapAIC.busy && window.clapAIC.busy())) return Promise.resolve(true);
+    return kwAsk({ title:'Quitter l\u2019AIC en cours ?', message:"Une AIC est en cours. Quitter l'onglet AIC ? Le chrono continue : revenez sur l'onglet AIC pour la terminer.", confirmLabel:'Quitter l\u2019onglet AIC', cancelLabel:'Rester' });
+  }
+  window.paSetSheet=async function(v){
+    if(v!=='aic' && !(await paQuitAicOk())) return;
     PA_SHEET=v;
     try{ if(v==='aic') history.replaceState(null,'','#aic'); else if(location.hash==='#aic') history.replaceState(null,'',location.pathname+location.search); }catch(_){}
     paRepaint();
@@ -141,7 +145,7 @@
   };
   /* Ouvre un compte rendu dans Réunions & Rituels (lien depuis l'arbre des AIC). */
   window.clapOpenCR=async function(id){
-    if(!paQuitAicOk()) return;
+    if(!(await paQuitAicOk())) return;
     try{ if(typeof CURRENT_TAB!=='undefined' && typeof switchTab==='function' && CURRENT_TAB!=='plandaction'){ PA_PENDING_CR=id; PA_SHEET='cr'; switchTab('plandaction'); return; } }catch(_){}
     PA_SHEET='cr'; try{ if(location.hash==='#aic') history.replaceState(null,'',location.pathname+location.search); }catch(_){}
     var v=document.getElementById(PA_ROOT); if(!v) return;
@@ -724,11 +728,43 @@
   function crRepaint(){
     var z=document.getElementById(CR_ROOT); if(!z) return;
     z.innerHTML = CR_CUR ? crEditorHtml() : crListHtml();
+    if(!CR_CUR){ try{ window.crFilterList(); }catch(_){} }
     if(CR_CUR&&window.crAccessSync){ try{ window.crAccessSync(); }catch(_){} }
     if(CR_CUR&&CR_LOCKOK&&crIsLocked(CR_CUR)) crApplyLock(z);
   }
 
   // ---------- Liste des CR ----------
+
+  /* ---------- filtres de la liste (recherche, statut, « Mes CR ») : masquent des lignes, ne reconstruisent rien (la saisie n'est jamais perdue) ---------- */
+  function kwAsk(o){ if(typeof window.kwConfirm==='function') return window.kwConfirm(o); return Promise.resolve(window.confirm(o.message)); }   /* vrai dialogue si dialogs.js est chargé, boîte du navigateur sinon */
+  var CR_FQ='', CR_FST='all', CR_FMINE=false;
+  function crFmtDate(d){ var m=/^(\d{4})-(\d{2})-(\d{2})/.exec(d||''); return m?(m[3]+'/'+m[2]+'/'+m[1]):(d||''); }   /* 2026-10-16 → 16/10/2026 */
+  function crMeId(){ try{ return SB_SESSION.user.id; }catch(_){ return ''; } }
+  function crPill(st){ var m={cloture:['p-green','clôturé'],tenue:['p-amber','tenue']}[st]||['p-grey','préparation']; return '<span class="pill '+m[0]+'">'+m[1]+'</span>'; }
+  function crChipCss(on){ return 'cursor:pointer;font:600 12.5px system-ui,sans-serif;padding:5px 12px;border-radius:999px;border:1px solid '+(on?'#560A0F':'rgba(86,10,15,.3)')+';background:'+(on?'#560A0F':'#fff')+';color:'+(on?'#fff':'#560A0F')+';'; }
+  function crChip(v,l){ var on=CR_FST===v; return '<button type="button" class="crChip" data-st="'+v+'" aria-pressed="'+(on?'true':'false')+'" onclick="crFilterSet(\''+v+'\')" style="'+crChipCss(on)+'">'+l+'</button>'; }
+  function crFilterBar(){
+    return '<div class="crFilt" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 8px;">'
+      +'<input id="crQ" type="search" value="'+e(CR_FQ)+'" placeholder="Rechercher (titre, interlocuteur, n°)…" aria-label="Rechercher un compte-rendu" oninput="crFilterList()" style="font:inherit;font-size:14px;padding:7px 11px;border:1px solid rgba(86,10,15,.3);border-radius:8px;min-width:240px;">'
+      +crChip('all','Tous')+crChip('prepa','En préparation')+crChip('tenue','Tenus')+crChip('cloture','Clôturés')
+      +(CR_LOCKOK?'<label style="font-size:13px;display:inline-flex;align-items:center;gap:5px;color:#4a3a38;"><input type="checkbox" id="crMine"'+(CR_FMINE?' checked':'')+' onchange="crFilterList()"> Mes CR</label>':'')
+      +'<span id="crCount" class="edit-hint" role="status" style="margin-left:auto;"></span></div>';
+  }
+  window.crFilterList=function(){
+    var q=document.getElementById('crQ'), mine=document.getElementById('crMine'); if(!q) return;
+    CR_FQ=q.value; CR_FMINE=!!(mine&&mine.checked);
+    var needle=CR_FQ.trim().toLowerCase(), rows=[].slice.call(document.querySelectorAll('#crRows [data-crrow]')), shown=0;
+    rows.forEach(function(r){
+      var vis=(!needle||(r.getAttribute('data-q')||'').indexOf(needle)>=0)&&(CR_FST==='all'||r.getAttribute('data-st')===CR_FST)&&(!CR_FMINE||r.getAttribute('data-mine')==='1');
+      r.style.display=vis?'flex':'none'; if(vis) shown++;
+    });
+    var c=document.getElementById('crCount'); if(c) c.textContent=(shown===rows.length)?(rows.length+' compte'+(rows.length>1?'s':'')+'-rendu'+(rows.length>1?'s':'')):(shown+' sur '+rows.length);
+    var none=document.getElementById('crNone'); if(none) none.style.display=(rows.length&&!shown)?'':'none';
+  };
+  window.crFilterSet=function(st){
+    CR_FST=st; [].forEach.call(document.querySelectorAll('.crChip'),function(b){ var on=b.getAttribute('data-st')===st; b.setAttribute('aria-pressed',on?'true':'false'); b.style.cssText=crChipCss(on); });
+    window.crFilterList();
+  };
   function crListHtml(){
     var head='<div class="sec-eyebrow">Réunions</div><div class="sec-title">Réunions &amp; Rituels</div>'
       +'<div style="margin:8px 0 12px;"><button class="add-btn" onclick="crNew()" type="button">+ Nouveau compte-rendu</button></div>'
@@ -736,14 +772,14 @@
     if(!CR_LIST.length) return head+'<div class="edit-hint" style="padding:10px 2px;">Aucun compte-rendu. Crée le premier.</div>';
     var rows=CR_LIST.map(function(c){
       var st=c.statut==='cloture'?'clôturé':(c.statut==='tenue'?'tenue':'préparation');
-      return '<div style="display:flex;gap:10px;align-items:center;padding:9px 6px;border-bottom:1px solid rgba(86,10,15,.10);">'
+      return '<div data-crrow="1" data-st="'+e(c.statut||'prepa')+'" data-mine="'+((c.auteur_id&&c.auteur_id===crMeId())?'1':'0')+'" data-q="'+e(('cr #'+(c.numero||'')+' '+(c.titre||'')+' '+(c.interlocuteur_id?piloteNom(c.interlocuteur_id):'')+' '+(c.date_reunion||'')+' '+crFmtDate(c.date_reunion)).toLowerCase())+'" onclick="if(!event.target.closest(\'button\'))crOpen(\''+c.id+'\')" onmouseover="this.style.background=\'rgba(86,10,15,.04)\'" onmouseout="this.style.background=\'\'" style="cursor:pointer;display:flex;gap:10px;align-items:center;padding:9px 6px;border-bottom:1px solid rgba(86,10,15,.10);">'
         +'<div style="flex:1;min-width:0;"><span style="font-size:11px;color:var(--muted);">CR #'+(c.numero||'?')+'</span> <span style="font-size:13px;font-weight:600;color:#560A0F;">'+e(c.titre||'(sans titre)')+'</span>'
-        +'<div class="edit-hint" style="margin-top:2px;">'+(c.date_reunion||'')+(c.interlocuteur_id?(' · '+e(piloteNom(c.interlocuteur_id))):'')+' · '+st+((CR_LOCKOK&&crIsLocked(c))?' · <span style="color:#560A0F;font-weight:700;" title="Verrouillé par son auteur : contenu non modifiable">🔒 verrouillé</span>':'')+(crLockFresh(c)?(' · <span style="color:#c0392b;font-weight:700;">🔴 transcription en cours'+(crLockName(c.transcription_par)?(' ('+e(crLockName(c.transcription_par))+')'):'')+'</span>'):'')+'</div></div>'
+        +'<div class="edit-hint" style="margin-top:2px;">'+crFmtDate(c.date_reunion)+(c.interlocuteur_id?(' · '+e(piloteNom(c.interlocuteur_id))):'')+' · '+crPill(c.statut)+((CR_LOCKOK&&crIsLocked(c))?' · <span style="color:#560A0F;font-weight:700;" title="Verrouillé par son auteur : contenu non modifiable">🔒 verrouillé</span>':'')+(crLockFresh(c)?(' · <span style="color:#c0392b;font-weight:700;">🔴 transcription en cours'+(crLockName(c.transcription_par)?(' ('+e(crLockName(c.transcription_par))+')'):'')+'</span>'):'')+'</div></div>'
         +((CR_DEL[String(c.id)]&&!crIsLocked(c))?'<button class="add-btn sm" onclick="crDelete(\''+c.id+'\')" type="button" title="Supprimer ce compte-rendu (réservé à l\u2019animateur)" aria-label="Supprimer ce compte-rendu" style="flex:0 0 auto;background:#fff;color:#c0392b;border:1px solid #c0392b;">\ud83d\uddd1 Supprimer</button>':'')
         +'<button class="add-btn sm" onclick="crOpen(\''+c.id+'\')" type="button" style="flex:0 0 auto;">Ouvrir</button>'
         +'</div>';
     }).join('');
-    return head+'<div>'+rows+'</div>';
+    return head+crFilterBar()+'<div id="crRows">'+rows+'</div><div id="crNone" class="edit-hint" style="display:none;padding:10px 2px;">Aucun compte-rendu ne correspond.</div>';
   }
   window.crNew=function(){ CR_CUR={ titre:'', date_reunion:today(), interlocuteur_id:'', contexte:'', preparation:'', transcription:'', synthese:'', actions_numeros:[], est_routine:false, statut:'prepa' }; CR_DICT=''; crRepaint(); };
   function crInsertLabel(lbl){ var ta=document.getElementById('crTranscript'); if(!ta) return; var cur=ta.value.replace(/\s+$/,''); ta.value=(cur?(cur+'\n\n'):'')+lbl; CR_DICT=ta.value; if(CR_CUR) CR_CUR.transcription=ta.value; ta.focus(); try{ ta.setSelectionRange(ta.value.length, ta.value.length); }catch(e){} }
@@ -790,12 +826,15 @@
     var ppl=crAccessPeople(), parts=d.participants||[], auts=d.autorises||[];
     function box(cls,p,on){ return '<label data-pid="'+p.id+'" style="font-size:12.5px;color:#333;display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" class="'+cls+'" value="'+p.id+'"'+(on?' checked':'')+' onchange="crAccessSync()"> '+e(p.nom)+(p.email?'':' <span class="edit-hint" title="Sans e-mail : ne recevra pas le CR par mail">·</span>')+'</label>'; }
     var none='<span class="edit-hint">Aucune personne avec e-mail ou compte lié — renseignez-les dans Admin → Pilotes.</span>';
+    var openAttr=(!d.id||(!parts.length&&!auts.length))?' open':'';   /* nouveau CR ou personne de coché : on propose de choisir ; sinon une simple ligne de résumé */
     return '<div class="crAccess" style="flex:1 1 100%;margin-top:8px;border-top:1px dashed rgba(86,10,15,.2);padding-top:8px;">'
       +'<div style="font-size:12.5px;font-weight:700;color:#560A0F;">Qui voit ce compte-rendu ?</div>'
-      +'<div class="edit-hint" style="margin:2px 0 6px;">Vous (émetteur) et la direction le voient toujours. Aucune fonction n\u2019y accède d\u2019office : seules les personnes cochées ci-dessous.</div>'
+      +'<div id="crAccessSum" class="edit-hint" style="margin-top:2px;"></div>'
+      +'<details id="crAccessDet"'+openAttr+' style="margin-top:4px;"><summary style="cursor:pointer;font-size:12.5px;color:#560A0F;font-weight:600;">Choisir les personnes</summary>'
+      +'<div class="edit-hint" style="margin:6px 0;">Vous (émetteur) et la direction le voient toujours. Aucune fonction n\u2019y accède d\u2019office : seules les personnes cochées ci-dessous.</div>'
       +'<div style="font-size:11px;color:var(--muted);">Participants : lisent, modifient et reçoivent le CR par mail<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:4px;">'+(ppl.map(function(p){ return box('crPart',p,parts.indexOf(p.id)>=0); }).join('')||none)+'</div></div>'
       +'<div style="font-size:11px;color:var(--muted);margin-top:6px;">Autorisés à consulter seulement (en plus des participants)<div id="crAuthList" style="display:flex;flex-wrap:wrap;gap:10px;margin-top:4px;">'+(ppl.map(function(p){ return box('crAuth',p,auts.indexOf(p.id)>=0); }).join('')||none)+'</div></div>'
-      +'<div id="crAccessSum" class="edit-hint" style="margin-top:6px;"></div></div>';
+      +'</details></div>';
   }
   /* Un participant a déjà accès : on ne le propose plus parmi les autorisés ; le résumé dit exactement qui verra le CR. */
   window.crAccessSync=function(){
@@ -845,7 +884,7 @@
       +(lockedOther ? ('<div style="background:#fdecea;border:1px solid #c0392b;border-radius:8px;padding:8px 12px;margin-top:8px;color:#c0392b;font-size:12.5px;">⚠ Transcription en cours par <b>'+e(crLockName(d.transcription_par))+'</b> depuis '+crLockHeure(d)+'. <button class="add-btn sm" onclick="crTakeOver()" type="button" style="margin-left:6px;">Prendre la main</button></div>') : ('<div style="margin-top:8px;"><button class="add-btn" onclick="crSynth()" type="button"'+(CR_BUSY?' disabled':'')+'>'+(CR_BUSY?'… synthèse':'✨ Générer la synthèse + les actions')+'</button></div>'))
       +crSynthBlock(d)
       +'</div>'
-      +'<div style="display:flex;gap:8px;margin-top:12px;"><button class="add-btn" onclick="crSave()" type="button">✓ Enregistrer le CR</button>'+crSaveLockBtn(d)+'<button class="add-btn sm" onclick="crBack()" type="button" style="background:#fff;color:#560A0F;">Fermer</button><span id="crSaveMsg" role="status" style="align-self:center;font-size:12.5px;"></span></div>';
+      +'<div class="crBar" style="display:flex;gap:8px;margin-top:12px;position:sticky;bottom:0;z-index:6;background:var(--paper,#f3efe9);padding:10px 0;border-top:1px solid rgba(86,10,15,.12);"><button class="add-btn" onclick="crSave()" type="button">✓ Enregistrer le CR</button>'+crSaveLockBtn(d)+'<button class="add-btn sm" onclick="crBack()" type="button" style="background:#fff;color:#560A0F;">Fermer</button><span id="crSaveMsg" role="status" style="align-self:center;font-size:12.5px;"></span></div>';
   }
 
   // ---------- Préparation IA ----------
@@ -893,6 +932,7 @@
   async function crSaveSilent(){
     if(CR_CUR.id){ var r=await SB.from('comptes_rendus').update(crRow()).eq('id',CR_CUR.id); if(r.error) throw r.error; }
     else { var r2=await SB.from('comptes_rendus').insert(crRow()).select('id,numero').single(); if(r2.error) throw r2.error; CR_CUR.id=r2.data.id; CR_CUR.numero=r2.data.numero; }
+    try{ var sm=document.getElementById('crSaveMsg'); if(sm){ sm.style.color='#6b5b58'; sm.textContent='Enregistré à '+new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}); } }catch(_){}
   }
   window.crSave=async function(){ if(CR_RECORDING){ try{ crStopAll(''); }catch(_){} } crReadHeader(); CR_MSG=''; var b=document.getElementById('crSaveMsg'); if(b){ b.style.color='#6b5b58'; b.textContent='Enregistrement…'; }
     try{ await crSaveSilent(); await crLoadList(); crRepaint(); var b2=document.getElementById('crSaveMsg'); if(b2){ b2.style.color='#1e7d34'; b2.textContent='✓ Enregistré · CR #'+((CR_CUR&&CR_CUR.numero)||''); } }
@@ -1030,11 +1070,11 @@
     if(CR_BUSY||!CR_CUR) return;
     if(CR_RECORDING){ try{ crStopAll(''); }catch(_){} }
     if(on){
-      if(!confirm((saveFirst?'Enregistrer puis verrouiller':'Verrouiller')+' ce compte-rendu ?\n\nPlus personne, vous compris, ne pourra modifier son contenu ni le supprimer tant que vous ne l\u2019aurez pas déverrouillé. Les actions déjà créées ne sont pas touchées.'+(saveFirst?'':'\n\nVos modifications en cours sont enregistrées d\u2019abord.'))) return;
+      if(!(await kwAsk({ title:'Verrouiller ce compte-rendu', message:(saveFirst?'Enregistrer puis verrouiller':'Verrouiller')+' ce compte-rendu ?\n\nPlus personne, vous compris, ne pourra modifier son contenu ni le supprimer tant que vous ne l\u2019aurez pas déverrouillé. Les actions déjà créées ne sont pas touchées.'+(saveFirst?'':'\n\nVos modifications en cours sont enregistrées d\u2019abord.'), confirmLabel:'Verrouiller' }))) return;
       crReadHeader(); CR_BUSY=true;
       try{ await crSaveSilent(); }catch(err){ CR_BUSY=false; CR_MSG='Enregistrement refusé : '+(err.message||err)+' \u2014 le compte-rendu n\u2019a pas été verrouillé.'; crRepaint(); alert(CR_MSG); return; }
     } else {
-      if(!confirm('Déverrouiller ce compte-rendu ?\n\nIl redeviendra modifiable (et supprimable par son animateur).')) return;
+      if(!(await kwAsk({ title:'Déverrouiller ce compte-rendu', message:'Déverrouiller ce compte-rendu ?\n\nIl redeviendra modifiable (et supprimable par son animateur).', confirmLabel:'Déverrouiller' }))) return;
       CR_BUSY=true;
     }
     var r; try{ r=await SB.rpc('cr_verrouiller',{p_id:CR_CUR.id,p_verrouiller:!!on}); }catch(err){ r={error:err}; }
@@ -1053,7 +1093,7 @@
     var c=(CR_LIST||[]).filter(function(x){return String(x.id)===id;})[0]||((CR_CUR&&String(CR_CUR.id)===id)?CR_CUR:null)||{};
     if(crIsLocked(c)){ CR_MSG='Suppression impossible : ce compte-rendu est verrouillé par son auteur.'; crRepaint(); return; }
     var nA=(c.actions_numeros&&c.actions_numeros.length)||0;
-    if(!confirm('Supprimer définitivement le CR #'+(c.numero||'?')+(c.titre?(' \u00ab '+c.titre+' \u00bb'):'')+' ?\n\nSa préparation, sa transcription et son compte-rendu seront supprimés. Une copie reste 30 jours à la disposition d\u2019un administrateur.'+(nA?('\n\nLes '+nA+' action(s) déjà créée(s) dans la feuille Actions sont CONSERVÉES.'):''))) return;
+    if(!(await kwAsk({ title:'Supprimer ce compte-rendu', message:'Supprimer définitivement le CR #'+(c.numero||'?')+(c.titre?(' \u00ab '+c.titre+' \u00bb'):'')+' ?\n\nSa préparation, sa transcription et son compte-rendu seront supprimés. Une copie reste 30 jours à la disposition d\u2019un administrateur.'+(nA?('\n\nLes '+nA+' action(s) déjà créée(s) dans la feuille Actions sont CONSERVÉES.'):''), confirmLabel:'Supprimer', danger:true }))) return;
     if(CR_BUSY) return; CR_BUSY=true;
     var wasOpen=!!(CR_CUR&&String(CR_CUR.id)===id);
     if(wasOpen&&CR_RECORDING){ try{ crStopAll(''); }catch(_){} }
