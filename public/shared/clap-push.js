@@ -87,9 +87,38 @@
     try { var reg = await register(); (await reg.getNotifications()).forEach(function(n){ if (/^clap-/.test(n.tag || '')) n.close(); }); } catch(e){}
     ST.sub = null; paint(); toast('Notifications désactivées sur ce téléphone.', 'info');
   }
+  /* Panneau d'état (cloche, notifications actives) : ce que le serveur a envoyé, ce que le téléphone affiche, et « Réafficher » */
+  function fmtT(ms){ try { return new Date(ms).toLocaleString('fr-FR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }); } catch(e){ return ''; } }
+  async function panel(){
+    var old = document.getElementById('kwPushPanel'); if (old){ old.remove(); return; }
+    var reg = await register(), shown = [], diag = null;
+    try { shown = (await reg.getNotifications()).filter(function(n){ return /^clap-a-/.test(n.tag || ''); }); } catch(e){}
+    try { var r = await caches.match('/clap/__diag'); if (r) diag = await r.json(); } catch(e){}
+    var c = (window.kwClapBadge && window.kwClapBadge.count) ? window.kwClapBadge.count() : null;
+    var d = document.createElement('div'); d.id = 'kwPushPanel'; d.setAttribute('role', 'dialog'); d.setAttribute('aria-label', 'Notifications du téléphone');
+    d.style.cssText = 'position:fixed;top:60px;right:12px;z-index:100001;width:min(340px,calc(100vw - 24px));background:#fff;color:#2b1a1a;border-radius:12px;box-shadow:0 10px 32px rgba(0,0,0,.28);padding:14px 16px;font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;';
+    var ok = c == null || shown.length === c;
+    d.innerHTML = '<div style="font-weight:800;color:' + B + ';margin-bottom:8px;">Notifications de ce téléphone</div>'
+      + '<div>Actions en retard (Clap!) : <b>' + (c == null ? '?' : c) + '</b></div>'
+      + '<div>Notifications affichées sur le téléphone : <b style="color:' + (ok ? '#2e7d46' : '#c0392b') + '">' + shown.length + '</b></div>'
+      + '<div style="font-size:12.5px;color:#6b5b58;margin-top:4px;">' + (diag ? 'Dernier envoi reçu : ' + fmtT(diag.at) + ' (' + diag.n + ' action' + (diag.n > 1 ? 's' : '') + (diag.recus && diag.recus.length ? ' : #' + diag.recus.join(', #') : '') + ')' : 'Aucun envoi reçu pour l’instant.') + '</div>'
+      + (ok ? '' : '<div style="font-size:12.5px;color:#c0392b;margin-top:6px;">Des notifications ont été effacées du téléphone. « Réafficher » les remet ; elles se remettent aussi seules toutes les 2 heures en journée et à chaque ouverture de Clap!.</div>')
+      + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">'
+      +   '<button type="button" data-a="re" style="all:unset;cursor:pointer;background:' + B + ';color:#fff;border-radius:8px;padding:7px 12px;font-weight:600;font-size:13px;">Réafficher maintenant</button>'
+      +   '<button type="button" data-a="off" style="all:unset;cursor:pointer;border:1px solid rgba(86,10,15,.3);color:' + B + ';border-radius:8px;padding:6px 11px;font-weight:600;font-size:13px;">Désactiver</button>'
+      +   '<button type="button" data-a="x" style="all:unset;cursor:pointer;color:#6b5b58;padding:6px 8px;font-size:13px;margin-left:auto;">Fermer</button></div>';
+    document.body.appendChild(d);
+    d.addEventListener('click', async function(e){
+      var a = e.target && e.target.getAttribute && e.target.getAttribute('data-a'); if (!a) return;
+      if (a === 'x'){ d.remove(); return; }
+      if (a === 'off'){ d.remove(); await disable(); return; }
+      if (a === 're'){ e.target.textContent = 'Envoi…'; lastSync = 0; try { await api('POST', { action: 'sync', force: true }); } catch(err){ toast('Réaffichage impossible : ' + ((err && err.message) || err), 'err'); }
+        setTimeout(function(){ d.remove(); panel(); }, 3500); }
+    });
+  }
   async function toggle(){
     if (ST.busy) return; ST.busy = true;
-    try { if (ST.sub && Notification.permission === 'granted') await disable(); else await enable(); }
+    try { if (ST.sub && Notification.permission === 'granted') await panel(); else await enable(); }
     catch(e){ toast('Notifications : ' + ((e && e.message) || e), 'err'); }
     finally { ST.busy = false; paint(); }
   }

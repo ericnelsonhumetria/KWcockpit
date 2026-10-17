@@ -109,6 +109,6 @@
   from = "/api/push-actions"
   to = "/.netlify/functions/push-actions"
   status = 200
-# Peu après minuit (heure de Paris) les échéances de la veille passent « en retard » : mise à jour des téléphones (23:10 et 06:10 UTC)
+# Notifications du téléphone : toutes les 2 h de 7h à 21h (Paris) on remet celles qui ont été effacées ; vers minuit, les échéances de la veille passent « en retard »
 [functions."push-actions-daily"]
-  schedule = "10 6,23 * * *"
+  schedule = "10 5-19/2,23 * * *"

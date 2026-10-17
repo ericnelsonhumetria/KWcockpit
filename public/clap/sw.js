@@ -41,6 +41,11 @@ async function apply(data) {
     jobs.push(self.registration.showNotification('Clap! · ' + n + ' actions en retard', { body: 'Les ' + items.length + ' plus anciennes sont détaillées ; ouvre Clap! pour voir le reste.', tag: MORE, icon: ICON, badge: BADGE, silent: true, renotify: false, data: { url: '/clap/' } }));
   }
   await Promise.all(jobs);
+  try {   /* journal : dernier envoi reçu et notifications réellement affichées (panneau « cloche » de Clap!) */
+    const now = await self.registration.getNotifications();
+    const c = await caches.open('clap-diag');
+    await c.put('/clap/__diag', new Response(JSON.stringify({ at: Date.now(), n, recus: items.map((a) => a.no), affichees: now.filter((x) => (x.tag || '').indexOf(PREFIX) === 0).length }), { headers: { 'Content-Type': 'application/json' } }));
+  } catch (e) {}
   try { if (self.navigator.setAppBadge) { if (n > 0) await self.navigator.setAppBadge(n); else if (self.navigator.clearAppBadge) await self.navigator.clearAppBadge(); } } catch (e) {}
 }
 
