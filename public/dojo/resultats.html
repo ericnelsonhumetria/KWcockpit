@@ -20,7 +20,7 @@ input,select,button{font-family:inherit;}
    Données : table Supabase dojo_resultats (là où le Dojo du Cockpit enregistre chaque simulation), plus les formulaires Netlify.
    Accès : décidé par le Cockpit (Admin → Accès par fonction, case « Dojo — résultats », ou profil Membre Codir). Plus de jeton Netlify,
    plus de mot de passe. Ouvert seul, la page renvoie au Cockpit. La base applique la même règle (dojo_acces.sql).
-   Direction : bouton « Importer l’ancien Dojo » (historique des formulaires Netlify → dojo_resultats, voir dojo_import.sql).
+   Direction : bouton « Supprimer » (simulation ou consultant entier, définitif) ; bouton « Importer l’ancien Dojo » (historique des formulaires Netlify → dojo_resultats, voir dojo_import.sql).
    Retiré volontairement : la gestion du mot de passe (obsolète) et l'onglet Brasserie (assessments de candidats : Parcours candidats). */
 window.SUPABASE_URL = "https://omftqlvkmjlxoinruayr.supabase.co";
 window.SUPABASE_ANON_KEY = "sb_publishable_RgKYatx7zHx_SJvrvoyt2w_fXhLKQ1w";
@@ -325,6 +325,8 @@ function renderDashboard(){
               style="background:none;border:1px solid #c0a888;color:#8a7868;padding:3px 7px;font-family:monospace;font-size:8px;cursor:pointer;border-radius:2px;">
               ${archived.has(r.subId) ? '&#8635; Restaurer' : '&#8711; Archiver'}
             </button>
+            ${canDel() ? `<button data-ids="${r.subId}" data-label="${esc(r.scenario+' · '+r.date)}" onclick="event.stopPropagation();delAsk(this)" title="Supprimer définitivement cette simulation"
+              style="background:none;border:1px solid #c04040;color:#c04040;padding:3px 7px;font-family:monospace;font-size:8px;cursor:pointer;border-radius:2px;">&#128465; Supprimer</button>` : ''}
             <button onclick="event.stopPropagation();sendRapport(window.allFmt.find(f=>f.subId==='${r.subId}'))"
               title="Envoyer par mail"
               style="background:none;border:1px solid #6B1020;color:#6B1020;padding:3px 9px;
@@ -353,6 +355,8 @@ function renderDashboard(){
             <div style="font-family:monospace;font-size:8px;color:${G.faint};letter-spacing:1px;">ICC MOYEN</div>
             <div style="font-family:monospace;font-size:15px;color:${G.gold};font-weight:700;">${avg}%</div>
           </div>
+          ${canDel() ? `<button data-ids="${visibleRaps.map(r=>r.subId).join(',')}" data-label="${esc(displayName)} (${visibleRaps.length} simulation${visibleRaps.length>1?'s':''})" onclick="event.stopPropagation();delAsk(this)" title="Supprimer définitivement toutes les simulations affichées de ce consultant"
+            style="background:none;border:1px solid #c04040;color:#c04040;padding:3px 7px;font-family:monospace;font-size:8px;cursor:pointer;border-radius:2px;">&#128465; Tout supprimer</button>` : ''}
           <span id="a_${cid}" style="font-family:monospace;font-size:12px;color:${G.dim};">▸</span>
         </div>
       </div>
@@ -735,11 +739,11 @@ function buildDashboard(el){
 var IMP = { token:'', rows:[], sites:[] };
 function impNorm(s){ return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); }
 function impKey(s){ return impNorm(s).split(' ').filter(Boolean).sort().join(' '); }
-function impPanel(html){
+function impPanel(html, titre){ titre = titre || 'IMPORTER L’HISTORIQUE DE L’ANCIEN DOJO';
   var ov = document.getElementById('impOv');
   if (!ov){ ov = document.createElement('div'); ov.id = 'impOv'; ov.style.cssText = 'position:fixed;inset:0;background:rgba(26,16,8,.45);z-index:50;display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto;'; document.body.appendChild(ov); }
-  ov.innerHTML = '<div role="dialog" aria-modal="true" aria-label="Importer l’ancien Dojo" style="background:#fff;border-radius:4px;max-width:720px;width:100%;padding:22px 22px 18px;font-size:14px;line-height:1.55;color:#1a1008;box-shadow:0 10px 40px rgba(0,0,0,.25);">'
-    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><div style="font-family:monospace;font-size:10px;color:#E8A800;letter-spacing:2.5px;">IMPORTER L’HISTORIQUE DE L’ANCIEN DOJO</div>'
+  ov.innerHTML = '<div role="dialog" aria-modal="true" aria-label="' + titre + '" style="background:#fff;border-radius:4px;max-width:720px;width:100%;padding:22px 22px 18px;font-size:14px;line-height:1.55;color:#1a1008;box-shadow:0 10px 40px rgba(0,0,0,.25);">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><div style="font-family:monospace;font-size:10px;color:#E8A800;letter-spacing:2.5px;">' + titre + '</div>'
     + '<button onclick="impClose()" aria-label="Fermer" style="background:none;border:none;font-size:20px;cursor:pointer;color:#8a7868;">×</button></div>' + html + '</div>';
 }
 function impClose(){ var ov = document.getElementById('impOv'); if (ov) ov.remove(); IMP.token = ''; }
@@ -822,6 +826,34 @@ async function impGo(){
       + '<p style="font-size:12px;color:#8a7868;margin-bottom:14px;">Pensez à supprimer le jeton sur Netlify (User settings → Applications).</p>' + impBtn('VOIR LES RÉSULTATS', 'impClose();loadAndRender()'));
     IMP.token = '';
   } catch(e){ impErr(e.message || String(e)); }
+}
+
+
+/* ── SUPPRESSION (direction uniquement) : définitive, via dojo_supprimer() (dojo_suppression.sql).
+   Un rapport de l'ancien Dojo supprimé n'est jamais réimporté. */
+function canDel(){ return !!(KW_ACCES && KW_ACCES.direction); }
+function delAsk(btn){
+  var ids = String(btn.getAttribute('data-ids') || '').split(',').filter(Boolean), label = btn.getAttribute('data-label') || '';
+  if (!ids.length) return;
+  impPanel('<p style="margin-bottom:8px;">Supprimer définitivement <b>' + esc(label) + '</b> ?</p>'
+    + '<p style="font-size:12px;color:#8a7868;margin-bottom:14px;">' + ids.length + ' simulation' + (ids.length > 1 ? 's' : '') + ' : évaluation et verbatim effacés pour tout le monde. Cette action ne peut pas être annulée'
+    + ' (contrairement à « Archiver », qui masque seulement l’affichage sur ce poste).</p>'
+    + '<button id="delOk" style="background:#c0392b;color:#fff;border:1px solid #c0392b;padding:9px 16px;font-family:monospace;font-size:10px;letter-spacing:1px;cursor:pointer;border-radius:2px;margin-right:8px;">SUPPRIMER</button>'
+    + impBtn('ANNULER', 'impClose()', true) + '<div id="impErr" role="alert" style="color:#c04040;font-size:12px;margin-top:10px;"></div>', 'SUPPRIMER DES SIMULATIONS');
+  var ok = document.getElementById('delOk');
+  ok.onclick = function(){ delGo(ids); };
+  setTimeout(function(){ var c = document.querySelector('#impOv button[onclick="impClose()"]:last-of-type'); if (c) c.focus(); }, 0);
+}
+async function delGo(ids){
+  var ok = document.getElementById('delOk'); if (ok) ok.disabled = true;
+  impErr('Suppression…');
+  try {
+    var sb = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
+    var r = await sb.rpc('dojo_supprimer', { p_ids: ids });
+    if (r.error) throw new Error(/function|schema cache/i.test(r.error.message) ? 'Exécutez d’abord dojo_suppression.sql dans Supabase.' : r.error.message);
+    ids.forEach(function(id){ archived.delete(String(id)); }); saveArchived();
+    impClose(); await loadAndRender();
+  } catch(e){ if (ok) ok.disabled = false; impErr(e.message || String(e)); }
 }
 
 
