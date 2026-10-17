@@ -527,6 +527,36 @@ async function runJob(body) {
 }
 
 // meta (optionnel) : { requireSearch, maxUses, degraded } — propre à chaque appel.
+// Les réponses avec recherche web peuvent contenir des balises de citation (<cite index="…">…</cite>) : on les retire partout.
+function stripCites(v) { return typeof v === "string" ? v.replace(/[<(]\/?cite\b[^>]*>/gi, "").replace(/[ \t]{2,}/g, " ").trim() : v; }
+function cleanCitesDeep(v) {
+  if (typeof v === "string") return stripCites(v);
+  if (Array.isArray(v)) return v.map(cleanCitesDeep);
+  if (v && typeof v === "object") { const o = {}; for (const k in v) o[k] = cleanCitesDeep(v[k]); return o; }
+  return v;
+}
+// Date de fin d'un événement : champs ISO s'ils existent, sinon la date la plus tardive lue dans le texte (« 8 octobre 2026 », « 8-10 oct. 2026 », « octobre 2026 », « 08/10/2026 »).
+const FR_MOIS = { janvier:0, janv:0, fevrier:1, fevr:1, fev:1, mars:2, avril:3, avr:3, mai:4, juin:5, juillet:6, juil:6, aout:7, septembre:8, sept:8, octobre:9, oct:9, novembre:10, nov:10, decembre:11, dec:11 };
+const MOIS_RE = "(janvier|janv|f[eé]vrier|f[eé]vr|f[eé]v|mars|avril|avr|mai|juin|juillet|juil|ao[uû]t|septembre|sept|octobre|oct|novembre|nov|d[eé]cembre|d[eé]c)\\.?";
+function moisIdx(m) { return FR_MOIS[String(m).toLowerCase().replace(/\./g, "").normalize("NFD").replace(/[\u0300-\u036f]/g, "")]; }
+function lastDateIn(text) {
+  if (!text) return null;
+  let t = " " + String(text).toLowerCase() + " ", best = null;
+  const keep = d => { if (d && !isNaN(d) && (!best || d > best)) best = d; };
+  t = t.replace(/(\d{4})-(\d{2})-(\d{2})/g, (_, y, m, d) => { keep(new Date(+y, +m - 1, +d)); return " "; });
+  t = t.replace(/(\d{1,2})\/(\d{1,2})\/(\d{4})/g, (_, d, m, y) => { keep(new Date(+y, +m - 1, +d)); return " "; });
+  t = t.replace(new RegExp("(\\d{1,2})(?:er)?(?:\\s*(?:-|–|au|et|&)\\s*(\\d{1,2})(?:er)?)?\\s+" + MOIS_RE + "\\s+(\\d{4})", "g"), (_, d1, d2, m, y) => { const mi = moisIdx(m); if (mi != null) keep(new Date(+y, mi, +(d2 || d1))); return " "; });
+  t.replace(new RegExp(MOIS_RE + "\\s+(\\d{4})", "g"), (_, m, y) => { const mi = moisIdx(m); if (mi != null) keep(new Date(+y, mi + 1, 0)); return " "; });
+  return best;
+}
+function eventEndDate(ev) {
+  if (!ev) return null;
+  for (const k of ["date_fin", "date_debut"]) { const d = lastDateIn(ev[k]); if (d) return d; }
+  return lastDateIn(ev.dates) || lastDateIn(ev.check) || null;
+}
+function isPastEvent(ev) { const d = eventEndDate(ev); if (!d) return false; const t = new Date(); t.setHours(0, 0, 0, 0); return d < t; }
+function todayFr() { return new Date().toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" }); }
+
 async function callClaude(system, userContent, useSearch = true, maxTokens = 1000, meta = null) {
   async function attempt(withSearch) {
     const body = { model: "claude-sonnet-4-6", max_tokens: maxTokens, system, messages: [{ role: "user", content: userContent }] };
@@ -546,7 +576,7 @@ async function callClaude(system, userContent, useSearch = true, maxTokens = 100
     }
     const data = response ? await response.json() : await runJob(body);
     if (data.error) throw new Error(data.error.message || "erreur API");
-    const text = (data.content || []).filter(b => b.type === "text").map(b => b.text).join("\n").trim();
+    const text = (data.content || []).filter(b => b.type === "text").map(b => b.text).join("\n").replace(/[<(]\/?cite\b[^>]*>/gi, "").trim();
     if (!text) throw new Error("réponse vide du modèle");
     // Garde-fou : un agent qui DOIT chercher sur le web mais n'a fait aucune recherche est un échec, pas un résultat.
     if (withSearch && meta && meta.requireSearch) {
@@ -720,6 +750,7 @@ function RadarComptes() {
   const [eventScanning, setEventScanning] = useState(false);
   const [eventErr, setEventErr] = useState("");
   const [eventFocus, setEventFocus] = useState("");
+  const [showPastEvents, setShowPastEvents] = useState(false);
   const [verifyingEvent, setVerifyingEvent] = useState("");
   const [talents, setTalents] = useState([]);
   const [talentName, setTalentName] = useState("");
@@ -780,7 +811,7 @@ function RadarComptes() {
       await load(KNOWN_KEY, setKnown);
       let legacyCands = [], storedSignals = [];
       await load(CAND_KEY, v => { legacyCands = Array.isArray(v) ? v : []; });
-      await load(EVENTS_KEY, setEvents);
+      await load(EVENTS_KEY, v => setEvents(Array.isArray(v) ? cleanCitesDeep(v) : []));
       await load(TALENTS_KEY, setTalents);
       await load(PLAYBOOK_KEY, setPlaybook);
       await load(NETWORK_KEY, setNetwork);
@@ -1132,7 +1163,7 @@ Réponds UNIQUEMENT avec un tableau JSON valide, sans texte ni Markdown autour :
   function eventsSystemPrompt(excludeList) {
     return `Tu es le stratège marketing / réseautage de Humetria (SaaS B2B, excellence managériale industrielle, ICM® r=0.83, cabinet Kaizen Way, basé à Grenoble / Auvergne-Rhône-Alpes). Eric bootstrappe — il a abandonné la levée de fonds : les événements orientés INVESTISSEURS sont donc à déprioriser ; priment ceux qui mettent des DÉCIDEURS INDUSTRIELS (directeurs industriels, excellence op., DRH industriels, dirigeants d'ETI / groupes) en face de lui.
 
-UTILISE LA RECHERCHE WEB pour trouver 6 concours, salons, prix et événements RÉELS et À VENIR (édition en cours ou prochaine), y compris récents ou régionaux. Attribue un score d'IMPACT 0-100 selon :
+Nous sommes le ${todayFr()}. UTILISE LA RECHERCHE WEB pour trouver 6 concours, salons, prix et événements RÉELS et À VENIR : leur date doit être POSTÉRIEURE à aujourd'hui (prochaine édition si la dernière est passée). N'en propose AUCUN dont la date est déjà passée. Attribue un score d'IMPACT 0-100 selon :
 - Densité de décideurs industriels cibles dans l'audience (facteur n°1).
 - Effet de levier du format : prise de parole ou prix/finaliste > stand > simple présence. Un prix confère une crédibilité tierce précieuse face aux grands comptes.
 - Prestige aligné avec une marque sobre (instances sectorielles, filière industrie, Bercy).
@@ -1143,7 +1174,8 @@ DÉPRIORISER franchement : événements purement startup/investisseurs, salons s
 Si la recherche te donne une date, une édition ou une deadline FIABLE, mets-la dans "check" ; sinon marque « à vérifier ». N'invente jamais de date. Ne propose que des événements réels et vérifiables.${excludeList.length ? "\nÉvite de reproposer : " + excludeList.join(", ") + "." : ""}
 
 Réponds UNIQUEMENT avec un tableau JSON valide (trié par score décroissant), sans texte ni Markdown autour :
-[{"name":"nom réel","type":"Salon|Concours|Prix|Événement","desc":"≤16 mots : ce qu'est l'événement et son envergure","score":<0-100>,"format":"levier visé (stand / speaker / prix / networking)","region":"ville, région, national ou international","why":"≤14 mots : impact/pertinence pour Humetria","check":"date / édition / candidature à vérifier"}]`;
+[{"name":"nom réel","type":"Salon|Concours|Prix|Événement","desc":"≤16 mots : ce qu'est l'événement et son envergure","score":<0-100>,"format":"levier visé (stand / speaker / prix / networking)","region":"ville, région, national ou international","why":"≤14 mots : impact/pertinence pour Humetria","check":"date / édition / candidature à vérifier","date_debut":"AAAA-MM-JJ si connue, sinon ''","date_fin":"AAAA-MM-JJ si connue, sinon ''"}]
+N'utilise aucune balise (pas de <cite>) : du texte brut uniquement.`;
   }
 
   async function runEvents() {
@@ -1153,8 +1185,8 @@ Réponds UNIQUEMENT avec un tableau JSON valide (trié par score décroissant), 
       const exclude = events.map(e => e.name);
       const userMsg = eventFocus.trim() ? `Focus : ${eventFocus.trim()}` : "Sélection générale, priorité AURA et décideurs industriels.";
       const text = await callClaude(eventsSystemPrompt(exclude), userMsg, true);
-      const ranked = parseObjects(text)
-        .filter(e => e && e.name)
+      const ranked = cleanCitesDeep(parseObjects(text))
+        .filter(e => e && e.name && !isPastEvent(e))
         .map(e => ({ ...e, score: clamp(e.score) }))
         .sort((a, b) => b.score - a.score).slice(0, 8);
       // Accumulation : fusion avec les événements déjà trouvés (les vérifiés/enrichis sont préservés).
@@ -1170,7 +1202,7 @@ Réponds UNIQUEMENT avec un tableau JSON valide (trié par score décroissant), 
   function dismissEvent(name) { persistEvents(events.filter(e => e.name !== name)); }
 
   function eventVerifyPrompt() {
-    return `Tu constitues, via la recherche web, un DOSSIER DE DÉCISION détaillé sur un événement / salon / concours / prix, pour un fondateur (Humetria — SaaS d'excellence managériale industrielle, ICM® r=0.83, cabinet Kaizen Way) qui veut décider s'il s'y engage, candidate ou s'inscrit.
+    return `Nous sommes le ${todayFr()}. Tu constitues, via la recherche web, un DOSSIER DE DÉCISION détaillé sur un événement / salon / concours / prix, pour un fondateur (Humetria — SaaS d'excellence managériale industrielle, ICM® r=0.83, cabinet Kaizen Way) qui veut décider s'il s'y engage, candidate ou s'inscrit.
 
 Distingue deux natures d'information :
 1) FAITS DATÉS (dates, lieu, deadline, coût, URL officielle) : renseigne-les UNIQUEMENT si la recherche web les confirme. Sinon chaîne vide "" et explique dans note. Ne devine JAMAIS une date ni une URL ; l'URL doit être réellement présente dans les résultats.
@@ -1179,15 +1211,15 @@ Distingue deux natures d'information :
 Concret attendu : quel profil d'acheteurs est présent (des décideurs industriels cibles, ou surtout des startups/investisseurs ?), quelle catégorie de prix viser, s'il existe un créneau de prise de parole, l'ordre de grandeur du coût d'un stand ou d'une inscription, et l'action à mener.
 
 Réponds UNIQUEMENT en JSON valide, sans texte ni Markdown. Champs FACTUELS courts ; champs de CARACTÉRISATION en 1-2 phrases utiles :
-{"edition":"prochaine édition (année) ou ''","dates":"dates ou ''","location":"ville / lieu ou ''","deadline":"date limite candidature/inscription, 'n/a', ou ''","cost":"ordre de grandeur (stand / entrée / gratuit) ou ''","audience":"profil dominant des participants et présence (ou non) de décideurs industriels cibles","opportunity":"opportunité concrète pour Humetria : catégorie à viser, slot de prise de parole, type de RDV à décrocher","format_leverage":"le meilleur format à jouer ici et pourquoi","url":"URL officielle trouvée dans la recherche ou ''","recommendation":"action recommandée, datée si possible (candidater à X avant Y / assister / passer)","note":"niveau de confiance sur les faits datés / ce qui reste à confirmer"}`;
+{"edition":"prochaine édition (année) ou ''","dates":"dates de la PROCHAINE édition à venir ou ''","date_debut":"AAAA-MM-JJ ou ''","date_fin":"AAAA-MM-JJ ou ''","location":"ville / lieu ou ''","deadline":"date limite candidature/inscription, 'n/a', ou ''","cost":"ordre de grandeur (stand / entrée / gratuit) ou ''","audience":"profil dominant des participants et présence (ou non) de décideurs industriels cibles","opportunity":"opportunité concrète pour Humetria : catégorie à viser, slot de prise de parole, type de RDV à décrocher","format_leverage":"le meilleur format à jouer ici et pourquoi","url":"URL officielle trouvée dans la recherche ou ''","recommendation":"action recommandée, datée si possible (candidater à X avant Y / assister / passer)","note":"niveau de confiance sur les faits datés / ce qui reste à confirmer"}`;
   }
 
   async function verifyEvent(name) {
     if (verifyingEvent) return;
     setVerifyingEvent(name); setEventErr("");
     try {
-      const v = parseObject(await callClaude(eventVerifyPrompt(), `Événement : ${name}`, true));
-      persistEvents(events.map(e => e.name === name ? { ...e, verified: true, edition: v.edition || "", dates: v.dates || "", location: v.location || "", deadline: v.deadline || "", cost: v.cost || "", audience: v.audience || "", opportunity: v.opportunity || "", format_leverage: v.format_leverage || "", url: v.url || "", recommendation: v.recommendation || "", vnote: v.note || "" } : e));
+      const v = cleanCitesDeep(parseObject(await callClaude(eventVerifyPrompt(), `Événement : ${name}`, true)));
+      persistEvents(events.map(e => e.name === name ? { ...e, verified: true, edition: v.edition || "", dates: v.dates || "", date_debut: v.date_debut || "", date_fin: v.date_fin || "", location: v.location || "", deadline: v.deadline || "", cost: v.cost || "", audience: v.audience || "", opportunity: v.opportunity || "", format_leverage: v.format_leverage || "", url: v.url || "", recommendation: v.recommendation || "", vnote: v.note || "" } : e));
     } catch (e) { setEventErr("Vérification de " + name + " impossible — " + (e?.message || "erreur")); }
     finally { setVerifyingEvent(""); }
   }
@@ -1940,12 +1972,17 @@ Signaux : ${(result.signals || []).join(" ; ") || "—"}`;
           </button>
           {eventErr && <p className="hr-err">{eventErr}</p>}
         </div>
-        {events.length > 0 && (
+        {events.length > 0 && (() => {
+          const pastEvents = events.filter(isPastEvent), upcomingEvents = events.filter(e => !isPastEvent(e));
+          const shownEvents = showPastEvents ? upcomingEvents.concat(pastEvents) : upcomingEvents;
+          return (
           <div style={{ marginBottom: 16 }}>
-            {events.map((ev, i) => {
+            {upcomingEvents.length === 0 && <p className="hr-caption" style={{ marginTop: 8 }}>Aucun événement à venir dans la liste — lance une nouvelle chasse.</p>}
+            {shownEvents.map((ev0, i) => {
+              const ev = cleanCitesDeep(ev0), past = isPastEvent(ev0);
               const v = eventVerdict(ev.score);
               return (
-                <div key={ev.name + i} className="hr-cb">
+                <div key={ev.name + i} className="hr-cb" style={past ? { opacity: 0.55 } : undefined}>
                   <div className="hr-cb-head">
                     <span className="hr-cb-rank">{String(i + 1).padStart(2, "0")}</span>
                     <span className="hr-cb-score" style={{ color: v.color }}>{ev.score}</span>
@@ -1953,8 +1990,10 @@ Signaux : ${(result.signals || []).join(" ; ") || "—"}`;
                       <div className="hr-cb-name">{ev.name}</div>
                       <div className="hr-cb-meta">{[ev.type, ev.region, ev.format].filter(Boolean).join(" · ")}</div>
                     </div>
-                    <span className="hr-badge" style={{ color: v.color, background: v.color + "22" }}>{v.label}</span>
-                    <button className="hr-del" onClick={() => dismissEvent(ev.name)} title="Écarter">×</button>
+                    {past
+                      ? <span className="hr-badge" style={{ color: "var(--mute)", background: "rgba(255,255,255,.08)" }}>PASSÉ</span>
+                      : <span className="hr-badge" style={{ color: v.color, background: v.color + "22" }}>{v.label}</span>}
+                    <button className="hr-del" onClick={() => dismissEvent(ev0.name)} title="Écarter">×</button>
                   </div>
                   {ev.desc && <p className="hr-cb-why">{ev.desc}</p>}
                   {ev.why && <p className="hr-cb-persona">Impact : {ev.why}</p>}
@@ -1979,16 +2018,25 @@ Signaux : ${(result.signals || []).join(" ; ") || "—"}`;
                     ev.check && <p className="hr-cb-persona" style={{ color: "var(--amber)" }}>À vérifier : {ev.check}</p>
                   )}
                   <div className="hr-cb-actions">
-                    <button className="hr-mini" onClick={() => verifyEvent(ev.name)} disabled={!!verifyingEvent}>
-                      {verifyingEvent === ev.name ? <><span className="hr-spin" />…</> : (ev.verified ? "Revérifier ▸" : "Vérifier dates & lien ▸")}
+                    <button className="hr-mini" onClick={() => verifyEvent(ev0.name)} disabled={!!verifyingEvent}>
+                      {verifyingEvent === ev0.name ? <><span className="hr-spin" />…</> : (ev.verified ? "Revérifier ▸" : "Vérifier dates & lien ▸")}
                     </button>
                   </div>
                 </div>
               );
             })}
             <p className="hr-caption">Impact = estimation de cadrage. « Vérifier » constitue le dossier : dates, lieu, deadline, coût, audience, opportunité et lien officiel. Les faits datés viennent de la recherche web — jamais inventés ; reconfirme une deadline avant de bloquer ton planning.</p>
+            {pastEvents.length > 0 && (
+              <p className="hr-caption">
+                {pastEvents.length} événement{pastEvents.length > 1 ? "s" : ""} passé{pastEvents.length > 1 ? "s" : ""} {showPastEvents ? "affiché" + (pastEvents.length > 1 ? "s" : "") + " en grisé" : "masqué" + (pastEvents.length > 1 ? "s" : "")} ·{" "}
+                <button className="hr-mini" style={{ background: "transparent", color: "var(--cyan)", padding: "2px 4px" }} onClick={() => setShowPastEvents(!showPastEvents)}>{showPastEvents ? "Masquer" : "Afficher"}</button>
+                {" · "}
+                <button className="hr-mini" style={{ background: "transparent", color: "var(--cyan)", padding: "2px 4px" }} onClick={() => { persistEvents(events.filter(e => !isPastEvent(e))); setShowPastEvents(false); }}>Retirer de la liste</button>
+              </p>
+            )}
           </div>
-        )}
+          );
+        })()}
 
         </>)}
 
