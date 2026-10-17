@@ -629,7 +629,7 @@
 // Réalisation/Synthèse : dictée des échanges -> CR prêt à copier + actions décidées
 // créées dans la feuille Actions (avec n°, pilote, quadrant). CR historisés.
 (function(){
-  var CR_ROOT='view', CR_REFS=null, CR_LIST=[], CR_CUR=null, CR_BUSY=false, CR_MSG='', CR_DEL={}, CR_LOCKOK=false;
+  var CR_ROOT='view', CR_REFS=null, CR_LIST=[], CR_CUR=null, CR_BUSY=false, CR_MSG='', CR_DEL={}, CR_LOCKOK=false, CR_CONFOK=false;
   var CR_REC=null, CR_RECORDING=false, CR_DICT='';
   var CR_EDIT_PREP=false, CR_EDIT_SYNTH=false;
 
@@ -680,18 +680,36 @@
   function crLockDate(c){ try{ var d=new Date(c.verrouille_le); return d.toLocaleDateString('fr-FR')+' à '+d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}); }catch(_){ return ''; } }
   /* CR verrouillé : tout est en lecture seule, sauf quitter, copier, envoyer par mail et (si l'on en a le droit) déverrouiller. La base refuse de toute façon toute modification. */
   function crApplyLock(z){
-    var keep=/^\s*cr(Back|Copy|CopyPrep|Mail|Lock)\(/;
+    var keep=/^\s*cr(Back|Copy|CopyPrep|Mail|Lock|Delete|Confidential)\(/;
     [].slice.call(z.querySelectorAll('input,textarea,select')).forEach(function(el){
       if(el.tagName==='TEXTAREA'||(el.tagName==='INPUT'&&(el.type==='text'||el.type==='date'))) el.readOnly=true; else el.disabled=true;   // lecture seule : le texte reste sélectionnable et copiable
     });
     [].slice.call(z.querySelectorAll('button')).forEach(function(b){ if(!keep.test(b.getAttribute('onclick')||'')) b.style.display='none'; });
   }
+  /* ---------- Confidentialité : visible seulement par l'émetteur, les personnes cochées, la direction (et l'animateur de l'AIC) ---------- */
+  function crCanConf(c){ return !!(CR_CONFOK && CR_ROOT!=='obxCR' && c && c.id && (crIsMine(c) || crIsDirection())); }
+  function crConfBtn(d){ if(!crCanConf(d)) return ''; return d.confidentiel
+      ? '<button class="add-btn sm" onclick="crConfidential(false)" type="button" title="Retirer la confidentialité : le compte-rendu redevient visible par tous ceux qui y avaient accès" style="background:#fff;color:#8a1f14;border:1px solid #8a1f14;">🔓 Retirer la confidentialité</button>'
+      : '<button class="add-btn sm" onclick="crConfidential(true)" type="button" title="Rendre confidentiel : visible seulement par vous, les personnes cochées et la direction" style="background:#fff;color:#8a1f14;border:1px solid #8a1f14;">🔐 Rendre confidentiel</button>'; }
+  function crConfBar(d){ if(!(CR_CONFOK&&d&&d.id&&d.confidentiel)) return ''; return '<div class="crConfBar" role="status" style="background:#fdf1ef;border:1px solid rgba(138,31,20,.3);border-left:5px solid #8a1f14;border-radius:8px;padding:9px 12px;margin-bottom:8px;font-size:12.5px;color:#8a1f14;">🔐 <b>Compte-rendu confidentiel</b> : visible seulement par son auteur, les personnes cochées ci-dessous (participants, autorisés), la direction et l\u2019animateur. Les membres de l\u2019AIC et le PMO n\u2019y ont pas accès.</div>'; }
+  window.crConfidential=async function(on){
+    if(CR_BUSY||!CR_CUR||!CR_CUR.id) return;
+    var yes=await kwAsk({ title:on?'Rendre ce compte-rendu confidentiel':'Retirer la confidentialité',
+      message:on?'Rendre ce compte-rendu confidentiel ?\n\nIl ne sera plus visible que par vous, les personnes cochées (participants, autorisés), la direction et l\u2019animateur. Les membres de l\u2019AIC et le PMO n\u2019y auront plus accès.'
+               :'Retirer la confidentialité ?\n\nLe compte-rendu redevient visible par tous ceux qui y avaient accès avant (membres de l\u2019AIC, etc.).',
+      confirmLabel:on?'Rendre confidentiel':'Retirer', danger:false });
+    if(!yes) return;
+    CR_BUSY=true; var r; try{ r=await SB.rpc('cr_confidentialiser',{p_id:CR_CUR.id,p_on:!!on}); }catch(err){ r={error:err}; }
+    CR_BUSY=false;
+    if(!r||r.error){ CR_MSG='Confidentialité impossible : '+((r&&r.error&&r.error.message)||'erreur inconnue'); crRepaint(); return; }
+    await crRefreshCur(); CR_MSG=(on?'🔐 CR #':'🔓 CR #')+(CR_CUR.numero||'')+(on?' confidentiel.':' : confidentialité retirée.'); try{ await crLoadList(); }catch(_){} crRepaint();
+  };
   function crLockBar(d){
     if(!(CR_LOCKOK&&d&&d.id&&crIsLocked(d))) return '';
-    return '<div class="crLockBar" role="status" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#f3ede1;border:1px solid rgba(86,10,15,.25);border-left:5px solid #560A0F;border-radius:8px;padding:9px 12px;margin-bottom:8px;font-size:12.5px;color:#560A0F;"><span>🔒 <b>Compte-rendu verrouillé</b> par '+e(crLockWho(d))+' le '+e(crLockDate(d))+' : son contenu ne peut plus être modifié ni supprimé.</span>'
+    return '<div class="crLockBar" role="status" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#f3ede1;border:1px solid rgba(86,10,15,.25);border-left:5px solid #560A0F;border-radius:8px;padding:9px 12px;margin-bottom:8px;font-size:12.5px;color:#560A0F;"><span>🔒 <b>Compte-rendu verrouillé</b> par '+e(crLockWho(d))+' le '+e(crLockDate(d))+' : son contenu ne peut plus être modifié (seul son animateur peut encore le supprimer).</span>'
       +((CR_ROOT!=='obxCR'&&crCanUnlock(d))?'<button class="add-btn sm" onclick="crLock(false)" type="button" style="margin-left:auto;background:#fff;color:#560A0F;border:1px solid #560A0F;">🔓 Déverrouiller</button>':'')+'</div>';
   }
-  function crSaveLockBtn(d){ return (CR_LOCKOK&&CR_ROOT!=='obxCR'&&!crIsLocked(d)&&(!d.id||crCanLock(d)))?'<button class="add-btn" onclick="crSaveLock()" type="button" title="Enregistre puis verrouille : plus personne ne pourra modifier ce CR sans le déverrouiller" style="background:#fff;color:#560A0F;border:1px solid #560A0F;">🔒 Enregistrer et verrouiller</button>':''; }
+  function crSaveLockBtn(d){ return (CR_LOCKOK&&CR_ROOT!=='obxCR'&&!crIsLocked(d)&&(!d.id||crCanLock(d)))?'<button class="add-btn" onclick="crSaveLock()" type="button" title="Enregistre puis verrouille : plus personne ne pourra modifier ce CR sans le déverrouiller (seul son animateur pourra encore le supprimer)" style="background:#fff;color:#560A0F;border:1px solid #560A0F;">🔒 Enregistrer et verrouiller</button>':''; }
   function crLockName(uid){ if(!uid) return ''; var p=((CR_REFS&&CR_REFS.pilotes)||[]).find(function(x){return x.user_id===uid;}); return p?p.nom:'un autre utilisateur'; }
   function crLockFresh(c){ if(!c||!c.transcription_par||!c.transcription_le) return false; var age=Date.now()-new Date(c.transcription_le).getTime(); return age>=0 && age<CR_LOCK_TTL; }
   function crLockActiveOther(c){ return crLockFresh(c) && c.transcription_par!==crUid(); }
@@ -708,7 +726,9 @@
   }
   async function crLoadList(){
     var base='id,numero,titre,date_reunion,interlocuteur_id,statut,created_at,transcription_par,transcription_le';
-    var q=await SB.from('comptes_rendus').select(base+',auteur_id,verrouille_le,verrouille_par').order('numero',{ascending:false});
+    var q=await SB.from('comptes_rendus').select(base+',auteur_id,verrouille_le,verrouille_par,confidentiel').order('numero',{ascending:false});
+    CR_CONFOK=true;
+    if(q&&q.error){ CR_CONFOK=false; q=await SB.from('comptes_rendus').select(base+',auteur_id,verrouille_le,verrouille_par').order('numero',{ascending:false}); }   // confidentialité pas encore installée en base
     if(q&&q.error){ CR_LOCKOK=false; q=await SB.from('comptes_rendus').select(base).order('numero',{ascending:false}); }   // verrou pas encore installé en base : liste d'avant
     else { CR_LOCKOK=true; }
     CR_LIST=(q&&q.data)?q.data:[];
@@ -774,8 +794,8 @@
       var st=c.statut==='cloture'?'clôturé':(c.statut==='tenue'?'tenue':'préparation');
       return '<div data-crrow="1" data-st="'+e(c.statut||'prepa')+'" data-mine="'+((c.auteur_id&&c.auteur_id===crMeId())?'1':'0')+'" data-q="'+e(('cr #'+(c.numero||'')+' '+(c.titre||'')+' '+(c.interlocuteur_id?piloteNom(c.interlocuteur_id):'')+' '+(c.date_reunion||'')+' '+crFmtDate(c.date_reunion)).toLowerCase())+'" onclick="if(!event.target.closest(\'button\'))crOpen(\''+c.id+'\')" onmouseover="this.style.background=\'rgba(86,10,15,.04)\'" onmouseout="this.style.background=\'\'" style="cursor:pointer;display:flex;gap:10px;align-items:center;padding:9px 6px;border-bottom:1px solid rgba(86,10,15,.10);">'
         +'<div style="flex:1;min-width:0;"><span style="font-size:11px;color:var(--muted);">CR #'+(c.numero||'?')+'</span> <span style="font-size:13px;font-weight:600;color:#560A0F;">'+e(c.titre||'(sans titre)')+'</span>'
-        +'<div class="edit-hint" style="margin-top:2px;">'+crFmtDate(c.date_reunion)+(c.interlocuteur_id?(' · '+e(piloteNom(c.interlocuteur_id))):'')+' · '+crPill(c.statut)+((CR_LOCKOK&&crIsLocked(c))?' · <span style="color:#560A0F;font-weight:700;" title="Verrouillé par son auteur : contenu non modifiable">🔒 verrouillé</span>':'')+(crLockFresh(c)?(' · <span style="color:#c0392b;font-weight:700;">🔴 transcription en cours'+(crLockName(c.transcription_par)?(' ('+e(crLockName(c.transcription_par))+')'):'')+'</span>'):'')+'</div></div>'
-        +((CR_DEL[String(c.id)]&&!crIsLocked(c))?'<button class="add-btn sm" onclick="crDelete(\''+c.id+'\')" type="button" title="Supprimer ce compte-rendu (réservé à l\u2019animateur)" aria-label="Supprimer ce compte-rendu" style="flex:0 0 auto;background:#fff;color:#c0392b;border:1px solid #c0392b;">\ud83d\uddd1 Supprimer</button>':'')
+        +'<div class="edit-hint" style="margin-top:2px;">'+crFmtDate(c.date_reunion)+(c.interlocuteur_id?(' · '+e(piloteNom(c.interlocuteur_id))):'')+' · '+crPill(c.statut)+((CR_LOCKOK&&crIsLocked(c))?' · <span style="color:#560A0F;font-weight:700;" title="Verrouillé par son auteur : contenu non modifiable">🔒 verrouillé</span>':'')+(c.confidentiel?' · <span style="color:#8a1f14;font-weight:700;" title="Confidentiel : visible seulement par son auteur, les personnes cochées et la direction">🔐 confidentiel</span>':'')+(crLockFresh(c)?(' · <span style="color:#c0392b;font-weight:700;">🔴 transcription en cours'+(crLockName(c.transcription_par)?(' ('+e(crLockName(c.transcription_par))+')'):'')+'</span>'):'')+'</div></div>'
+        +(CR_DEL[String(c.id)]?'<button class="add-btn sm" onclick="crDelete(\''+c.id+'\')" type="button" title="Supprimer ce compte-rendu (réservé à l\u2019animateur)" aria-label="Supprimer ce compte-rendu" style="flex:0 0 auto;background:#fff;color:#c0392b;border:1px solid #c0392b;">\ud83d\uddd1 Supprimer</button>':'')
         +'<button class="add-btn sm" onclick="crOpen(\''+c.id+'\')" type="button" style="flex:0 0 auto;">Ouvrir</button>'
         +'</div>';
     }).join('');
@@ -857,9 +877,9 @@
     if(d.actions_numeros&&d.actions_numeros.length){ actionsBloc='<div class="edit-hint" style="margin-top:6px;">Actions créées dans la feuille Actions : '+d.actions_numeros.map(function(n){return '#'+n;}).join(', ')+'</div>'; }
     return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><button class="add-btn sm" onclick="crBack()" type="button" style="background:#fff;color:#560A0F;">← Liste</button>'
       +'<div class="sec-title" style="margin:0;">'+(d.id?('CR #'+(d.numero||'')):'Nouveau compte-rendu')+'</div>'
-      +'<span style="margin-left:auto;display:inline-flex;gap:8px;flex-wrap:wrap;">'+((CR_ROOT!=='obxCR'&&crCanLock(d))?'<button class="add-btn sm" onclick="crLock(true)" type="button" title="Verrouiller ce compte-rendu : plus personne ne pourra le modifier ni le supprimer sans le déverrouiller" style="background:#fff;color:#560A0F;border:1px solid #560A0F;">🔒 Verrouiller</button>':'')+((d.id&&CR_DEL[String(d.id)]&&CR_ROOT!=='obxCR'&&!crIsLocked(d))?'<button class="add-btn sm" onclick="crDelete(\''+d.id+'\')" type="button" title="Supprimer ce compte-rendu (réservé à l\u2019animateur)" style="background:#fff;color:#c0392b;border:1px solid #c0392b;">\ud83d\uddd1 Supprimer ce CR</button>':'')+'</span></div>'
+      +'<span style="margin-left:auto;display:inline-flex;gap:8px;flex-wrap:wrap;">'+((CR_ROOT!=='obxCR'&&crCanLock(d))?'<button class="add-btn sm" onclick="crLock(true)" type="button" title="Verrouiller ce compte-rendu : plus personne ne pourra le modifier sans le déverrouiller (seul son animateur pourra encore le supprimer)" style="background:#fff;color:#560A0F;border:1px solid #560A0F;">🔒 Verrouiller</button>':'')+((d.id&&CR_DEL[String(d.id)]&&CR_ROOT!=='obxCR')?'<button class="add-btn sm" onclick="crDelete(\''+d.id+'\')" type="button" title="Supprimer ce compte-rendu (réservé à l\u2019animateur)" style="background:#fff;color:#c0392b;border:1px solid #c0392b;">\ud83d\uddd1 Supprimer ce CR</button>':'')+crConfBtn(d)+'</span></div>'
       +(CR_MSG?'<div class="edit-hint" style="color:var(--signal);margin-bottom:8px;">'+e(CR_MSG)+'</div>':'')
-      +crLockBar(d)
+      +crLockBar(d)+crConfBar(d)
       // en-tête
       +'<div class="panel" style="padding:12px 16px;"><div style="display:flex;gap:10px;flex-wrap:wrap;">'
       +'<label style="flex:2;min-width:200px;font-size:11px;color:var(--muted);">Titre / objet<div style="margin-top:2px;"><input id="crTitre" type="text" value="'+e(d.titre||'')+'" style="'+sel()+'"></div></label>'
@@ -1067,17 +1087,26 @@
   /* Verrouiller / déverrouiller (fonction de la base cr_verrouiller : seul l'auteur ; la direction pour déverrouiller ou pour un CR sans auteur enregistré).
      Les modifications en cours sont enregistrées AVANT de verrouiller : rien n'est perdu. */
   async function crLockFlow(on, saveFirst){
-    if(CR_BUSY||!CR_CUR) return;
+    if(CR_BUSY||!CR_CUR) return; var wantConf=false;
     if(CR_RECORDING){ try{ crStopAll(''); }catch(_){} }
     if(on){
-      if(!(await kwAsk({ title:'Verrouiller ce compte-rendu', message:(saveFirst?'Enregistrer puis verrouiller':'Verrouiller')+' ce compte-rendu ?\n\nPlus personne, vous compris, ne pourra modifier son contenu ni le supprimer tant que vous ne l\u2019aurez pas déverrouillé. Les actions déjà créées ne sont pas touchées.'+(saveFirst?'':'\n\nVos modifications en cours sont enregistrées d\u2019abord.'), confirmLabel:'Verrouiller' }))) return;
+      var LMSG=(saveFirst?'Enregistrer puis verrouiller':'Verrouiller')+' ce compte-rendu ?\n\nPlus personne, vous compris, ne pourra modifier son contenu tant que vous ne l\u2019aurez pas déverrouillé. Seul l\u2019animateur de la réunion pourra encore le supprimer. Les actions déjà créées ne sont pas touchées.'+(saveFirst?'':'\n\nVos modifications en cours sont enregistrées d\u2019abord.');
+      if(typeof window.kwDialog==='function'){
+        var LR=await window.kwDialog({ title:'Verrouiller ce compte-rendu', message:LMSG, fields:CR_CONFOK?[{ name:'conf', type:'checkbox', value:true, label:'Le rendre aussi confidentiel : visible seulement par vous, les personnes cochées et la direction' }]:[], confirmLabel:'Verrouiller' });
+        if(!LR) return; wantConf=!!(LR&&LR.conf);
+      } else {
+        if(!(await kwAsk({ title:'Verrouiller ce compte-rendu', message:LMSG, confirmLabel:'Verrouiller' }))) return;
+        if(CR_CONFOK) wantConf=await kwAsk({ title:'Confidentialité', message:'Rendre aussi ce compte-rendu confidentiel ?\n\nIl ne sera visible que par vous, les personnes cochées et la direction.', confirmLabel:'Confidentiel' });
+      }
       crReadHeader(); CR_BUSY=true;
       try{ await crSaveSilent(); }catch(err){ CR_BUSY=false; CR_MSG='Enregistrement refusé : '+(err.message||err)+' \u2014 le compte-rendu n\u2019a pas été verrouillé.'; crRepaint(); alert(CR_MSG); return; }
     } else {
-      if(!(await kwAsk({ title:'Déverrouiller ce compte-rendu', message:'Déverrouiller ce compte-rendu ?\n\nIl redeviendra modifiable (et supprimable par son animateur).', confirmLabel:'Déverrouiller' }))) return;
+      if(!(await kwAsk({ title:'Déverrouiller ce compte-rendu', message:'Déverrouiller ce compte-rendu ?\n\nIl redeviendra modifiable.', confirmLabel:'Déverrouiller' }))) return;
       CR_BUSY=true;
     }
-    var r; try{ r=await SB.rpc('cr_verrouiller',{p_id:CR_CUR.id,p_verrouiller:!!on}); }catch(err){ r={error:err}; }
+    var r, LA={p_id:CR_CUR.id,p_verrouiller:!!on}; if(on&&CR_CONFOK) LA.p_confidentiel=!!wantConf;
+    try{ r=await SB.rpc('cr_verrouiller',LA); }catch(err){ r={error:err}; }
+    if(r&&r.error&&('p_confidentiel' in LA)&&/p_confidentiel|Could not find the function/i.test(r.error.message||'')){ delete LA.p_confidentiel; try{ r=await SB.rpc('cr_verrouiller',LA); }catch(err){ r={error:err}; } }   /* SQL de confidentialité pas encore exécuté : verrou seul, comme avant */
     CR_BUSY=false;
     if(!r||r.error){
       CR_MSG=(on?'Verrouillage':'Déverrouillage')+' impossible : '+((r&&r.error&&r.error.message)||'erreur inconnue')+((on&&saveFirst)?' (le compte-rendu est enregistré)':'');
@@ -1091,9 +1120,8 @@
   window.crDelete=async function(id){
     id=String(id);
     var c=(CR_LIST||[]).filter(function(x){return String(x.id)===id;})[0]||((CR_CUR&&String(CR_CUR.id)===id)?CR_CUR:null)||{};
-    if(crIsLocked(c)){ CR_MSG='Suppression impossible : ce compte-rendu est verrouillé par son auteur.'; crRepaint(); return; }
     var nA=(c.actions_numeros&&c.actions_numeros.length)||0;
-    if(!(await kwAsk({ title:'Supprimer ce compte-rendu', message:'Supprimer définitivement le CR #'+(c.numero||'?')+(c.titre?(' \u00ab '+c.titre+' \u00bb'):'')+' ?\n\nSa préparation, sa transcription et son compte-rendu seront supprimés. Une copie reste 30 jours à la disposition d\u2019un administrateur.'+(nA?('\n\nLes '+nA+' action(s) déjà créée(s) dans la feuille Actions sont CONSERVÉES.'):''), confirmLabel:'Supprimer', danger:true }))) return;
+    if(!(await kwAsk({ title:'Supprimer ce compte-rendu', message:'Supprimer définitivement le CR #'+(c.numero||'?')+(c.titre?(' \u00ab '+c.titre+' \u00bb'):'')+' ?\n\nSa préparation, sa transcription et son compte-rendu seront supprimés. Une copie reste 30 jours à la disposition d\u2019un administrateur.'+(crIsLocked(c)?'\n\n\ud83d\udd12 Ce compte-rendu est verrouillé : en tant qu\u2019animateur de la réunion, vous pouvez le supprimer malgré le verrou.':'')+(nA?('\n\nLes '+nA+' action(s) déjà créée(s) dans la feuille Actions sont CONSERVÉES.'):''), confirmLabel:'Supprimer', danger:true }))) return;
     if(CR_BUSY) return; CR_BUSY=true;
     var wasOpen=!!(CR_CUR&&String(CR_CUR.id)===id);
     if(wasOpen&&CR_RECORDING){ try{ crStopAll(''); }catch(_){} }
