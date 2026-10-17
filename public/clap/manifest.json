@@ -1,0 +1,17 @@
+{
+  "name": "Clap! — Kaizen Way",
+  "short_name": "Clap!",
+  "description": "Réunions, actions et AIC — Kaizen Way",
+  "id": "/clap/",
+  "start_url": "/clap/",
+  "scope": "/clap/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#560a0f",
+  "theme_color": "#560a0f",
+  "icons": [
+    { "src": "/clap/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/clap/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/clap/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
