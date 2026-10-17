@@ -274,22 +274,189 @@
     }, function(err){
       if (tok !== WK.tok) return; var m = (err && err.message) || String(err); WK.by = null;
       WK.err = (missing(m) ? 'Vue par semaine indisponible : exécutez d\u2019abord aic_pmo_niveaux.sql.' : 'Vue par semaine indisponible : ' + m);
-    }).then(function(){ if (tok === WK.tok && !X.open && !X.session && document.getElementById('aicx_wklabel')) aicxList(); });
+    }).then(function(){ if (tok === WK.tok && !X.open && !X.session && document.getElementById('aicx_wklabel') && (MUR.vue !== 'mur' || MUR.key)) aicxList(); });
   }
-  function wkGo(lundi){ WK.lundi = lundi; WK.by = null; WK.err = ''; WK.reqFor = ''; WK.tok++; if (!X.open && !X.session) aicxList(); }
+  function wkGo(lundi){ WK.lundi = lundi; WK.by = null; WK.err = ''; WK.reqFor = ''; WK.tok++; if (!X.open && !X.session) aicxList(); }   /* le mur recharge ses 8 semaines (clé = semaine) */
   window.aicxWeek = function(d){ wkGo(addDays(WK.lundi || mondayIso(todayIso()), 7 * d)); };
   window.aicxWeekToday = function(){ wkGo(mondayIso(todayIso())); };
   window.aicxWeekPick = function(v){ if (/^\d{4}-\d{2}-\d{2}$/.test(v || '')) wkGo(mondayIso(v)); };
   window.aicxOpenCr = function(crId){ if (typeof window.clapOpenCR === 'function') window.clapOpenCR(crId); return false; };
 
   function aicxList(){
+    if (MUR.vue === 'mur') return aicxMur();
     var ms = X.missions.filter(visibleArch);
-    var h = head() + weekBar();
+    var h = head() + vueSwitch() + weekBar();
     h += '<label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;margin-top:12px;"><input type="checkbox" ' + (X.showArch ? 'checked ' : '') + 'onchange="aicxToggleArch(this.checked)" style="width:auto;margin:0;">Afficher les archives</label>';
     h += ms.length ? ms.map(function(m){ return missionBlock(m, false); }).join('') : '<div class="panel" style="padding:14px 16px;margin-top:12px;">' + (X.ceo ? 'Aucune mission. Créez-en une dans Admin › Structures AIC.' : 'Vous n\u2019êtes membre d\u2019aucun espace AIC actif.') + '</div>';
     view().innerHTML = h;
     aicxWeekEnsure();
   }
+
+  /* ---------- Mur de performance (v6) : écran d'accueil de la feuille AIC ----------
+     Une ligne par espace (cascade AIC 1 → 2 → 3), une colonne par lettre ACTIVE du référentiel (Admin › Référentiel AIC : code, libellé,
+     couleur, niveaux). Chaque lettre : les 8 semaines finissant à la semaine choisie, la plus récente plus grande ; couleur d'une semaine =
+     la PIRE situation des relevés de la semaine dans l'espace et ses descendants (même règle que le tableau de bord). Rituel : vue par semaine
+     (aic_semaine). « Rouges sans réponse » : relevés rouges des 4 dernières semaines sans action ni remontée (aic_reponses.sql). */
+  var MUR = { vue:(function(){ try { return localStorage.getItem('aicxVue') || 'mur'; } catch(_){ return 'mur'; } })(), sort:'hier', key:'', ref:null, st:[], sj:[], err:'', repOk:true, sjOk:true, loading:false, tok:0 };
+  window.aicxVue = function(v){ MUR.vue = v === 'structure' ? 'structure' : 'mur'; try { localStorage.setItem('aicxVue', MUR.vue); } catch(_){} aicxList(); };
+  window.aicxMurSort = function(v){ MUR.sort = v === 'rouge' ? 'rouge' : 'hier'; aicxList(); };
+  function vueSwitch(){
+    function b(v, l){ var on = MUR.vue === v; return '<button type="button" aria-pressed="' + on + '" onclick="aicxVue(\'' + v + '\')" style="font:600 13px system-ui,sans-serif;padding:7px 14px;min-height:36px;border-radius:999px;cursor:pointer;border:1px solid ' + (on ? '#560A0F' : 'rgba(86,10,15,.3)') + ';background:' + (on ? '#560A0F' : '#fff') + ';color:' + (on ? '#fff' : '#560A0F') + ';">' + l + '</button>'; }
+    return '<div role="group" aria-label="Affichage" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;">' + b('mur', 'Mur de performance') + b('structure', 'Espaces par mission') + '</div>';
+  }
+  function murWeeks(){ var l = WK.lundi || mondayIso(todayIso()), out = []; for (var i = 7; i >= 0; i--) out.push(addDays(l, -7 * i)); return out; }
+  function murThems(){ return (MUR.ref || []).filter(function(t){ return t.actif; }); }
+  function murThemOk(t, e){ return (t.niveaux || []).indexOf(e.niveau) >= 0; }
+  function murLoad(){
+    var weeks = murWeeks(), ids = X.espaces.map(function(e){ return e.id; }), key = weeks[0] + '|' + ids.join(',');
+    if (MUR.key === key || MUR.loading || !db()) return;
+    MUR.loading = true; var tok = ++MUR.tok, from = weeks[0], to = addDays(weeks[7], 6), sjFrom = addDays(todayIso(), -120);
+    (async function(){
+      var ref = null, st = [], sj = [], err = '', repOk = true, sjOk = true;
+      try { var a = await db().from('aic_thematiques').select('*').order('ordre', { ascending:true }); if (a.error) throw a.error; ref = a.data || []; } catch(e1){ err = 'Référentiel AIC indisponible : ' + ((e1 && e1.message) || e1); }
+      if (ids.length){
+        try { st = await pageAll(function(){ return db().from('aic_statuts').select('id,espace_id,thematique_id,jour,statut,commentaire,reponse,reponse_ref').in('espace_id', ids).gte('jour', from).lte('jour', to).order('jour', { ascending:false }).order('id'); }); }
+        catch(e2){ repOk = false; try { st = await pageAll(function(){ return db().from('aic_statuts').select('id,espace_id,thematique_id,jour,statut,commentaire').in('espace_id', ids).gte('jour', from).lte('jour', to).order('jour', { ascending:false }).order('id'); }); } catch(e3){ err = err || ('Relevés indisponibles : ' + ((e3 && e3.message) || e3)); } }
+        try { var s = await db().from('aic_sujets').select('id,espace_id,thematique_id,statut,created_at').in('espace_id', ids).eq('statut', 'ouvert').is('archived_at', null).gte('created_at', sjFrom); if (s.error) throw s.error; sj = s.data || []; } catch(_){ sjOk = false; }
+      }
+      if (tok !== MUR.tok) return;
+      MUR.ref = ref; MUR.st = st; MUR.sj = sj; MUR.err = err; MUR.repOk = repOk; MUR.sjOk = sjOk; MUR.key = key; MUR.loading = false;
+      if (!X.open && !X.session && MUR.vue === 'mur' && document.getElementById('aicx_mur')) aicxList();
+    })().catch(function(e){ if (tok === MUR.tok){ MUR.loading = false; MUR.err = (e && e.message) || String(e); MUR.key = key; } });
+  }
+  function murTree(m){
+    var out = [], all = X.espaces.filter(function(e){ return e.mission_id === m.id && visibleArch(e); });
+    (function walk(parent, depth){ all.filter(function(e){ return (e.parent_id || null) === parent; }).sort(function(a, b){ return a.niveau - b.niveau || String(a.libelle).localeCompare(String(b.libelle), 'fr'); }).forEach(function(e){ out.push({ e:e, depth:depth }); walk(e.id, depth + 1); }); })(null, 0);
+    all.forEach(function(e){ if (!out.some(function(x){ return x.e.id === e.id; })) out.push({ e:e, depth:e.niveau - 1 }); });   /* parent invisible pour cette personne : rangé à son niveau */
+    return out;
+  }
+  function murRow(e, depth, thems, IX, weeks){
+    var ids = scope(e).map(function(x){ return x.id; }), cur = weeks[7], red = 0, cells, tot4 = 0, ver4 = 0, totP = 0, verP = 0;
+    function wkSt(th, l){ var worst = 0; for (var d = 0; d < 7; d++){ var j = addDays(l, d); ids.forEach(function(id){ var s = IX[id + '|' + th.id + '|' + j]; if (s && RANK[s.statut] > worst) worst = RANK[s.statut]; }); } return worst ? BYRANK[worst] : null; }
+    cells = thems.map(function(t){
+      if (!murThemOk(t, e)) return '<div role="cell" class="sub-cell" title="Lettre non suivie au niveau ' + e.niveau + ' (Admin › Référentiel AIC)">—</div>';
+      var nr = 0, sq = weeks.map(function(l, i){
+        var s = wkSt(t, l), big = i === 7, sz = big ? 18 : 12; if (s === 'rouge') nr++;
+        if (i >= 4 && s){ tot4++; if (s === 'vert') ver4++; } if (i < 4 && s){ totP++; if (s === 'vert') verP++; }
+        if (big && s === 'rouge') red++;
+        return '<span title="' + esc(t.code + ' · semaine ' + isoWeek(l) + ' : ' + (s ? SC[s].l : 'pas de relevé')) + '" style="display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;width:' + sz + 'px;height:' + sz + 'px;border-radius:3px;background:' + (s ? SC[s].c : '#ece7e1') + ';' + (s ? '' : 'border:1px solid #d8cfc6;') + '">' + (s === 'rouge' ? '<span style="width:4px;height:4px;border-radius:50%;background:#fff;"></span>' : '') + '</span>';
+      }).join('');
+      return '<div role="cell"><button type="button" class="aicx-murcell" onclick="aicxOpen(\'' + e.id + '\',\'' + t.id + '\')" aria-label="' + esc(e.libelle + ', lettre ' + t.code + ' : ' + nr + ' semaine(s) rouge(s) sur 8 — ouvrir') + '" style="display:flex;align-items:flex-end;gap:3px;background:none;border:0;padding:4px;margin:-4px;cursor:pointer;border-radius:6px;">' + sq + '</button></div>';
+    }).join('');
+    var pct = tot4 ? Math.round(100 * ver4 / tot4) : null, prev = totP ? Math.round(100 * verP / totP) : null, d = (pct != null && prev != null) ? pct - prev : null;
+    var lim = addDays(cur, -21), sr = 0;
+    if (MUR.repOk) MUR.st.forEach(function(s){ if (s.statut === 'rouge' && !s.reponse && s.jour >= lim && ids.indexOf(s.espace_id) >= 0) sr++; });
+    var sjAll = MUR.sj.filter(function(s){ return ids.indexOf(s.espace_id) >= 0; }), sjLate = sjAll.filter(function(s){ return (Date.now() - new Date(s.created_at).getTime()) > 48 * 3600000; }).length;
+    var w = wkInfo(e), ws = w ? w.statut : null;
+    var rit = ws ? '<span style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;" title="' + esc(WKL[ws] || '') + '"><span style="width:12px;height:12px;border-radius:50%;background:' + (WKC[ws] || WKC.gris) + ';flex:0 0 auto;"></span>' + esc({ vert:'Tenue', orange:'Tenue, prépa. partielle', rouge:'Non tenue', gris:'À venir' }[ws] || '') + '</span>' : '<span class="sub-cell">—</span>';
+    var html = '<div role="row" class="aicx-murrow" style="grid-template-columns:' + murCols(thems) + ';">'
+      + '<div role="cell" style="display:flex;align-items:center;gap:8px;padding-left:' + (depth * 20) + 'px;min-width:0;"><span class="pill" style="background:#560A0F;color:#fff;white-space:nowrap;">AIC ' + e.niveau + '</span><div style="min-width:0;"><b style="font-size:13.5px;">' + esc(e.libelle) + '</b><div class="sub-cell">' + esc(NIV_LBL[e.niveau].replace(/^AIC \d · /, '')) + ' · ' + membresDe(e.id).length + ' membre(s)' + (e.archived_at ? ' · archivé' : '') + '</div></div></div>'
+      + '<div role="cell">' + rit + '</div>' + cells
+      + '<div role="cell" style="white-space:nowrap;">' + (pct == null ? '<span class="sub-cell">—</span>' : '<b style="font-size:17px;color:' + (pct >= 80 ? '#2e7d46' : (pct >= 60 ? '#1a1416' : '#c0392b')) + ';">' + pct + ' %</b>' + (d == null ? '' : ' <span style="font-size:12.5px;color:' + (d >= 0 ? '#2e7d46' : '#c0392b') + ';">' + (d > 0 ? '↗ +' + d : (d < 0 ? '↘ ' + d : '→ 0')) + '</span>')) + '</div>'
+      + '<div role="cell">' + (MUR.repOk ? '<span style="display:inline-block;min-width:26px;text-align:center;font-weight:700;border-radius:999px;padding:2px 9px;' + (sr ? 'background:#c0392b;color:#fff;' : 'background:#e6f2e9;color:#2e7d46;') + '">' + sr + '</span>' : '<span class="sub-cell" title="Exécutez aic_reponses.sql">—</span>') + '</div>'
+      + '<div role="cell" style="font-size:13px;">' + (MUR.sjOk ? '<b>' + sjAll.length + '</b>' + (sjLate ? ' <span style="color:#c0392b;font-weight:700;">· ' + sjLate + ' &gt; 48 h</span>' : '') : '<span class="sub-cell">—</span>') + '</div>'
+      + '<div role="cell" style="text-align:right;"><button type="button" class="add-btn sm" onclick="aicxOpen(\'' + e.id + '\')" aria-label="Ouvrir ' + esc(e.libelle) + '">Ouvrir</button></div></div>';
+    return { html:html, red:red, sr:sr, order:0, leaf:e.niveau === 3, pct4:[ver4, tot4], sjLate:sjLate, rit:ws };
+  }
+  function murCols(thems){ return 'minmax(200px,1.5fr) minmax(104px,.8fr) ' + thems.map(function(){ return 'minmax(128px,1fr)'; }).join(' ') + ' 92px 92px 104px 76px'; }
+  function murMin(thems){ return 200 + 104 + thems.length * 128 + 92 + 92 + 104 + 76 + (thems.length + 6) * 8 + 32; }
+  function murHead(){ return '<div class="sec-eyebrow">AIC</div><div class="sec-title">Mur de performance</div><div class="sec-note">Toutes les AIC que vous voyez, lettre par lettre, sur 8 semaines. Un rouge appelle une réponse : une action ou une remontée.' + (X.pmo ? ' En tant que PMO, vous voyez toutes les AIC.' : '') + '</div>'; }
+  function aicxMur(){
+    aicxCss(); murLoad();
+    var h = murHead() + vueSwitch() + weekBar();
+    view().style.minWidth = '0';
+    if (!MUR.key){ view().innerHTML = h + '<div id="aicx_mur" class="panel" style="padding:14px 16px;margin-top:12px;">Chargement du mur de performance…</div>'; aicxWeekEnsure(); return; }
+    var thems = murThems(), weeks = murWeeks(), IX = {};
+    MUR.st.forEach(function(s){ IX[s.espace_id + '|' + s.thematique_id + '|' + s.jour] = s; });
+    h += '<div id="aicx_mur">';
+    if (MUR.err) h += '<div class="panel" style="padding:10px 14px;color:var(--signal);margin-top:10px;">' + esc(MUR.err) + '</div>';
+    if (!thems.length) h += '<div class="panel" style="padding:14px 16px;margin-top:12px;">Aucune lettre active dans Admin › Référentiel AIC.</div>';
+    var ms = X.missions.filter(visibleArch), K = { red:0, sr:0, late:0, v:0, t:0, tenu:0, nb:0 };
+    var blocks = ms.map(function(m){
+      var rows = murTree(m).map(function(x, i){ var r = murRow(x.e, x.depth, thems, IX, weeks); r.order = i; return r; });
+      if (!rows.length) return '';
+      rows.forEach(function(r){ if (r.leaf){ K.red += r.red; K.sr += r.sr; K.v += r.pct4[0]; K.t += r.pct4[1]; } K.late = Math.max(K.late, 0); if (r.rit){ K.nb++; if (r.rit === 'vert' || r.rit === 'orange') K.tenu++; } });
+      if (MUR.sort === 'rouge') rows.sort(function(a, b){ return (b.red * 10 + b.sr) - (a.red * 10 + a.sr) || a.order - b.order; });
+      var head2 = '<div role="row" class="aicx-murrow aicx-murhead" style="grid-template-columns:' + murCols(thems) + ';"><div role="columnheader">Espace AIC</div><div role="columnheader">Rituel · S' + isoWeek(weeks[7]) + '</div>'
+        + thems.map(function(t){ return '<div role="columnheader" title="' + esc(t.libelle) + '"><span style="font-weight:800;font-size:19px;color:' + esc(t.couleur || '#560A0F') + ';text-transform:none;letter-spacing:0;">' + esc(t.code) + '</span> <span style="text-transform:none;letter-spacing:0;font-weight:600;">' + esc(labelParts(t.libelle).t) + '</span></div>'; }).join('')
+        + '<div role="columnheader">Verts 4 sem.</div><div role="columnheader">Rouges sans réponse</div><div role="columnheader">Sujets ouverts</div><div role="columnheader"><span class="aicx-sr">Ouvrir</span></div></div>';
+      return '<div class="panel" style="margin-top:14px;padding:0;overflow:hidden;"><div style="padding:12px 16px;display:flex;flex-wrap:wrap;gap:4px 12px;align-items:baseline;"><b style="font-size:16px;color:#560A0F;">' + esc(m.client || '') + ' · ' + esc(m.intitule || '') + '</b>' + (m.perimetre ? '<span class="sub-cell">Périmètre : ' + esc(m.perimetre) + '</span>' : '') + '</div>'
+        + '<div style="overflow-x:auto;max-width:100%;"><div role="table" aria-label="' + esc('Mur de performance · ' + (m.client || '') + ' · ' + (m.intitule || '')) + '" style="min-width:' + murMin(thems) + 'px;">' + head2 + rows.map(function(r){ return r.html; }).join('') + '</div></div></div>';
+    }).join('');
+    MUR.sj.forEach(function(s){ if ((Date.now() - new Date(s.created_at).getTime()) > 48 * 3600000) K.late++; });
+    var pctAll = K.t ? Math.round(100 * K.v / K.t) : null;
+    function tile(v, l, col, accent){ return '<div style="background:#fff;border:1px solid rgba(86,10,15,.12);border-top:4px solid ' + accent + ';border-radius:12px;padding:12px 14px;"><div style="font-size:28px;font-weight:800;line-height:1.1;color:' + col + ';">' + v + '</div><div class="sub-cell" style="font-size:12.5px;margin-top:3px;">' + l + '</div></div>'; }
+    h += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:12px;">'
+      + tile(pctAll == null ? '—' : pctAll + ' %', 'de semaines vertes sur les sites (4 dernières semaines)', '#1a1416', '#2e7d46')
+      + tile(String(K.red), (K.red > 1 ? 'lettres rouges' : 'lettre rouge') + ' sur les sites, semaine ' + isoWeek(weeks[7]), K.red ? '#c0392b' : '#1a1416', '#c0392b')
+      + tile(MUR.repOk ? String(K.sr) : '—', MUR.repOk ? (K.sr > 1 ? 'rouges des sites sans réponse' : 'rouge des sites sans réponse') + ' (action ou remontée)' : 'rouges sans réponse : exécutez aic_reponses.sql', K.sr ? '#c0392b' : '#1a1416', '#c0392b')
+      + tile(MUR.sjOk ? String(K.late) : '—', (K.late > 1 ? 'sujets ouverts' : 'sujet ouvert') + ' depuis plus de 48 h', K.late ? '#c0392b' : '#1a1416', '#e08a00')
+      + tile(K.nb ? K.tenu + ' / ' + K.nb : '—', 'AIC tenues, semaine ' + isoWeek(weeks[7]), '#1a1416', '#4F749B') + '</div>';
+    function sb(v, l){ var on = MUR.sort === v; return '<button type="button" aria-pressed="' + on + '" onclick="aicxMurSort(\'' + v + '\')" style="font:600 12.5px system-ui,sans-serif;padding:6px 12px;min-height:34px;border-radius:999px;cursor:pointer;border:1px solid ' + (on ? '#560A0F' : 'rgba(86,10,15,.3)') + ';background:' + (on ? '#560A0F' : '#fff') + ';color:' + (on ? '#fff' : '#560A0F') + ';">' + l + '</button>'; }
+    h += '<div style="display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;margin-top:12px;"><span style="display:inline-flex;gap:6px;">' + sb('hier', 'Ordre AIC 1 → 3') + sb('rouge', 'Plus de rouges d’abord') + '</span>'
+      + '<span class="sub-cell" style="display:inline-flex;gap:12px;flex-wrap:wrap;">' + ['vert', 'orange', 'rouge'].map(function(k){ return '<span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:12px;height:12px;border-radius:3px;background:' + SC[k].c + ';"></span>' + SC[k].l + '</span>'; }).join('') + '<span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:12px;height:12px;border-radius:3px;background:#ece7e1;border:1px solid #d8cfc6;box-sizing:border-box;"></span>Pas de relevé</span><span>Chaque lettre : 8 semaines, la plus récente à droite. Cliquez pour ouvrir la lettre.</span></span></div>';
+    h += blocks || '<div class="panel" style="padding:14px 16px;margin-top:12px;">' + (X.ceo ? 'Aucune mission. Créez-en une dans Admin › Structures AIC.' : 'Vous n’êtes membre d’aucun espace AIC actif.') + '</div>';
+    h += '<label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;margin-top:12px;"><input type="checkbox" ' + (X.showArch ? 'checked ' : '') + 'onchange="aicxToggleArch(this.checked)" style="width:auto;margin:0;">Afficher les archives</label>';
+    h += '<div class="sub-cell" style="margin-top:6px;">Consolidation : une lettre prend la pire couleur de la semaine dans l’espace et ceux placés sous lui. Lettres, libellés, couleurs et niveaux : Admin › Référentiel AIC.</div></div>';
+    view().innerHTML = h;
+    aicxWeekEnsure();
+  }
+
+  /* ---------- Rouges : pas de rouge sans réponse (une action Clap! ou une remontée en sujet) ---------- */
+  function repOk(){ return SP.st.length ? Object.prototype.hasOwnProperty.call(SP.st[0], 'reponse') : MUR.repOk; }
+  function rougesHtml(e, thems, ids){
+    if (!thems.length) return '';
+    var lim = addDays(todayIso(), -27), byTh = {}; thems.forEach(function(t){ byTh[t.id] = t; });
+    var reds = SP.st.filter(function(s){ return s.statut === 'rouge' && s.jour >= lim && byTh[s.thematique_id] && ids.indexOf(s.espace_id) >= 0; }).sort(function(a, b){ return a.jour < b.jour ? 1 : -1; });
+    var ok = repOk(), open = ok ? reds.filter(function(s){ return !s.reponse; }).length : 0;
+    var h = '<div class="field-label" style="margin-top:18px;">Rouges des 4 dernières semaines · pas de rouge sans réponse</div><div class="panel" style="padding:10px 16px 12px;">';
+    if (!ok) h += '<div class="sub-cell" style="color:var(--signal);margin-bottom:6px;">Le suivi des réponses n’est pas encore installé : exécutez aic_reponses.sql.</div>';
+    if (!reds.length) return h + '<div style="color:#2e7d46;font-weight:600;">Aucun rouge sur la période.</div></div>';
+    if (ok) h += '<div class="sub-cell" style="margin-bottom:6px;">' + (open ? '<b style="color:#c0392b;">' + open + ' sans réponse</b> · ' : '') + (reds.length - open) + ' avec réponse</div>';
+    h += reds.map(function(s){
+      var t = byTh[s.thematique_id], sp = byId(X.espaces, s.espace_id), can = ok && sp && canContribute(sp), rep = s.reponse;
+      var badge = !ok ? '' : (rep === 'action' ? '<span class="pill" style="background:#e6f2e9;color:#2e7d46;">Action ' + esc(s.reponse_ref || '') + '</span>' : (rep === 'remontee' ? '<span class="pill" style="background:#e6f2e9;color:#2e7d46;">Remonté en sujet</span>' : '<span class="pill" style="background:#c0392b;color:#fff;">Sans réponse</span>'));
+      return '<div class="aicx-srow" style="align-items:flex-start;"><span style="font-weight:800;font-size:18px;min-width:22px;color:' + esc(t.couleur || '#560A0F') + ';">' + esc(t.code) + '</span><div style="flex:1;min-width:0;"><b style="font-size:13px;">' + esc(longDate(s.jour)) + (sp && sp.id !== e.id ? ' · ' + esc(sp.libelle) : '') + '</b> ' + badge
+        + '<div class="sub-cell">Cause : ' + (s.commentaire ? esc(s.commentaire) : '<i>à préciser</i>') + '</div></div>'
+        + (can && !rep ? '<span style="display:inline-flex;gap:6px;flex-wrap:wrap;"><button type="button" class="add-btn sm" onclick="aicxRepondre(\'' + s.id + '\',\'action\')">Créer une action</button>' + (sp.parent_id ? '<button type="button" class="add-btn sm ghost" onclick="aicxRepondre(\'' + s.id + '\',\'remontee\')">Remonter en sujet</button>' : '') + '</span>' : '') + '</div>';
+    }).join('');
+    return h + '</div>';
+  }
+  window.aicxRepondre = async function(statutId, mode){
+    var s = SP.st.filter(function(x){ return String(x.id) === String(statutId); })[0]; if (!s || typeof window.kwDialog !== 'function') return;
+    var e = byId(X.espaces, s.espace_id), t = ((SP.ref && SP.ref.them) || []).filter(function(x){ return x.id === s.thematique_id; })[0] || { code:'?', libelle:'' };
+    var titre = (s.commentaire || ('Écart ' + t.code + ' du ' + fdate(s.jour))).slice(0, 140), fields = [];
+    if (!s.commentaire) fields.push({ name:'cause', label:'Cause de l’écart', required:true, placeholder:'En une ligne' });
+    if (mode === 'action'){
+      if (!X.pilotes){ try { var p = await db().from('action_pilotes').select('id,nom,email'); X.pilotes = (p && p.data) || []; } catch(_){ X.pilotes = []; } }
+      var mine = (X.pilotes || []).filter(function(x){ return x.email && String(x.email).toLowerCase() === me(); })[0];
+      fields.push({ name:'lib', label:'Action', value:s.commentaire ? 'Traiter : ' + titre : '', required:true });
+      fields.push({ name:'pil', label:'Pilote', type:'select', value:mine ? mine.id : '', options:[{ value:'', label:'— à désigner —' }].concat((X.pilotes || []).map(function(x){ return { value:x.id, label:x.nom }; })) });
+      fields.push({ name:'ech', label:'Échéance', type:'date', value:addDays(todayIso(), 7) });
+    } else {
+      fields.push({ name:'ti', label:'Sujet remonté', value:titre, required:true });
+      fields.push({ name:'de', label:'Détail (facultatif)', type:'textarea' });
+    }
+    var r = await window.kwDialog({ title:(mode === 'action' ? 'Créer une action' : 'Remonter en sujet') + ' · ' + t.code + ' du ' + fdate(s.jour), message:e ? e.libelle : '', fields:fields, confirmLabel:mode === 'action' ? 'Créer l’action' : 'Remonter' });
+    if (!r) return;
+    try {
+      var cause = r.cause || s.commentaire || '', upd = { reponse:mode, reponse_par:me(), reponse_le:new Date().toISOString() };
+      if (!s.commentaire && cause) upd.commentaire = cause;
+      if (mode === 'action'){
+        var m = byId(X.missions, e.mission_id) || {}, site = siteName(e), tags = ['AIC', 'AIC ' + e.niveau, 'écart:' + t.code]; if (m.client) tags.push('client:' + m.client); if (site) tags.push('site:' + site);
+        var row = { texte_brut:'[AIC ' + t.code + ' ' + fdate(s.jour) + '] ' + r.lib, libelle:r.lib, thematique:'autre', pilote_id:r.pil || null, echeance:r.ech || null, priorite:1, statut:'a_faire', routine:e.libelle, source:'AIC', tags:tags, aic_espace_id:e.id, site:site };
+        var ins = await db().from('actions').insert(row).select('numero').single();
+        if (ins.error && missing(ins.error.message)){ delete row.aic_espace_id; delete row.site; delete row.source; ins = await db().from('actions').insert(row).select('numero').single(); }
+        if (ins.error) throw ins.error; upd.reponse_ref = '#' + ins.data.numero;
+      } else {
+        var sj = await db().from('aic_sujets').insert({ espace_id:e.id, thematique_id:s.thematique_id, titre:r.ti, detail:(r.de ? r.de + '\n' : '') + 'Rouge ' + t.code + ' du ' + fdate(s.jour) + (cause ? ' · cause : ' + cause : '') }).select('id').single();
+        if (sj.error) throw sj.error; upd.reponse_ref = String(sj.data.id);
+      }
+      touched(await db().from('aic_statuts').update(upd).eq('id', s.id).select('id'), 'aic_statuts');
+      MUR.key = ''; await aicxLoadStatuts(); if (mode === 'remontee') await aicxLoadB4(byId(X.espaces, X.open)); aicxDashboard();
+      if (window.kwToast) window.kwToast(mode === 'action' ? 'Action ' + upd.reponse_ref + ' créée et rattachée au rouge ✓' : 'Sujet remonté et rattaché au rouge ✓', 'ok');
+    } catch(err){ var msg = (err && err.message) || String(err); if (window.kwToast) window.kwToast('Refusé : ' + (missing(msg) ? 'exécutez d’abord aic_reponses.sql' : msg), 'err'); }
+  };
 
   /* ---------- Actions de configuration (appelées depuis Admin ; la RLS impose « CEO seul ») ---------- */
   window.aicxToggleArch = function(on){ X.showArch = !!on; aicxRerender(); };
@@ -545,6 +712,7 @@
       + '@keyframes aicxcrit{0%,100%{transform:scale(1);box-shadow:0 0 0 0 rgba(192,57,43,.55);}50%{transform:scale(1.07);box-shadow:0 0 0 9px rgba(192,57,43,0);}}'
       + '@media (prefers-reduced-motion:reduce){.aicx-chrono.crit,.aicx-chrono.over{animation:none;outline:3px dashed #fff;outline-offset:-7px;}}'
       + '.aicx-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;}'
+      + '.aicx-murrow{display:grid;gap:8px;align-items:center;padding:9px 16px;border-top:1px solid rgba(86,10,15,.08);}.aicx-murrow:hover{background:#fbf8f3;}.aicx-murhead{background:#f3ede1;border-top:0;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#6b5b58;}.aicx-murhead:hover{background:#f3ede1;}.aicx-murcell:hover{background:rgba(86,10,15,.06) !important;}.aicx-murcell:focus-visible{outline:3px solid #EFB810;outline-offset:1px;}'
       + '.aicx-livebar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 14px;margin:10px 0;background:#fff;border:2px solid #c0392b;border-radius:12px;}'
       + '.aicx-prow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:5px 0;border-bottom:1px solid rgba(86,10,15,.07);}.aicx-pin{flex:1;min-width:200px;height:32px;border:1px solid rgba(86,10,15,.25);border-radius:6px;padding:0 8px;font:inherit;font-size:13px;}.aicx-ras{font-size:12px;display:inline-flex;gap:4px;align-items:center;white-space:nowrap;}.aicx-ok{color:#2e7d46;font-weight:800;width:14px;}'
       + '.aicx-srow{display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid rgba(86,10,15,.07);}'
@@ -868,7 +1036,8 @@
 
     var kids = X.espaces.filter(function(x){ return x.parent_id === e.id && visibleArch(x); });
     if (!inSess && !leaf && kids.length) h += '<div class="field-label" style="margin-top:18px;">' + (e.niveau === 1 ? 'Espace AIC 2' : 'Sites') + '</div><div style="display:flex;gap:8px;flex-wrap:wrap;">' + kids.map(function(f){ return '<button type="button" class="add-btn sm" onclick="aicxOpen(\'' + f.id + '\')">' + esc(f.libelle) + '</button>'; }).join('') + '</div>';
-    if (!inSess) h += seancesHtml(e) + b4Bottom(e, thems);
+    if (!inSess) h += rougesHtml(e, thems, ids) + seancesHtml(e) + b4Bottom(e, thems);
+    else h += rougesHtml(e, thems, ids);
 
     h += '<div class="field-label" style="margin-top:18px;">Actions Clap! rattachées (rituel « ' + esc(e.libelle) + ' »)</div>';
     if (!SP.acts || SP.acts.err) h += '<div class="panel" style="padding:12px 16px;color:var(--signal);">Actions indisponibles' + (SP.acts ? ' : ' + esc(SP.acts.err) : '') + '.</div>';
@@ -1284,11 +1453,12 @@
     if (canC && thems.length) h += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;align-items:center;"><select id="sj_th" aria-label="Champ SQCDP" style="' + INP + '">' + thems.map(function(t){ return '<option value="' + t.id + '">' + esc(t.code + ' · ' + t.libelle) + '</option>'; }).join('') + '</select><input id="sj_ti" placeholder="Sujet à porter (court)" aria-label="Titre du sujet" style="' + INP + 'width:260px;"><input id="sj_de" placeholder="Détail (facultatif)" aria-label="Détail" style="' + INP + 'width:260px;"><button type="button" class="add-btn sm" onclick="aicxSujetAdd()">+ Ajouter le sujet</button><span id="sj_msg" role="status" style="font-size:12px;"></span></div>';
     return h + '</div></details>';
   }
+  function sjAge(s){ if (s.statut !== 'ouvert' || !s.created_at) return ''; var hrs = (Date.now() - new Date(s.created_at).getTime()) / 3600000; if (hrs <= 48) return ''; var j = Math.floor(hrs / 24); return '<span class="pill" style="background:#c0392b;color:#fff;" title="Sujet ouvert sans réponse depuis plus de 48 h">En attente depuis ' + j + ' j</span>'; }
   function recvHtml(e, thems){
     if (B4.missing || !B4.recv.length) return '';
     var titre = e.niveau === 1 ? 'Bilan pour l\u2019AIC 1 · sujets retenus par champ SQCDP' : (e.niveau === 3 ? 'Sujets descendus de l\u2019AIC 2 pour cet AIC' : 'Sujets reçus dans le bilan de cet AIC');
     return '<div class="field-label" style="margin-top:18px;">' + esc(titre) + '</div><div class="panel" style="padding:10px 16px 12px;">' + sujetsGroupedHtml(B4.recv, thems, { row:function(s, sp){
-      return '<div class="aicx-srow"><div style="flex:1;"><b style="font-size:13px;">' + esc(s.titre) + '</b>' + (s.detail ? '<div class="sub-cell">' + esc(s.detail) + '</div>' : '') + '<div class="sub-cell">Origine : ' + esc(sp ? sp.libelle.replace(/^AIC 3 · /, '') : '') + ' · ' + esc(nomDe(s.cree_par)) + '</div></div><span class="pill p-grey">' + esc(s.statut) + '</span></div>'; } }) + '</div>';
+      return '<div class="aicx-srow"><div style="flex:1;"><b style="font-size:13px;">' + esc(s.titre) + '</b>' + (s.detail ? '<div class="sub-cell">' + esc(s.detail) + '</div>' : '') + '<div class="sub-cell">Origine : ' + esc(sp ? sp.libelle.replace(/^AIC 3 · /, '') : '') + ' · ' + esc(nomDe(s.cree_par)) + '</div></div>' + sjAge(s) + '<span class="pill p-grey">' + esc(s.statut) + '</span></div>'; } }) + '</div>';
   }
   window.aicxSujetAdd = async function(){
     var e = byId(X.espaces, X.open), ti = val('sj_ti'); if (!e) return; if (!ti){ flash('sj_msg', false, 'Titre obligatoire.'); return; }
