@@ -46,9 +46,20 @@
   }
   if (typeof renderAdmin === 'function' && !renderAdmin.__pmo){
     var _ra = renderAdmin;
-    renderAdmin = function(){ var r = _ra.apply(this, arguments); var again = function(){ try { patchMatrix(); } catch(e){} };
+    renderAdmin = function(){ var r = _ra.apply(this, arguments); var again = function(){ try { patchMatrix(); patchInvite(); } catch(e){} };
       Promise.resolve(r).then(again, again); setTimeout(again, 0); return r; };
     renderAdmin.__pmo = true;
+  }
+  /* Formulaire « Inviter un utilisateur » : sa liste de rôles est écrite en dur dans la page, sans PMO. On l'y ajoute. */
+  function patchInvite(){
+    var sel = document.getElementById('invRole'); if (!sel) return;
+    if ([].some.call(sel.options, function(o){ return o.value === LABEL; })) return;
+    var o = document.createElement('option'); o.value = LABEL; o.textContent = LABEL; sel.appendChild(o);
+  }
+  if (typeof renderAdminPilotes === 'function' && !renderAdminPilotes.__pmo){
+    var _rp = renderAdminPilotes;
+    renderAdminPilotes = function(){ var r = _rp.apply(this, arguments); try { patchInvite(); } catch(e){} return r; };
+    renderAdminPilotes.__pmo = true;
   }
   window.kwPmoPatch = patchMatrix;
 })();
