@@ -20,6 +20,7 @@ input,select,button{font-family:inherit;}
    Données : table Supabase dojo_resultats (là où le Dojo du Cockpit enregistre chaque simulation), plus les formulaires Netlify.
    Accès : décidé par le Cockpit (Admin → Accès par fonction, case « Dojo — résultats », ou profil Membre Codir). Plus de jeton Netlify,
    plus de mot de passe. Ouvert seul, la page renvoie au Cockpit. La base applique la même règle (dojo_acces.sql).
+   Direction : bouton « Importer l’ancien Dojo » (historique des formulaires Netlify → dojo_resultats, voir dojo_import.sql).
    Retiré volontairement : la gestion du mot de passe (obsolète) et l'onglet Brasserie (assessments de candidats : Parcours candidats). */
 window.SUPABASE_URL = "https://omftqlvkmjlxoinruayr.supabase.co";
 window.SUPABASE_ANON_KEY = "sb_publishable_RgKYatx7zHx_SJvrvoyt2w_fXhLKQ1w";
@@ -379,6 +380,7 @@ function renderDashboard(){
       </div>
       <div style="display:flex;align-items:center;gap:10px;">
         <span style="font-family:monospace;font-size:9px;color:#c09098;">${submissions.length} rapport${submissions.length>1?'s':''} · ${consultants.length} consultant${consultants.length>1?'s':''}</span>
+        ${KW_ACCES && KW_ACCES.direction ? '<button onclick="impOpen()" style="background:none;border:1px solid #E8A800;color:#E8A800;padding:4px 10px;font-family:monospace;font-size:9px;cursor:pointer;border-radius:2px;">⇪ Importer l’ancien Dojo</button>' : ''}
         <button onclick="loadAndRender()" style="background:none;border:1px solid #c09098;color:#c09098;padding:4px 10px;font-family:monospace;font-size:9px;cursor:pointer;border-radius:2px;">↺ Actualiser</button>
         <button onclick="showArchived=!showArchived;renderDashboard()" id="btn-arch"
           style="background:none;border:1px solid #c09098;color:#c09098;padding:4px 10px;font-family:monospace;font-size:9px;cursor:pointer;border-radius:2px;">
@@ -725,6 +727,103 @@ function buildDashboard(el){
     });
   },100);
 }
+
+/* ── IMPORT DE L'HISTORIQUE DE L'ANCIEN DOJO (direction uniquement) ──────────────────────────────
+   Lit les rapports « kw-rapport » de l'ancien site Netlify (dojo-consultants-kw) avec un jeton Netlify saisi ICI (jamais enregistré,
+   jamais envoyé ailleurs qu'à api.netlify.com), rattache chaque consultant à son e-mail (fiche Admin → Pilotes), puis les enregistre
+   dans dojo_resultats via dojo_importer() (dojo_import.sql). Un rapport déjà importé n'est jamais dupliqué. */
+var IMP = { token:'', rows:[], sites:[] };
+function impNorm(s){ return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); }
+function impKey(s){ return impNorm(s).split(' ').filter(Boolean).sort().join(' '); }
+function impPanel(html){
+  var ov = document.getElementById('impOv');
+  if (!ov){ ov = document.createElement('div'); ov.id = 'impOv'; ov.style.cssText = 'position:fixed;inset:0;background:rgba(26,16,8,.45);z-index:50;display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto;'; document.body.appendChild(ov); }
+  ov.innerHTML = '<div role="dialog" aria-modal="true" aria-label="Importer l’ancien Dojo" style="background:#fff;border-radius:4px;max-width:720px;width:100%;padding:22px 22px 18px;font-size:14px;line-height:1.55;color:#1a1008;box-shadow:0 10px 40px rgba(0,0,0,.25);">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><div style="font-family:monospace;font-size:10px;color:#E8A800;letter-spacing:2.5px;">IMPORTER L’HISTORIQUE DE L’ANCIEN DOJO</div>'
+    + '<button onclick="impClose()" aria-label="Fermer" style="background:none;border:none;font-size:20px;cursor:pointer;color:#8a7868;">×</button></div>' + html + '</div>';
+}
+function impClose(){ var ov = document.getElementById('impOv'); if (ov) ov.remove(); IMP.token = ''; }
+function impBtn(label, fn, ghost){ return '<button onclick="' + fn + '" style="' + (ghost ? 'background:#fff;color:#6B1020;' : 'background:#6B1020;color:#fff;') + 'border:1px solid #6B1020;padding:9px 16px;font-family:monospace;font-size:10px;letter-spacing:1px;cursor:pointer;border-radius:2px;margin-right:8px;">' + label + '</button>'; }
+function impOpen(){
+  impPanel('<p style="margin-bottom:10px;">Les simulations de l’ancien site <b>dojo-consultants-kw</b> sont dans ses formulaires Netlify. Pour les lire, collez un <b>jeton d’accès Netlify</b> : Netlify → photo de profil → <i>User settings</i> → <i>Applications</i> → <i>Personal access tokens</i> → <i>New access token</i> (expiration : 1 jour).</p>'
+    + '<p style="margin-bottom:12px;font-size:12px;color:#8a7868;">Le jeton reste dans cette page : il n’est ni enregistré, ni envoyé ailleurs qu’à Netlify. Supprimez-le sur Netlify après l’import.</p>'
+    + '<input id="impTok" type="password" autocomplete="off" placeholder="Jeton Netlify" style="width:100%;background:#f7f4f0;border:1px solid #ddd0c4;padding:10px 12px;border-radius:2px;font-family:monospace;font-size:12px;margin-bottom:12px;"/>'
+    + impBtn('LIRE L’ANCIEN DOJO →', 'impSites()') + '<div id="impErr" role="alert" style="color:#c04040;font-size:12px;margin-top:10px;"></div>');
+  setTimeout(function(){ var t = document.getElementById('impTok'); if (t) t.focus(); }, 0);
+}
+async function impApi(path){
+  var r = await fetch('https://api.netlify.com/api/v1' + path, { headers:{ Authorization:'Bearer ' + IMP.token } });
+  if (r.status === 401) throw new Error('Jeton Netlify refusé (expiré ou incomplet).');
+  if (!r.ok) throw new Error('Netlify a répondu ' + r.status + '.');
+  return r.json();
+}
+function impErr(m){ var e = document.getElementById('impErr'); if (e) e.textContent = m; }
+async function impSites(){
+  var t = document.getElementById('impTok'); IMP.token = t ? t.value.trim() : IMP.token;
+  if (!IMP.token){ impErr('Collez le jeton Netlify.'); return; }
+  impErr('Lecture des sites…');
+  try {
+    IMP.sites = await impApi('/sites?per_page=100&filter=all');
+    var opts = IMP.sites.map(function(s){ return '<option value="' + esc(s.id) + '"' + (s.name === 'dojo-consultants-kw' ? ' selected' : '') + '>' + esc(s.name) + ' — ' + esc(s.default_domain || '') + '</option>'; }).join('');
+    impPanel('<label for="impSite" style="display:block;font-family:monospace;font-size:10px;letter-spacing:1.5px;color:#5a4030;margin-bottom:6px;">SITE DE L’ANCIEN DOJO</label>'
+      + '<select id="impSite" style="width:100%;background:#f7f4f0;border:1px solid #ddd0c4;padding:10px 12px;border-radius:2px;font-size:14px;margin-bottom:14px;">' + opts + '</select>'
+      + impBtn('LIRE LES RAPPORTS →', 'impLire()') + impBtn('ANNULER', 'impClose()', true) + '<div id="impErr" role="alert" style="color:#c04040;font-size:12px;margin-top:10px;"></div>');
+  } catch(e){ impErr(e.message || String(e)); }
+}
+async function impEmails(){
+  var map = {};
+  try {
+    var sb = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
+    var p = await sb.from('action_pilotes').select('nom,email');
+    ((p && p.data) || []).forEach(function(x){ if (x.nom && x.email) map[impKey(x.nom)] = String(x.email).trim().toLowerCase(); });
+    var u = await sb.from('user_access').select('email');
+    ((u && u.data) || []).forEach(function(x){ var em = String(x.email || '').trim().toLowerCase(); if (!em) return; var k = impKey(em.split('@')[0]); if (k && !map[k]) map[k] = em; });
+  } catch(e){}
+  return map;
+}
+async function impLire(){
+  var sel = document.getElementById('impSite'), site = sel ? sel.value : ''; impErr('Lecture des rapports…');
+  try {
+    var forms = await impApi('/sites/' + site + '/forms'), form = forms.filter(function(f){ return f.name === 'kw-rapport'; })[0];
+    if (!form) throw new Error('Aucun formulaire « kw-rapport » sur ce site.');
+    var subs = [], page = 1, lot;
+    do { lot = await impApi('/forms/' + form.id + '/submissions?per_page=100&page=' + page); subs = subs.concat(lot); page++; } while (lot.length === 100 && page < 50);
+    var emails = await impEmails();
+    IMP.rows = subs.map(function(sub){
+      var d = sub.data || {}, ev = null;
+      try { if (d.evaluation_json) ev = JSON.parse(d.evaluation_json); } catch(e){}
+      if (!ev && d.rapport){ ev = parseRapport(d.rapport); var mi = /ICC[^\n]*?(\d{1,3})\s*%/.exec(d.rapport); if (ev && mi) ev.icc = +mi[1]; }   /* rapport texte : l'ICC écrit dans le rapport fait foi */
+      if (ev && typeof ev.icc !== 'number'){ var v = calcICC(ev); if (v !== null) ev.icc = v; }
+      var cons = String(d.consultant || '').trim(), sc = String(d.scenario || '');
+      var mail = (cons.indexOf('@') > 0 ? cons.toLowerCase() : '') || emails[impKey(cons)] || '';
+      return { source_id:String(sub.id || sub.number || ''), created_at:sub.created_at || null, email:mail, consultant:cons || '—',
+               scenario:sc.split(' — ')[0] || '—', tag:sc.split(' — ')[1] || '', industrie:d.industrie || '', date_texte:d.date || (sub.created_at || '').slice(0, 10),
+               score:d.score || (ev && typeof ev.icc === 'number' ? ev.icc + '%' : ''), evaluation:ev, transcript:d.transcript || '' };
+    }).filter(function(r){ return r.source_id; });
+    var par = {}; IMP.rows.forEach(function(r){ var k = r.consultant; (par[k] = par[k] || { n:0, email:r.email }).n++; });
+    var lignes = Object.keys(par).sort().map(function(k){ var x = par[k]; return '<tr><td style="padding:4px 8px;">' + esc(k) + '</td><td style="padding:4px 8px;text-align:right;">' + x.n + '</td><td style="padding:4px 8px;' + (x.email ? '' : 'color:#c04040;') + '">' + (x.email ? esc(x.email) : 'non rattaché') + '</td></tr>'; }).join('');
+    var sansMail = IMP.rows.filter(function(r){ return !r.email; }).length;
+    impPanel('<p style="margin-bottom:10px;"><b>' + IMP.rows.length + '</b> simulation(s) trouvée(s) pour <b>' + Object.keys(par).length + '</b> consultant(s).</p>'
+      + '<div style="max-height:320px;overflow:auto;border:1px solid #ddd0c4;border-radius:2px;margin-bottom:10px;"><table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="background:#faf8f5;"><th style="text-align:left;padding:6px 8px;">Consultant</th><th style="text-align:right;padding:6px 8px;">Simulations</th><th style="text-align:left;padding:6px 8px;">Rattaché à</th></tr></thead><tbody>' + lignes + '</tbody></table></div>'
+      + (sansMail ? '<p style="font-size:12px;color:#8a7868;margin-bottom:12px;">« Non rattaché » : aucune fiche Admin → Pilotes à ce nom. Ces simulations seront importées et visibles des personnes qui ont le droit « Dojo — résultats », mais pas du consultant lui-même. Pour les rattacher, créez sa fiche Pilote puis relancez : rien ne sera dupliqué.</p>' : '')
+      + impBtn('IMPORTER ' + IMP.rows.length + ' SIMULATION(S)', 'impGo()') + impBtn('ANNULER', 'impClose()', true) + '<div id="impErr" role="alert" style="color:#c04040;font-size:12px;margin-top:10px;"></div>');
+  } catch(e){ impErr(e.message || String(e)); }
+}
+async function impGo(){
+  impErr('Import en cours…');
+  try {
+    var sb = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY), tot = { importes:0, ignores:0 };
+    for (var i = 0; i < IMP.rows.length; i += 50){
+      var r = await sb.rpc('dojo_importer', { p_lignes: IMP.rows.slice(i, i + 50) });
+      if (r.error) throw new Error(/function|schema cache/i.test(r.error.message) ? 'Exécutez d’abord dojo_import.sql dans Supabase.' : r.error.message);
+      tot.importes += (r.data && r.data.importes) || 0; tot.ignores += (r.data && r.data.ignores) || 0;
+    }
+    impPanel('<p style="margin-bottom:14px;">✓ <b>' + tot.importes + '</b> simulation(s) importée(s)' + (tot.ignores ? ' · ' + tot.ignores + ' déjà présente(s), ignorée(s)' : '') + '.</p>'
+      + '<p style="font-size:12px;color:#8a7868;margin-bottom:14px;">Pensez à supprimer le jeton sur Netlify (User settings → Applications).</p>' + impBtn('VOIR LES RÉSULTATS', 'impClose();loadAndRender()'));
+    IMP.token = '';
+  } catch(e){ impErr(e.message || String(e)); }
+}
+
 
 loadAndRender();
 </script>

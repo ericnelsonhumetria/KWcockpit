@@ -9,6 +9,7 @@
      Il ouvre /dojo/resultats.html (reprise de l'admin de l'ancien Dojo) depuis le bouton « Résultats » du Dojo.
    - ouvert seul (/dojo/ ou /dojo/resultats.html), le Dojo renvoie vers /#dojo (ou /#dojo-resultats) : le Cockpit demande la connexion si besoin,
      puis ouvre l'onglet Dojo (si autorisé).
+   - v3 : « direction » (CEO / administrateurs) : bouton d'import de l'historique de l'ancien Dojo dans la page Résultats.
    - côté serveur : /api/dojo-claude applique les mêmes droits ; la base (dojo_acces.sql) ne montre à chacun que ses propres résultats,
      sauf droit « Dojo — résultats ». */
 (function(){
@@ -22,7 +23,7 @@
     if (n && !/^(CEO|CTO|Commerce|Méthodes|RH|PMO|Consultant|Communication|Transformation|Mktg et Produit|Administration des affaires|Sans accès)$/i.test(n)) return n;
     return email().split('@')[0].split(/[._-]+/).filter(Boolean).map(function(x){ return x.charAt(0).toUpperCase() + x.slice(1); }).join(' ');
   }
-  window.kwDojoAcces = function(){ var ok = can('dojo'); return { ok: ok, resultats: ok && can(TAB_RES), nom: nom(), email: email() }; };
+  window.kwDojoAcces = function(){ var ok = can('dojo'); return { ok: ok, resultats: ok && can(TAB_RES), direction: role() === 'eric', nom: nom(), email: email() }; };
 
   /* Valeur par défaut du nouveau droit (tant que la matrice d'Admin ne dit rien) : direction et Méthodes */
   try { if (typeof tabDefault === 'function' && !tabDefault.__dojoRes){
