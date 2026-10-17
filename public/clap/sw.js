@@ -4,7 +4,7 @@
    retirée dès que l'action n'est plus en retard. À zéro : une seule notification discrète « plus aucune action en retard ».
    Aucun cache de pages : ce service worker ne sert QUE les notifications (le fonctionnement hors ligne n'est pas modifié). */
 'use strict';
-const PREFIX = 'clap-a-', OK = 'clap-ok', MORE = 'clap-plus', ICON = '/clap/icon-192.png', BADGE = '/clap/badge-96.png';
+const PREFIX = 'clap-a-', OK = 'clap-ok', MORE = 'clap-plus', TOTAL = 'clap-total', GROUP_AT = 4, ICON = '/clap/icon-192.png', BADGE = '/clap/badge-96.png';
 
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
@@ -20,7 +20,8 @@ async function apply(data) {
   for (const nt of shown) {
     if (nt.tag && nt.tag.indexOf(PREFIX) === 0) { if (want.has(nt.tag)) have.add(nt.tag); else nt.close(); }
     else if (nt.tag === OK && n > 0) nt.close();
-    else if (nt.tag === MORE && n <= items.length) nt.close();
+    else if (nt.tag === MORE) nt.close();   /* ancien récapitulatif (> 20), remplacé par clap-total */
+    else if (nt.tag === TOTAL && items.length < GROUP_AT) nt.close();
   }
   const jobs = [];
   for (const [tag, a] of want) {
@@ -37,8 +38,10 @@ async function apply(data) {
     jobs.push(self.registration.showNotification('Clap! · plus aucune action en retard', {
       body: 'Bravo, tout est à jour.', tag: OK, icon: ICON, badge: BADGE, silent: true, data: { url: '/clap/' } }));
   }
-  if (n > items.length) {   /* au-delà de 20, une notification récapitulative signale le reste */
-    jobs.push(self.registration.showNotification('Clap! · ' + n + ' actions en retard', { body: 'Les ' + items.length + ' plus anciennes sont détaillées ; ouvre Clap! pour voir le reste.', tag: MORE, icon: ICON, badge: BADGE, silent: true, renotify: false, data: { url: '/clap/' } }));
+  /* Samsung (One UI) : dès 4 notifications d'une même appli, Android les regroupe et l'icône en compte une de moins.
+     Une notification récapitulative « N actions en retard » s'ajoute alors au groupe : l'icône affiche le bon nombre. */
+  if (items.length >= GROUP_AT) {
+    jobs.push(self.registration.showNotification('Clap! · ' + n + ' actions en retard', { body: (n > items.length ? 'Les ' + items.length + ' plus anciennes sont détaillées. ' : '') + 'Touche pour ouvrir la feuille Actions.', tag: TOTAL, icon: ICON, badge: BADGE, silent: true, renotify: false, data: { url: '/clap/' } }));
   }
   await Promise.all(jobs);
   try {   /* journal : dernier envoi reçu et notifications réellement affichées (panneau « cloche » de Clap!) */
