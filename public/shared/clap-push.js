@@ -99,6 +99,7 @@
     if (!supported()){ paint(); return; }
     try {
       var reg = await register();
+      try { await reg.update(); } catch(e){}   /* prend tout de suite la dernière version du service worker */
       ST.sub = await reg.pushManager.getSubscription();
       try { (await reg.getNotifications({ tag: 'clap-ok' })).forEach(function(n){ n.close(); }); } catch(e){}   /* « plus aucune action en retard » : lue, on la retire */
       paint();

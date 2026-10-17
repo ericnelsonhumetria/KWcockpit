@@ -24,7 +24,8 @@ async function apply(data) {
   }
   const jobs = [];
   for (const [tag, a] of want) {
-    if (have.has(tag)) continue;
+    /* on (ré)affiche TOUTES les actions en retard à chaque envoi : même étiquette = remplacement silencieux, sans doublon.
+       (Android peut annoncer comme « affichée » une notification que l'utilisateur a déjà fait disparaître : on ne s'y fie plus) */
     const d = daysLate(a.e, data.d);
     jobs.push(self.registration.showNotification((a.no ? 'Action #' + a.no : 'Action') + ' en retard' + (d > 0 ? ' · ' + d + ' j' : ''), {
       body: (a.l || '') + (a.e ? '\nÉchéance : ' + frDate(a.e) : ''),
