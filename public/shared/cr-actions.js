@@ -738,9 +738,10 @@
     var pi=await SB.from('action_pilotes').select('id,nom,user_id,actif,email').eq('actif',true).order('nom',{ascending:true});
     CR_REFS={thematiques:(th&&th.data)||[], pilotes:(pi&&pi.data)||[]};
   }
-  var CR_TYPEOK=false, CR_AUX={esp:{}, mis:{}, obeya:{}};
+  var CR_TYPEOK=false, CR_AUX={esp:{}, mis:{}, obeya:{}, lbl:{}};
   async function crLoadAux(){   /* espaces et missions AIC, séances d'Obeya : pour classer les CR (ce que la personne peut voir ; erreurs ignorées) */
-    CR_AUX={esp:{}, mis:{}, obeya:{}};
+    CR_AUX={esp:{}, mis:{}, obeya:{}, lbl:{}};
+    try{ var tl=await SB.from('cr_type_libelles').select('code,libelle'); ((tl&&tl.data)||[]).forEach(function(x){ if(x.libelle) CR_AUX.lbl[x.code]=x.libelle; }); }catch(_){}
     try{ var a=await SB.from('aic_espaces').select('id,mission_id,niveau,libelle'); ((a&&a.data)||[]).forEach(function(x){ CR_AUX.esp[String(x.id)]=x; }); }catch(_){}
     try{ var m=await SB.from('aic_missions').select('id,client,intitule'); ((m&&m.data)||[]).forEach(function(x){ CR_AUX.mis[String(x.id)]=x; }); }catch(_){}
     try{ var o=await SB.from('obeya_seances').select('cr_id'); ((o&&o.data)||[]).forEach(function(x){ if(x.cr_id) CR_AUX.obeya[String(x.cr_id)]=true; }); }catch(_){}
@@ -824,6 +825,9 @@
   var CR_TYPES=[['aic','AIC'],['obeya','Obeya Codir'],['rituel','Rituels'],['rdv','Rendez-vous clients & commerciaux'],['autre','Autres réunions']];
   var CR_TYPE_LBL={aic:'AIC',obeya:'Obeya',rituel:'Rituel',rdv:'RDV',autre:'Réunion'};
   var CR_TYPE_PILL={aic:'background:#f6e7b5;color:#5a4300;',obeya:'background:#560A0F;color:#fff;',rituel:'background:#e3ecf7;color:#1f3f66;',rdv:'background:#e6f2e9;color:#2e5d3a;',autre:'background:#ece7e1;color:#5d534c;'};
+  function crTypeTitle(code){ var l=CR_AUX.lbl&&CR_AUX.lbl[code]; if(l) return l; var t=CR_TYPES.filter(function(x){ return x[0]===code; })[0]; return t?t[1]:code; }
+  function crTypeShort(code){ var l=CR_AUX.lbl&&CR_AUX.lbl[code]; return (l&&l.length<=16)?l:CR_TYPE_LBL[code]; }
+  function crMovable(c){ return !c.aic_espace_id && !CR_AUX.obeya[String(c.id)]; }   /* AIC et Obeya : type fixé par leur lien */
   function crType(c){
     if(c.aic_espace_id) return 'aic';
     if(CR_AUX.obeya[String(c.id)]) return 'obeya';
@@ -840,7 +844,7 @@
   function crDossier(c){ if(c.dossier&&String(c.dossier).trim()) return String(c.dossier).trim(); var m=crMission(c); return (m&&m.client)?String(m.client).trim():''; }
   function crSerieKey(c){ return String(c.titre||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/\b\d{1,2}[\/.\-]\d{1,2}([\/.\-]\d{2,4})?\b/g,' ').replace(/\b(s|sem|semaine|n|no)\s*\d+\b/g,' ').replace(/\d+/g,' ').replace(/[^a-z]+/g,' ').trim()||'(sans titre)'; }
   function crSortDesc(a,b){ return String(b.date_reunion||'').localeCompare(String(a.date_reunion||'')) || ((b.numero||0)-(a.numero||0)); }
-  function crTypePill(c){ var t=crType(c); return '<span class="pill" style="'+CR_TYPE_PILL[t]+'">'+CR_TYPE_LBL[t]+'</span>'; }
+  function crTypePill(c){ var t=crType(c); return '<span class="pill" style="'+CR_TYPE_PILL[t]+'">'+e(crTypeShort(t))+'</span>'; }
   function crRowHtml(c, opts){
     opts=opts||{};
     var dos=crDossier(c), t=crType(c), nA=(c.actions_numeros&&c.actions_numeros.length)||0;
@@ -854,10 +858,14 @@
     if(CR_LOCKOK&&crIsLocked(c)) meta.push('<span style="color:#560A0F;font-weight:700;" title="Verrouillé par son auteur : contenu non modifiable">🔒 verrouillé</span>');
     if(c.confidentiel) meta.push('<span style="color:#8a1f14;font-weight:700;" title="Confidentiel : visible seulement par son auteur, les personnes cochées et la direction">🔐 confidentiel</span>');
     if(crLockFresh(c)) meta.push('<span style="color:#c0392b;font-weight:700;">🔴 transcription en cours'+(crLockName(c.transcription_par)?(' ('+e(crLockName(c.transcription_par))+')'):'')+'</span>');
-    var more=CR_DEL[String(c.id)]?'<details class="crMore" style="position:relative;flex:0 0 auto;"><summary aria-label="Autres actions" title="Autres actions" style="list-style:none;cursor:pointer;padding:3px 9px;border:1px solid rgba(86,10,15,.25);border-radius:8px;font-weight:800;color:#560A0F;background:#fff;">⋯</summary>'
-      +'<div style="position:absolute;right:0;top:calc(100% + 4px);z-index:5;background:#fff;border:1px solid rgba(86,10,15,.18);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.12);padding:6px;min-width:180px;">'
-      +'<button class="add-btn sm" onclick="crDelete(\''+c.id+'\')" type="button" style="width:100%;background:#fff;color:#c0392b;border:1px solid #c0392b;">🗑 Supprimer…</button></div></details>':'';
-    return '<div data-crrow="1" data-st="'+e(c.statut||'prepa')+'" data-mine="'+((c.auteur_id&&c.auteur_id===crMeId())?'1':'0')+'" data-q="'+e(q)+'" onclick="if(!event.target.closest(\'button,summary,details\'))crOpen(\''+c.id+'\')" onmouseover="this.style.background=\'rgba(86,10,15,.04)\'" onmouseout="this.style.background=\'\'" style="cursor:pointer;display:flex;gap:10px;align-items:center;padding:9px 8px;border-bottom:1px solid rgba(86,10,15,.08);">'
+    var items=[];
+    if(CR_TYPEOK) items.push('<button class="add-btn sm ghost" onclick="crMoveAsk(\''+c.id+'\',\'dossier\')" type="button" style="width:100%;text-align:left;">📁 Changer de dossier…</button>');
+    if(CR_TYPEOK&&crMovable(c)) items.push('<button class="add-btn sm ghost" onclick="crMoveAsk(\''+c.id+'\',\'type\')" type="button" style="width:100%;text-align:left;">🏷 Changer de type…</button>');
+    if(CR_DEL[String(c.id)]) items.push('<button class="add-btn sm" onclick="crDelete(\''+c.id+'\')" type="button" style="width:100%;text-align:left;background:#fff;color:#c0392b;border:1px solid #c0392b;">\ud83d\uddd1 Supprimer…</button>');
+    var more=items.length?'<details class="crMore" style="position:relative;flex:0 0 auto;"><summary aria-label="Autres actions" title="Autres actions" style="list-style:none;cursor:pointer;padding:3px 9px;border:1px solid rgba(86,10,15,.25);border-radius:8px;font-weight:800;color:#560A0F;background:#fff;">⋯</summary>'
+      +'<div style="position:absolute;right:0;top:calc(100% + 4px);z-index:5;background:#fff;border:1px solid rgba(86,10,15,.18);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.12);padding:6px;min-width:200px;display:flex;flex-direction:column;gap:5px;">'+items.join('')+'</div></details>':'';
+    var drag=CR_TYPEOK&&opts.drag&&(opts.drag==='dossier'||crMovable(c));
+    return '<div data-crrow="1" data-id="'+e(String(c.id))+'"'+(drag?' draggable="true" title="Glisser vers un autre '+(opts.drag==='dossier'?'dossier':'type')+'"':'')+' data-st="'+e(c.statut||'prepa')+'" data-mine="'+((c.auteur_id&&c.auteur_id===crMeId())?'1':'0')+'" data-q="'+e(q)+'" onclick="if(!event.target.closest(\'button,summary,details\'))crOpen(\''+c.id+'\')" onmouseover="this.style.background=\'rgba(86,10,15,.04)\'" onmouseout="this.style.background=\'\'" style="cursor:pointer;display:flex;gap:10px;align-items:center;padding:9px 8px;border-bottom:1px solid rgba(86,10,15,.08);">'
       +'<div style="flex:1;min-width:0;"><span style="font-size:11px;color:var(--muted);">CR #'+(c.numero||'?')+'</span> <span style="font-size:13.5px;font-weight:600;color:#560A0F;">'+e(c.titre||'(sans titre)')+'</span>'
       +'<div class="edit-hint" style="margin-top:3px;display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;">'+meta.join('<span aria-hidden="true" style="opacity:.4;">·</span>')+'</div></div>'
       +more+'<button class="add-btn sm" onclick="crOpen(\''+c.id+'\')" type="button" style="flex:0 0 auto;">Ouvrir</button></div>';
@@ -868,11 +876,13 @@
     var last=items.slice().sort(crSortDesc)[0], sub=opts.sub||'';
     var body=opts.inner||items.slice().sort(crSortDesc).map(function(c){ return crRowHtml(c, opts.row); }).join('');
     var lvl=opts.level||1;
-    return '<details class="crGrp" data-crgroup="'+lvl+'"'+(opts.closed?'':' open')+' style="'+(lvl===1?'margin:0 0 12px;background:#fff;border:1px solid rgba(86,10,15,.12);border-radius:12px;overflow:visible;':'margin:4px 0 4px 10px;border-left:3px solid rgba(239,184,16,.6);')+'">'
+    var drop=opts.drop?(' data-drop-kind="'+opts.drop[0]+'" data-drop-val="'+e(opts.drop[1])+'"'):'';
+    var ren=(opts.rename&&CR_TYPEOK&&crIsDirection())?'<button type="button" class="crRen" onclick="event.preventDefault();event.stopPropagation();crRenameAsk(\''+opts.rename[0]+'\',this.getAttribute(\'data-val\'))" data-val="'+e(opts.rename[1])+'" title="Renommer (direction)" aria-label="Renommer « '+e(title)+' »" style="background:none;border:1px solid rgba(86,10,15,.2);border-radius:7px;color:#560A0F;cursor:pointer;font-size:12px;padding:1px 7px;">✎</button>':'';
+    return '<details class="crGrp" data-crgroup="'+lvl+'"'+drop+(opts.closed?'':' open')+' style="'+(lvl===1?'margin:0 0 12px;background:#fff;border:1px solid rgba(86,10,15,.12);border-radius:12px;overflow:visible;':'margin:4px 0 4px 10px;border-left:3px solid rgba(239,184,16,.6);')+'">'
       +'<summary style="cursor:pointer;list-style:none;display:flex;align-items:center;gap:10px;padding:'+(lvl===1?'11px 14px':'7px 10px')+';'+(lvl===1?'border-bottom:1px solid rgba(86,10,15,.08);':'')+'">'
       +'<span class="crCaret" aria-hidden="true" style="color:#560A0F;font-size:11px;width:10px;">▾</span>'
       +'<span style="font-weight:800;color:#560A0F;font-size:'+(lvl===1?'15px':'13.5px')+';">'+e(title)+'</span>'
-      +'<span class="crGrpN pill p-grey" data-total="'+items.length+'">'+items.length+'</span>'
+      +ren+'<span class="crGrpN pill p-grey" data-total="'+items.length+'">'+items.length+'</span>'
       +(sub?'<span class="edit-hint">'+sub+'</span>':'')
       +(last&&last.date_reunion?'<span class="edit-hint" style="margin-left:auto;">dernier : '+crFmtDate(last.date_reunion)+'</span>':'')
       +'</summary><div style="padding:'+(lvl===1?'2px 8px 6px':'0 0 4px')+';">'+body+'</div></details>';
@@ -883,28 +893,30 @@
       if(tp[0]==='aic'){
         var byEsp={}, order=[];
         items.forEach(function(c){ var es=crEsp(c), k=es?String(es.id):'_'; if(!byEsp[k]){ byEsp[k]=[]; order.push(k); } byEsp[k].push(c); });
-        if(order.length===1&&order[0]==='_') return crGroup(tp[1], items, {row:{type:false}});
+        if(order.length===1&&order[0]==='_') return crGroup(crTypeTitle('aic'), items, {row:{type:false, drag:'type'}, rename:['type','aic']});
         order.sort(function(a,b){ if(a==='_') return 1; if(b==='_') return -1; var ea=CR_AUX.esp[a], eb=CR_AUX.esp[b]; return String(ea.libelle||'').localeCompare(String(eb.libelle||''),'fr'); });
-        var inner=order.map(function(k){ var es=CR_AUX.esp[k], m=es?CR_AUX.mis[String(es.mission_id)]:null; return crGroup(es?(es.libelle||'Espace AIC'):'Autres AIC', byEsp[k], {level:2, sub:m?e((m.client||'')+(m.intitule?' · '+m.intitule:'')):'', row:{type:false}}); }).join('');
-        return crGroup(tp[1], items, {inner:inner});
+        var inner=order.map(function(k){ var es=CR_AUX.esp[k], m=es?CR_AUX.mis[String(es.mission_id)]:null; return crGroup(es?(es.libelle||'Espace AIC'):'Autres AIC', byEsp[k], {level:2, sub:m?e((m.client||'')+(m.intitule?' · '+m.intitule:'')):'', row:{type:false, drag:'type'}}); }).join('');
+        return crGroup(crTypeTitle('aic'), items, {inner:inner, rename:['type','aic']});
       }
       if(tp[0]==='rituel'){
         var bySer={}, so=[];
         items.forEach(function(c){ var k=crSerieKey(c); if(!bySer[k]){ bySer[k]=[]; so.push(k); } bySer[k].push(c); });
         var inner2=so.sort(function(a,b){ return crSortDesc(bySer[a].slice().sort(crSortDesc)[0], bySer[b].slice().sort(crSortDesc)[0]); }).map(function(k){
-          var it=bySer[k]; if(it.length===1) return crRowHtml(it[0], {type:false});
-          var l=it.slice().sort(crSortDesc)[0], tt=String(l.titre||'').replace(/\b\d{1,2}[\/.\-]\d{1,2}([\/.\-]\d{2,4})?\b/g,'').replace(/[\s·\-–—,:]+$/,'').trim(); return crGroup(tt||'(sans titre)', it, {level:2, closed:true, sub:it.length+' séances', row:{type:false}});
+          var it=bySer[k]; if(it.length===1) return crRowHtml(it[0], {type:false, drag:'type'});
+          var l=it.slice().sort(crSortDesc)[0], tt=String(l.titre||'').replace(/\b\d{1,2}[\/.\-]\d{1,2}([\/.\-]\d{2,4})?\b/g,'').replace(/[\s·\-–—,:]+$/,'').trim(); return crGroup(tt||'(sans titre)', it, {level:2, closed:true, sub:it.length+' séances', row:{type:false, drag:'type'}});
         }).join('');
-        return crGroup(tp[1], items, {inner:inner2});
+        return crGroup(crTypeTitle('rituel'), items, {inner:inner2, drop:['type','rituel'], rename:['type','rituel']});
       }
-      return crGroup(tp[1], items, {row:{type:false}});
-    }).join('');
+      return crGroup(crTypeTitle(tp[0]), items, {row:{type:false, drag:'type'}, drop:(tp[0]==='rdv'||tp[0]==='autre')?['type',tp[0]]:null, rename:['type',tp[0]]});
+    }).join('')+(CR_TYPEOK?CR_TYPES.filter(function(tp){ return (tp[0]==='rituel'||tp[0]==='rdv'||tp[0]==='autre')&&!list.some(function(c){ return crType(c)===tp[0]; }); }).map(function(tp){   /* type encore vide : cible de dépôt */
+      return '<div data-drop-kind="type" data-drop-val="'+tp[0]+'" class="crDropEmpty" style="margin:0 0 12px;padding:12px 14px;border:2px dashed rgba(86,10,15,.18);border-radius:12px;color:#8b8578;font-size:13px;">'+e(crTypeTitle(tp[0]))+' · aucun compte-rendu (déposez-en un ici)</div>'; }).join(''):'');
   }
   function crByDossier(list){
     var by={}, keys=[];
     list.forEach(function(c){ var d=crDossier(c)||''; if(!by[d]){ by[d]=[]; keys.push(d); } by[d].push(c); });
     keys.sort(function(a,b){ if(!a) return 1; if(!b) return -1; return a.localeCompare(b,'fr'); });
-    return keys.map(function(k){ return crGroup(k||'Sans dossier', by[k], {row:{type:true, dossier:false}, closed:!k&&keys.length>1}); }).join('');
+    return keys.map(function(k){ return crGroup(k||'Sans dossier', by[k], {row:{type:true, dossier:false, drag:'dossier'}, drop:['dossier',k], rename:k?['dossier',k]:null}); }).join('')
+      +(CR_TYPEOK?'<div data-drop-kind="dossier" data-drop-val="__nouveau__" class="crDropEmpty" style="margin:0 0 12px;padding:12px 14px;border:2px dashed rgba(86,10,15,.22);border-radius:12px;color:#560A0F;font-size:13px;font-weight:600;">＋ Nouveau dossier <span class="edit-hint" style="font-weight:400;">· déposez un compte-rendu ici pour créer un dossier</span></div>':'');
   }
   function crByDate(list){
     var now=new Date(), td=today(), d0=new Date(now); d0.setDate(now.getDate()-((now.getDay()+6)%7)); var lundi=d0.toISOString().slice(0,10), mois=td.slice(0,7);
@@ -945,9 +957,75 @@
       +(CR_MSG?'<div class="edit-hint" style="color:var(--signal);margin-bottom:8px;">'+e(CR_MSG)+'</div>':'');
     if(!CR_LIST.length) return head+'<div class="edit-hint" style="padding:10px 2px;">Aucun compte-rendu. Crée le premier.</div>';
     var body=CR_VUE==='dossier'?crByDossier(CR_LIST):(CR_VUE==='date'?crByDate(CR_LIST):crByType(CR_LIST));
-    return head+crTodo()+crFilterBar()+crVueBar()+'<style>.crGrp>summary::-webkit-details-marker,.crMore>summary::-webkit-details-marker{display:none;}.crGrp:not([open])>summary .crCaret{transform:rotate(-90deg);display:inline-block;}.crGrp>summary:focus-visible,.crMore>summary:focus-visible{outline:3px solid #EFB810;outline-offset:2px;border-radius:8px;}</style>'
+    if(CR_TYPEOK&&CR_VUE!=='date') body='<div class="edit-hint" style="margin:-4px 0 10px;">Glissez un compte-rendu vers un autre '+(CR_VUE==='dossier'?'dossier':'type')+' pour le reclasser (ou menu ⋯).'+(crIsDirection()?' ✎ : renommer.':'')+'</div>'+body;
+    return head+crTodo()+crFilterBar()+crVueBar()+'<style>.crGrp>summary::-webkit-details-marker,.crMore>summary::-webkit-details-marker{display:none;}.crGrp:not([open])>summary .crCaret{transform:rotate(-90deg);display:inline-block;}.crGrp>summary:focus-visible,.crMore>summary:focus-visible{outline:3px solid #EFB810;outline-offset:2px;border-radius:8px;}[data-crrow][draggable=true]{cursor:grab;}[data-crrow].crDragging{opacity:.45;}.crDropOn{outline:3px dashed #EFB810 !important;outline-offset:2px;background:#fffaf0 !important;}</style>'
       +'<div id="crRows">'+body+'</div><div id="crNone" class="edit-hint" style="display:none;padding:10px 2px;">Aucun compte-rendu ne correspond.</div>';
   }
+  /* ---------- Reclasser : glisser-déposer (souris) ou menu ⋯ (clavier, smartphone) ; renommer (direction) ---------- */
+  function crFind(id){ return (CR_LIST||[]).filter(function(x){ return String(x.id)===String(id); })[0]; }
+  async function crClasser(id, field, val){
+    var c=crFind(id); if(!c) return;
+    var v=(val==null||String(val).trim()==='')?null:String(val).trim();
+    if(field==='dossier' && (c.dossier||null)===v && (v!==null||!crMission(c))) return;
+    if(field==='type_reunion' && (c.type_reunion||null)===v) return;
+    var upd={}; upd[field]=v;
+    try{
+      var r=await SB.from('comptes_rendus').update(upd).eq('id',c.id).select('id'); if(r.error) throw r.error;
+      if(!(r.data&&r.data.length)) throw new Error('vous ne pouvez pas modifier ce compte-rendu');
+      c[field]=v; setTimeout(function(){ crRepaint(); window.crFilterList(); }, 0);   /* après la fin du glisser-déposer (l'élément déplacé est encore utilisé par le navigateur) */
+      if(window.kwToast) window.kwToast('CR #'+(c.numero||'?')+' → '+(field==='dossier'?(v||'Sans dossier'):crTypeTitle(v||crType(c))),'ok');
+    }catch(err){ var m=(err&&err.message)||String(err); if(window.kwToast) window.kwToast('Reclassement refusé (CR #'+(c.numero||'?')+') : '+(/verrouill/i.test(m)?'exécutez cr_classement.sql (CR verrouillé)':m),'err'); }
+  }
+  window.crMoveAsk=function(id, kind){
+    var c=crFind(id); if(!c||typeof window.kwDialog!=='function') return;
+    var dm=document.querySelector('.crMore[open]'); if(dm) dm.removeAttribute('open');
+    if(kind==='type'){
+      var o=[{value:'',label:'Automatique (d’après le titre et la case routine)'},{value:'rituel',label:crTypeTitle('rituel')},{value:'rdv',label:crTypeTitle('rdv')},{value:'autre',label:crTypeTitle('autre')}];
+      window.kwDialog({ title:'Type du CR #'+(c.numero||'?'), message:c.titre||'', fields:[{name:'t',label:'Type de réunion',type:'select',options:o,value:c.type_reunion||''}], confirmLabel:'Reclasser' }).then(function(r){ if(r) crClasser(c.id,'type_reunion',r.t); });
+      return;
+    }
+    var connus=crDossiersConnus(), cur=crDossier(c);
+    var o2=[{value:'',label:'— Sans dossier —'}].concat(connus.map(function(x){ return {value:x,label:x}; }));
+    window.kwDialog({ title:'Dossier du CR #'+(c.numero||'?'), message:c.titre||'', fields:[{name:'d',label:'Dossier existant',type:'select',options:o2,value:cur},{name:'n',label:'ou nouveau dossier',placeholder:'ex. Thalès'}], confirmLabel:'Reclasser' })
+      .then(function(r){ if(r) crClasser(c.id,'dossier',(r.n&&r.n.trim())?r.n:r.d); });
+  };
+  window.crRenameAsk=function(kind, val){
+    if(!crIsDirection()||typeof window.kwDialog!=='function') return;
+    if(kind==='type'){
+      window.kwDialog({ title:'Renommer le type', message:'Nouvel intitulé, pour tout le monde. Vide = intitulé d’origine (« '+CR_TYPES.filter(function(x){ return x[0]===val; })[0][1]+' »).', fields:[{name:'l',label:'Intitulé',value:crTypeTitle(val)}], confirmLabel:'Renommer' }).then(async function(r){
+        if(!r) return; var q=await SB.rpc('cr_type_renommer',{p_code:val,p_libelle:r.l||''});
+        if(q.error){ if(window.kwToast) window.kwToast('Refusé : '+(/function|schema cache/i.test(q.error.message)?'exécutez d’abord cr_classement.sql':q.error.message),'err'); return; }
+        if(r.l) CR_AUX.lbl[val]=r.l; else delete CR_AUX.lbl[val]; crRepaint(); if(window.kwToast) window.kwToast('Type renommé ✓','ok');
+      });
+      return;
+    }
+    window.kwDialog({ title:'Renommer le dossier « '+val+' »', message:'Tous ses comptes-rendus suivent, y compris ceux que vous ne voyez pas. Pour fusionner deux dossiers, donnez le nom de l’autre.', fields:[{name:'n',label:'Nouveau nom',value:val,required:true}], confirmLabel:'Renommer' }).then(async function(r){
+      if(!r||!r.n||r.n.trim()===val) return;
+      var q=await SB.rpc('cr_dossier_renommer',{p_ancien:val,p_nouveau:r.n.trim()});
+      if(q.error){ if(window.kwToast) window.kwToast('Refusé : '+(/function|schema cache/i.test(q.error.message)?'exécutez d’abord cr_classement.sql':q.error.message),'err'); return; }
+      try{ await crLoadList(); }catch(_){} crRepaint(); if(window.kwToast) window.kwToast('Dossier renommé ✓ ('+((q.data&&q.data.modifies)||0)+' CR)','ok');
+    });
+  };
+  (function(){   /* glisser-déposer : écouteurs posés une seule fois, valables pour toutes les listes affichées ensuite */
+    if(window.__crDnd) return; window.__crDnd=true;
+    var dragId=null;
+    function zone(ev){ var z=ev.target&&ev.target.closest?ev.target.closest('[data-drop-kind]'):null; return (z&&z.closest('#crRows'))?z:null; }
+    function clear(){ [].forEach.call(document.querySelectorAll('.crDropOn'),function(x){ x.classList.remove('crDropOn'); }); }
+    document.addEventListener('dragstart',function(ev){ var r=ev.target&&ev.target.closest?ev.target.closest('#crRows [data-crrow][draggable=true]'):null; if(!r) return; dragId=r.getAttribute('data-id'); r.classList.add('crDragging'); try{ ev.dataTransfer.effectAllowed='move'; ev.dataTransfer.setData('text/plain','cr:'+dragId); }catch(_){} });
+    document.addEventListener('dragend',function(){ dragId=null; clear(); [].forEach.call(document.querySelectorAll('.crDragging'),function(x){ x.classList.remove('crDragging'); }); });
+    document.addEventListener('dragover',function(ev){ if(!dragId) return; var z=zone(ev); if(!z) return; ev.preventDefault(); try{ ev.dataTransfer.dropEffect='move'; }catch(_){} if(!z.classList.contains('crDropOn')){ clear(); z.classList.add('crDropOn'); } });
+    document.addEventListener('dragleave',function(ev){ var z=zone(ev); if(z&&!z.contains(ev.relatedTarget)) z.classList.remove('crDropOn'); });
+    document.addEventListener('drop',function(ev){
+      if(!dragId) return; var z=zone(ev); if(!z) return; ev.preventDefault(); clear();
+      var id=dragId, kind=z.getAttribute('data-drop-kind'), val=z.getAttribute('data-drop-val'); dragId=null;
+      setTimeout(function(){ crDropApply(id, kind, val); }, 0);
+    });
+    function crDropApply(id, kind, val){
+      if(kind==='type') return crClasser(id,'type_reunion',val);
+      if(val==='__nouveau__'){ if(typeof window.kwDialog!=='function') return; window.kwDialog({ title:'Nouveau dossier', fields:[{name:'n',label:'Nom du dossier',required:true,placeholder:'ex. Thalès'}], confirmLabel:'Créer et ranger' }).then(function(r){ if(r&&r.n) crClasser(id,'dossier',r.n); }); return; }
+      crClasser(id,'dossier',val);
+    }
+  })();
   /* ---------- Ranger les CR sans dossier : proposition d'après le titre (clients des missions AIC, dossiers déjà utilisés), à valider ---------- */
   function crDossiersConnus(){ var s={}; CR_LIST.forEach(function(c){ var d=crDossier(c); if(d) s[d]=1; }); Object.keys(CR_AUX.mis).forEach(function(k){ var m=CR_AUX.mis[k]; if(m&&m.client) s[String(m.client).trim()]=1; }); return Object.keys(s).sort(function(a,b){ return a.localeCompare(b,'fr'); }); }
   function crNorm(s){ return String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,''); }
@@ -1037,7 +1115,7 @@
   };
   function crTypeDossierFields(d){
     var auto=d.aic_espace_id?'AIC (rattaché à un espace AIC)':(CR_AUX.obeya[String(d.id)]?'Obeya Codir':'');
-    var opts=[['','Automatique (d’après le titre et la case routine)'],['rituel','Rituel'],['rdv','Rendez-vous client ou commercial'],['autre','Autre réunion']].map(function(o){ return '<option value="'+o[0]+'"'+((d.type_reunion||'')===o[0]?' selected':'')+'>'+o[1]+'</option>'; }).join('');
+    var opts=[['','Automatique (d’après le titre et la case routine)'],['rituel',crTypeTitle('rituel')],['rdv',crTypeTitle('rdv')],['autre',crTypeTitle('autre')]].map(function(o){ return '<option value="'+o[0]+'"'+((d.type_reunion||'')===o[0]?' selected':'')+'>'+o[1]+'</option>'; }).join('');
     var dl='<datalist id="crDossierList">'+crDossiersConnus().map(function(x){ return '<option value="'+e(x)+'">'; }).join('')+'</datalist>';
     return '<label style="flex:1;min-width:180px;font-size:11px;color:var(--muted);">Type de réunion<div style="margin-top:2px;">'+(auto?'<div style="'+sel()+'background:#f7f3ec;">'+auto+'</div>':'<select id="crType" style="'+sel()+'">'+opts+'</select>')+'</div></label>'
       +'<label style="flex:1;min-width:180px;font-size:11px;color:var(--muted);">Dossier (client, projet)<div style="margin-top:2px;"><input id="crDossier" type="text" list="crDossierList" value="'+e(d.dossier||'')+'" placeholder="'+e(crDossier(d)||'ex. Andros, Humetria…')+'" style="'+sel()+'">'+dl+'</div></label>';
