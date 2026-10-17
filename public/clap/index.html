@@ -146,14 +146,41 @@
       const { data, error } = await sb.auth.signInWithPassword({ email, password: pw });
       if(error){ err.textContent = "Échec : " + error.message; return; }
       SB_SESSION = data.session; CURRENT_EMAIL = email;
+      await enterApp(sb, email, err);
+    }
+
+    /* Entrée dans l'application une fois l'identité connue (après le mot de passe, ou à la restauration de la session) */
+    async function enterApp(sb, email, err){
       try { const { data: acc } = await sb.from('user_access').select('is_admin, role').eq('email', email).maybeSingle(); CURRENT_ROLE = roleFromAccess(acc, email); }
       catch(e){ CURRENT_ROLE = roleFromAccess(null, email); }
       document.getElementById('cwho').textContent = email; showWho(email);
       document.getElementById('clogin').classList.add('hidden');
       document.getElementById('capp').classList.remove('hidden');
-      err.textContent = "";
+      if(err) err.textContent = "";
       if(window.renderPlanAction) window.renderPlanAction('view');   // Clap! : Réunions & Rituels · Actions · AIC (le lien #aic ouvre la feuille AIC)
     }
+
+    /* Rester connecté après une actualisation : on relit la session conservée par le navigateur (sauf lien « mot de passe oublié »). */
+    (function(){
+      if(/(^|[#?&])(type=recovery|access_token=|refresh_token=|token_hash=|code=|error_code=)/.test((location.hash||'')+'&'+(location.search||''))) return;
+      let stored = false; try { stored = Object.keys(localStorage).some(function(k){ return /^sb-.*-auth-token$/.test(k); }); } catch(e){}
+      if(!stored) return;
+      const lg = document.getElementById('clogin'); if(!lg) return; lg.classList.add('hidden');
+      const wait = document.createElement('div'); wait.id = 'kwReconnect'; wait.setAttribute('role','status');
+      wait.style.cssText = 'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#f2efe9;color:#560A0F;font:600 15px system-ui,sans-serif;z-index:9999;'; wait.textContent = 'Reconnexion…';
+      document.body.appendChild(wait);
+      const done = function(){ try { wait.remove(); } catch(e){} }, showLogin = function(){ done(); lg.classList.remove('hidden'); };
+      async function restore(){
+        const sb = initSupabase(); if(!sb) return showLogin();
+        let s = null; try { const r = await sb.auth.getSession(); s = r && r.data && r.data.session; } catch(e){}
+        if(!s || !s.user || !s.user.email) return showLogin();
+        try { SB_SESSION = s; CURRENT_EMAIL = String(s.user.email).trim().toLowerCase(); await enterApp(sb, CURRENT_EMAIL, null); done(); }
+        catch(e){ SB_SESSION = null; CURRENT_EMAIL = ''; showLogin(); }
+      }
+      const guard = setTimeout(function(){ if(document.getElementById('capp').classList.contains('hidden')) showLogin(); }, 8000);
+      const go = function(){ restore().then(function(){ clearTimeout(guard); }, function(){ clearTimeout(guard); showLogin(); }); };
+      if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go); else go();
+    })();
 
     /* ---------- Identité : le NOM de la personne (fiche Admin → Pilotes) et sa fonction, pas son e-mail ---------- */
     const FONCTIONS = { eric:'CEO', cto:'CTO', paul:'Commerce', audrey:'Méthodes', juliette:'Mktg et Produit', communication:'Communication', sabrine:'RH', najoua:'Administration des affaires', consultant:'Consultant', transformation:'Transformation', pmo:'PMO' };
@@ -183,8 +210,10 @@
   </script>
 
   <!-- Module partagé (source unique cockpit <-> Clap) -->
-  <script src="/shared/cr-actions.js?v=10"></script>
+  <script src="/shared/cr-actions.js?v=11"></script>
   <!-- Module AIC partagé (même fichier que le Cockpit : mêmes données, mêmes droits) -->
   <script src="/shared/aic-espaces.js?v=5"></script>
+<script src="/shared/ux.js?v=2"></script>
+<script src="/shared/dialogs.js?v=3"></script>
 </body>
 </html>
